@@ -1,0 +1,306 @@
+[
+  {
+    "round": 1,
+    "hospital": "hospital_a",
+    "phase": "local_val",
+    "metric": "accuracy",
+    "value": 0.8562
+  },
+  {
+    "round": 1,
+    "hospital": "hospital_b",
+    "phase": "local_val",
+    "metric": "accuracy",
+    "value": 0.7875
+  },
+  {
+    "round": 1,
+    "hospital": "hospital_c",
+    "phase": "local_val",
+    "metric": "accuracy",
+    "value": 0.8625
+  },
+  {
+    "round": 1,
+    "hospital": "hospital_d",
+    "phase": "local_val",
+    "metric": "accuracy",
+    "value": 0.8063
+  },
+  {
+    "round": 1,
+    "hospital": "GLOBAL",
+    "phase": "global_val",
+    "accuracy": 0.5672,
+    "auc": 0.6257,
+    "comm_cost_bytes": 121000,
+    "round_time_seconds": 1.92,
+    "mean_epsilon": null
+  },
+  {
+    "round": 2,
+    "hospital": "hospital_a",
+    "phase": "local_val",
+    "metric": "accuracy",
+    "value": 0.8875
+  },
+  {
+    "round": 2,
+    "hospital": "hospital_b",
+    "phase": "local_val",
+    "metric": "accuracy",
+    "value": 0.85
+  },
+  {
+    "round": 2,
+    "hospital": "hospital_c",
+    "phase": "local_val",
+    "metric": "accuracy",
+    "value": 0.9187
+  },
+  {
+    "round": 2,
+    "hospital": "hospital_d",
+    "phase": "local_val",
+    "metric": "accuracy",
+    "value": 0.8125
+  },
+  {
+    "round": 2,
+    "hospital": "GLOBAL",
+    "phase": "global_val",
+    "accuracy": 0.6125,
+    "auc": 0.7,
+    "comm_cost_bytes": 242000,
+    "round_time_seconds": 0.77,
+    "mean_epsilon": null
+  },
+  {
+    "round": 3,
+    "hospital": "hospital_a",
+    "phase": "local_val",
+    "metric": "accuracy",
+    "value": 0.9062
+  },
+  {
+    "round": 3,
+    "hospital": "hospital_b",
+    "phase": "local_val",
+    "metric": "accuracy",
+    "value": 0.8562
+  },
+  {
+    "round": 3,
+    "hospital": "hospital_c",
+    "phase": "local_val",
+    "metric": "accuracy",
+    "value": 0.9375
+  },
+  {
+    "round": 3,
+    "hospital": "hospital_d",
+    "phase": "local_val",
+    "metric": "accuracy",
+    "value": 0.85
+  },
+  {
+    "round": 3,
+    "hospital": "GLOBAL",
+    "phase": "global_val",
+    "accuracy": 0.6344,
+    "auc": 0.7374,
+    "comm_cost_bytes": 363000,
+    "round_time_seconds": 0.88,
+    "mean_epsilon": null
+  },
+  {
+    "round": 4,
+    "hospital": "hospital_a",
+    "phase": "local_val",
+    "metric": "accuracy",
+    "value": 0.8875
+  },
+  {
+    "round": 4,
+    "hospital": "hospital_b",
+    "phase": "local_val",
+    "metric": "accuracy",
+    "value": 0.8688
+  },
+  {
+    "round": 4,
+    "hospital": "hospital_c",
+    "phase": "local_val",
+    "metric": "accuracy",
+    "value": 0.9062
+  },
+  {
+    "round": 4,
+    "hospital": "hospital_d",
+    "phase": "local_val",
+    "metric": "accuracy",
+    "value": 0.8438
+  },
+  {
+    "round": 4,
+    "hospital": "GLOBAL",
+    "phase": "global_val",
+    "accuracy": 0.6484,
+    "auc": 0.7503,
+    "comm_cost_bytes": 484000,
+    "round_time_seconds": 0.5,
+    "mean_epsilon": null
+  },
+  {
+    "round": 5,
+    "hospital": "hospital_a",
+    "phase": "local_val",
+    "metric": "accuracy",
+    "value": 0.8938
+  },
+  {
+    "round": 5,
+    "hospital": "hospital_b",
+    "phase": "local_val",
+    "metric": "accuracy",
+    "value": 0.875
+  },
+  {
+    "round": 5,
+    "hospital": "hospital_c",
+    "phase": "local_val",
+    "metric": "accuracy",
+    "value": 0.9125
+  },
+  {
+    "round": 5,
+    "hospital": "hospital_d",
+    "phase": "local_val",
+    "metric": "accuracy",
+    "value": 0.825
+  },
+  {
+    "round": 5,
+    "hospital": "GLOBAL",
+    "phase": "global_val",
+    "accuracy": 0.6562,
+    "auc": 0.756,
+    "comm_cost_bytes": 605000,
+    "round_time_seconds": 0.49,
+    "mean_epsilon": null
+  },
+  {
+    "round": 6,
+    "hospital": "hospital_a",
+    "phase": "local_val",
+    "metric": "accuracy",
+    "value": 0.9
+  },
+  {
+    "round": 6,
+    "hospital": "hospital_b",
+    "phase": "local_val",
+    "metric": "accuracy",
+    "value": 0.8875
+  },
+  {
+    "round": 6,
+    "hospital": "hospital_c",
+    "phase": "local_val",
+    "metric": "accuracy",
+    "value": 0.9125
+  },
+  {
+    "round": 6,
+    "hospital": "hospital_d",
+    "phase": "local_val",
+    "metric": "accuracy",
+    "value": 0.8438
+  },
+  {
+    "round": 6,
+    "hospital": "GLOBAL",
+    "phase": "global_val",
+    "accuracy": 0.6594,
+    "auc": 0.7601,
+    "comm_cost_bytes": 726000,
+    "round_time_seconds": 0.46,
+    "mean_epsilon": null
+  },
+  {
+    "round": 7,
+    "hospital": "hospital_a",
+    "phase": "local_val",
+    "metric": "accuracy",
+    "value": 0.8875
+  },
+  {
+    "round": 7,
+    "hospital": "hospital_b",
+    "phase": "local_val",
+    "metric": "accuracy",
+    "value": 0.8812
+  },
+  {
+    "round": 7,
+    "hospital": "hospital_c",
+    "phase": "local_val",
+    "metric": "accuracy",
+    "value": 0.9125
+  },
+  {
+    "round": 7,
+    "hospital": "hospital_d",
+    "phase": "local_val",
+    "metric": "accuracy",
+    "value": 0.8313
+  },
+  {
+    "round": 7,
+    "hospital": "GLOBAL",
+    "phase": "global_val",
+    "accuracy": 0.6656,
+    "auc": 0.7622,
+    "comm_cost_bytes": 847000,
+    "round_time_seconds": 0.63,
+    "mean_epsilon": null
+  },
+  {
+    "round": 8,
+    "hospital": "hospital_a",
+    "phase": "local_val",
+    "metric": "accuracy",
+    "value": 0.8875
+  },
+  {
+    "round": 8,
+    "hospital": "hospital_b",
+    "phase": "local_val",
+    "metric": "accuracy",
+    "value": 0.8688
+  },
+  {
+    "round": 8,
+    "hospital": "hospital_c",
+    "phase": "local_val",
+    "metric": "accuracy",
+    "value": 0.925
+  },
+  {
+    "round": 8,
+    "hospital": "hospital_d",
+    "phase": "local_val",
+    "metric": "accuracy",
+    "value": 0.8313
+  },
+  {
+    "round": 8,
+    "hospital": "GLOBAL",
+    "phase": "global_val",
+    "accuracy": 0.6656,
+    "auc": 0.7629,
+    "comm_cost_bytes": 968000,
+    "round_time_seconds": 0.7,
+    "mean_epsilon": null
+  }
+]
