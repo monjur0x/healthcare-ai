@@ -57,6 +57,24 @@ docs/
 
 ---
 
+# Task Execution Rules
+
+When starting work:
+
+1. Read `.ai/current_context.md`
+2. Identify the current task.
+3. Implement ONLY that task.
+4. Do not start unrelated refactoring.
+5. Keep changes focused.
+6. If additional work is discovered, record it in `docs/BACKLOG.md` instead of implementing it immediately.
+7. Before finishing, update:
+   - `.ai/current_context.md`
+   - `.ai/next_session.md`
+   - `docs/DEVELOPMENT_STATUS.md`
+   - `docs/CHANGELOG.md`
+
+---
+
 # Development Principles
 
 Always prefer:
