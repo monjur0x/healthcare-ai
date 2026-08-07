@@ -6,6 +6,7 @@ hardcoding values.
 """
 
 from pathlib import Path
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -61,9 +62,7 @@ class PreprocessingSettings(BaseSettings):
         ".dcm",
     )
 
-    SUPPORTED_CSV_TYPES: tuple = (
-        ".csv",
-    )
+    SUPPORTED_CSV_TYPES: tuple = (".csv",)
 
     ##########################################
     # Logging

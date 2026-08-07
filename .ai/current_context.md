@@ -1,34 +1,35 @@
 # Current Context
 
-Current Milestone
+## Current Milestone
 
 Milestone 1
 
-Current Module
+## Current Module
 
 backend/preprocessing
 
-Current Task
+## Current Task
 
-Implement preprocessing package.
+Preprocessing is implemented for CSV. The next engineering work is the image preprocessing module.
 
-Completed
+## Completed
 
-- CrewAI
+- Preprocessing scaffolding (config, exceptions, logger)
+- Preprocessing CSV pipeline (validator, cleaner, imputer, encoder, feature engineering, scaler, transformer, pipeline)
+- CSV unit tests (27 passing)
+- Tooling config (backend/pyproject.toml)
 
-Next Files
+## Next Files (backend/preprocessing/image)
 
-config.py
+- validator.py
+- loader.py
+- augmentation.py
+- normalization.py
+- pipeline.py
 
-exceptions.py
+## Design Notes
 
-logger.py
-
-csv/
-
-Design Notes
-
-CSV pipeline must be reusable by:
+Preprocessing pipeline must remain reusable by:
 
 - Flower
 - FastAPI
@@ -40,6 +41,6 @@ No prediction.
 
 Only preprocessing.
 
-Status
+## Status
 
-In Progress
+CSV complete. Image pipeline in progress.

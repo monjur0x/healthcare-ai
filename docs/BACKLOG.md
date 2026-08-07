@@ -2,33 +2,37 @@
 
 ## Preprocessing
 
+### Scaffolding
+
 - [x] Package structure
 
-- [ ] Config
+- [x] Config
 
-- [ ] Exceptions
+- [x] Exceptions
 
-- [ ] Logger
+- [x] Logger
 
-- [ ] CSV Validator
+### CSV
 
-- [ ] CSV Cleaner
+- [x] CSV Validator
 
-- [ ] Missing Value Imputer
+- [x] CSV Cleaner
 
-- [ ] Encoder
+- [x] Missing Value Imputer
 
-- [ ] Feature Engineering
+- [x] Encoder
 
-- [ ] Scaler
+- [x] Feature Engineering
 
-- [ ] Transformer
+- [x] Scaler
 
-- [ ] Pipeline
+- [x] Transformer
 
----
+- [x] Pipeline
 
-## Image
+- [x] Unit tests
+
+### Image
 
 - [ ] Validator
 
@@ -39,3 +43,23 @@
 - [ ] Normalization
 
 - [ ] Pipeline
+
+### Multimodal
+
+- [ ] Fusion
+
+- [ ] Metadata
+
+---
+
+## Backlog
+
+### Preprocessing enhancements
+
+- [ ] Add datetime parsing to feature engineering.
+- [ ] Add robust error-reporting structure to `CSVPipeline` (~ `valid_frame` etc.).
+- [ ] Expose a CLI or fit/persist for scaler/encoder parameters (reproducibility).
+
+### Milestone 2+ (not yet scoped)
+
+- [ ] `models/`, `federated/`, `rag/`, `evaluation/`, `api/` backlog entries.
