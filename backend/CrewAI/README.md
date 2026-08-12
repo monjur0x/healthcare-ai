@@ -5,7 +5,7 @@
 Production-ready CrewAI backend for the research project:
 **"Federated Multi-Agent Healthcare Intelligence Framework: Privacy-Preserving Clinical Decision Support using Federated Learning, RAG and Multi-Agent Systems."**
 
-This backend provides a multi-agent AI system for clinical decision support, processing patient data (CSV and medical images) through a pipeline of specialized agents.
+This backend provides a multi-agent AI system for clinical decision support, processing patient data (CSV and, when available, medical images) through a pipeline of specialized agents. It also bundles a federated learning pipeline (PyTorch) whose artifacts feed the agents' predictions.
 
 ## Architecture
 
@@ -72,6 +72,14 @@ backend/CrewAI/
 │   │   ├── csv_model.py       # CSV prediction model
 │   │   ├── image_model.py     # Image analysis model
 │   │   └── fusion.py          # Prediction fusion
+│   ├── federated/
+│   │   ├── __init__.py
+│   │   ├── data.py            # Federated data partitioning
+│   │   ├── models.py          # MLP model definition
+│   │   ├── train.py           # Federated training orchestration
+│   │   ├── server.py          # Federated aggregation server
+│   │   ├── predict.py         # Artifact-based prediction
+│   │   └── privacy.py         # Differential privacy
 │   ├── rag/
 │   │   ├── __init__.py
 │   │   ├── vector_store.py    # Qdrant integration
@@ -84,6 +92,9 @@ backend/CrewAI/
 │       └── risk.py            # Risk calculation
 ├── tests/
 │   └── test_healthcare.py
+├── data/                      # Federated learning CSV dataset
+├── artifacts/                 # Trained model artifacts (global_model.pt, metrics)
+├── healthcare_ai.log          # Runtime log file
 ├── requirements.txt
 ├── .env.example
 ├── Dockerfile
@@ -95,8 +106,8 @@ backend/CrewAI/
 ### Prerequisites
 
 - Python 3.12+
-- Qdrant (optional, for vector storage)
-- OpenAI API key or compatible LLM endpoint
+- Qdrant (optional, for vector storage; the RAG agent degrades gracefully when it is down)
+- Google Gemini API key (required — agents use the `google/{LLM_MODEL}` provider, default `gemini-2.0-flash`)
 
 ### Setup
 
@@ -116,12 +127,14 @@ venv\Scripts\activate  # Windows
 3. Install dependencies:
 ```bash
 pip install -r requirements.txt
+# The app uses the native Google Gemini provider, also install:
+pip install "crewai[google-genai]"
 ```
 
 4. Configure environment:
 ```bash
 cp .env.example .env
-# Edit .env with your settings
+# Edit .env with your Google Gemini API key
 ```
 
 ### Running with Docker
@@ -205,11 +218,27 @@ curl -X POST "http://localhost:8000/api/run-healthcare-crew" \
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| LLM_MODEL | gpt-4o-mini | OpenAI model to use |
-| LLM_API_KEY | - | Your API key |
+| LLM_MODEL | gemini-2.0-flash | Google Gemini model used by agents |
+| LLM_API_KEY | - | Your Google Gemini API key (also exported as `GOOGLE_API_KEY`) |
 | QDRANT_HOST | localhost | Qdrant host |
 | QDRANT_PORT | 6333 | Qdrant port |
+| QDRANT_COLLECTION | medical_knowledge | Qdrant collection name |
 | EMBEDDING_MODEL | all-MiniLM-L6-v2 | Sentence transformer model |
+| CREW_VERBOSE | true | CrewAI verbose logging |
+| FL_MODEL_TYPE | mlp | Federated model: mlp / xgboost / cnn |
+
+### Federated Learning
+
+The federated pipeline (`app/federated/`) trains a global model across simulated hospitals with independent differential privacy. It produces artifacts in `artifacts/` via the `run_federated_training()` entry point:
+
+```python
+from app.federated.train import run_federated_training
+summary = run_federated_training()
+```
+
+- Config: `FL_NUM_HOSPITALS`, `FL_NUM_ROUNDS`, `FL_LOCAL_EPOCHS`, `FL_BATCH_SIZE`, `FL_LEARNING_RATE`
+- Privacy: `DP_ENABLED`, `DP_EPSILON_TARGET`, `DP_DELTA`, `DP_MAX_GRAD_NORM`, `DP_NOISE_MULTIPLIER`
+- Synthetic cohorts are generated internally (or real CSVs dropped into `data/` are used when present); models are written to `artifacts/global_model.pt`, with `metrics.json` (privacy audit, convergence, headline metrics) and `federation_summary.json` (per-round log).
 
 ## CrewAI Agents
 
