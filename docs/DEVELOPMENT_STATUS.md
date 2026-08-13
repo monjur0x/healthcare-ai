@@ -27,6 +27,7 @@
 - [x] Transformer / pipeline orchestration (`transformer.py`)
 - [x] High-level entry point (`pipeline.py`)
 - [x] Unit tests (`tests/test_csv.py`) — 27 passing
+
 ### Image preprocessing (`backend/preprocessing/image`)
 
 - [x] Validator (`validator.py`)
@@ -39,8 +40,9 @@
 
 ### Multimodal preprocessing (`backend/preprocessing/multimodal`)
 
-- [ ] Fusion
-- [ ] Metadata
+- [x] Fusion (`fusion.py`) — concatenate + summary/flatten image reduction
+- [x] Metadata (`metadata.py`) — `SampleMetadata` / `ImageInfo` schemas
+- [x] Unit tests (`tests/test_multimodal.py`) — 12 passing
 
 ---
 

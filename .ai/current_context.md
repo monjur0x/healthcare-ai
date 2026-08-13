@@ -2,7 +2,7 @@
 
 ## Current Milestone
 
-Milestone 1
+Milestone 1 — complete
 
 ## Current Module
 
@@ -10,8 +10,8 @@ backend/preprocessing
 
 ## Current Task
 
-Preprocessing is implemented for CSV and image. The next engineering
-work is the multimodal preprocessing module.
+Preprocessing is fully implemented (CSV, image, multimodal) with 70
+passing unit tests. The next milestone is `models/`.
 
 ## Completed
 
@@ -20,12 +20,17 @@ work is the multimodal preprocessing module.
 - CSV unit tests (27 passing)
 - Preprocessing image pipeline (validator, loader, augmentation, normalization, pipeline, convenience API)
 - Image unit tests (31 passing)
+- Multimodal module (metadata + fusion, concatenate with summary/flatten image reduction)
+- Multimodal unit tests (12 passing)
 - Tooling config (backend/pyproject.toml, isort/ruff aligned)
 
-## Next Files (backend/preprocessing/multimodal)
+## Next Files (backend/models)
 
-- fusion.py
-- metadata.py
+Not yet scoped. Suggested start:
+
+- models/csv/ — tabular models consuming CSVPipeline output
+- models/image/ — vision models consuming ImagePipeline output
+- models/architecture/ or multimodal — models consuming FusionResult
 
 ## Design Notes
 
@@ -47,4 +52,4 @@ RNG.
 
 ## Status
 
-CSV and image complete. Multimodal in progress.
+Milestone 1 complete. Models milestone next.

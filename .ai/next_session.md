@@ -2,31 +2,34 @@
 
 ## Objective
 
-Implement the multimodal preprocessing module: `backend/preprocessing/multimodal`.
+Scope and implement the prediction models milestone: `backend/models`.
 
 ## Suggested Steps
 
 1. Read `docs/SOFTWARE_ARCHITECTURE.md` and `.ai/current_context.md`.
-2. Implement, in order:
-   - `multimodal/metadata.py` — shared metadata dataclasses/schema for
-     images and tabular EHR records.
-   - `multimodal/fusion.py` — align and combine preprocessed image and
-     CSV outputs (reuse `ImagePipeline` and `CSVPipeline`; do not
-     duplicate logic).
-   - `multimodal/__init__.py`.
-3. Add unit tests under `backend/preprocessing/tests/test_multimodal.py`.
-4. Run: `pytest`, black, ruff, isort (against `backend/pyproject.toml`).
-5. Update `docs/DEVELOPMENT_STATUS.md`, `docs/CHANGELOG.md`, `docs/BACKLOG.md`,
-   `.ai/current_context.md`, `.ai/next_session.md`.
+2. Read `docs/BACKLOG.md` and scope a Milestone-2 backlog for `models/`.
+3. Consider implementing a minimal vertical slice first:
+   - A simple CSV model (e.g., logistic regression on preprocessed
+     `CSVResult` features).
+   - A simple image model (e.g., small CNN on `ImageResult` batches).
+   - One multimodal model consuming `FusionResult`.
+4. Add unit tests under `backend/tests/` or `models/tests/`.
+5. Run: `pytest`, black, ruff, isort (against `backend/pyproject.toml`).
+6. Update `docs/DEVELOPMENT_STATUS.md`, `docs/CHANGELOG.md`,
+   `docs/BACKLOG.md`, `.ai/current_context.md`, `.ai/next_session.md`.
 
 ## Conventions Reminder
 
-- Reuse existing preprocessing stages; never duplicate logic.
-- Dependency-light where reasonable.
-- Log via `get_logger(__name__)`; raise custom exceptions from `exceptions.py`.
+- Models only perform ML/DL inference; preprocessing lives in
+  `backend/preprocessing` and is never duplicated.
+- Keep dependencies minimal; revisit choices (torch vs sklearn) in
+  `docs/DECISIONS.md`.
+- Log via `get_logger(__name__)`; raise custom exceptions.
 
 ## Open Questions
 
-- Image normalization statistics are not persisted for inference-time
-  consistency (stateless fallback for `standard` mode) — see
-  `docs/BACKLOG.md`.
+- Should `models/` use PyTorch, TensorFlow, or sklearn for the first
+  iteration? Affects `requirements.txt` and whether image support
+  already present in auxiliary environments can be reused.
+- Whether to add a shared `models/base.py` abstract interface matching
+  the preprocessing pipeline pattern.

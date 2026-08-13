@@ -18,6 +18,13 @@
 - `ImageNormalizationError` and `ImageAugmentationError` exceptions.
 - Unit tests for the image preprocessing module (`tests/test_image.py`,
   31 tests passing).
+- `backend/preprocessing/multimodal/` module: `metadata.py` (sample and
+  image metadata schemas), `fusion.py` (concatenate fusion with summary
+  / flatten image reduction), and package `__init__.py`.
+- Multimodal settings (`FUSION_MODE`, `FUSION_IMAGE_REDUCTION`) in
+  `config.py` and `FusionError` exception.
+- Unit tests for the multimodal preprocessing module
+  (`tests/test_multimodal.py`, 12 tests passing).
 
 ### Changed
 

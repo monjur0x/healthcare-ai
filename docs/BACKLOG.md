@@ -46,9 +46,9 @@
 
 ### Multimodal
 
-- [ ] Fusion
+- [x] Fusion
 
-- [ ] Metadata
+- [x] Metadata
 
 ---
 
