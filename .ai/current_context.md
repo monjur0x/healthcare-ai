@@ -2,54 +2,40 @@
 
 ## Current Milestone
 
-Milestone 1 — complete
+Milestone 2 — Models (in progress)
 
 ## Current Module
 
-backend/preprocessing
+backend/models
 
 ## Current Task
 
-Preprocessing is fully implemented (CSV, image, multimodal) with 70
-passing unit tests. The next milestone is `models/`.
+Shared model interface and first tabular model are complete (10 tests).
+The next engineering work is an image model or a multimodal model.
 
 ## Completed
 
-- Preprocessing scaffolding (config, exceptions, logger)
-- Preprocessing CSV pipeline (validator, cleaner, imputer, encoder, feature engineering, scaler, transformer, pipeline)
-- CSV unit tests (27 passing)
-- Preprocessing image pipeline (validator, loader, augmentation, normalization, pipeline, convenience API)
-- Image unit tests (31 passing)
-- Multimodal module (metadata + fusion, concatenate with summary/flatten image reduction)
-- Multimodal unit tests (12 passing)
-- Tooling config (backend/pyproject.toml, isort/ruff aligned)
+- Milestone 1: preprocessing (CSV + image + multimodal), 70 tests
+- Shared model interface (`models/base.py`) — fit/predict/predict_proba/save/load
+- Model exceptions (`models/exceptions.py`)
+- `TabularClassifier` (`models/csv/tabular.py`) — sklearn gradient
+  boosting / logistic / mlp, joblib persistence, deterministic seeds
+- `backend/requirements.txt`
+- Model unit tests (10 passing); total suite 80 passing
 
 ## Next Files (backend/models)
 
-Not yet scoped. Suggested start:
-
-- models/csv/ — tabular models consuming CSVPipeline output
-- models/image/ — vision models consuming ImagePipeline output
-- models/architecture/ or multimodal — models consuming FusionResult
+- image/ — visual models (EfficientNetV2 / DenseNet / Swin-T); requires torch
+- multimodal/ — model consuming `FusionResult`
+- integrate with `CSVPipeline` output directly (accepts DataFrame today)
 
 ## Design Notes
 
-Preprocessing pipeline must remain reusable by:
-
-- Flower
-- FastAPI
-- CrewAI
-
-No business logic.
-
-No prediction.
-
-Only preprocessing.
-
-Image preprocessing is dependency-light (Pillow + NumPy). DICOM support
-requires optional `pydicom`. Augmentation is deterministic via a seeded
-RNG.
+- Models consume preprocessing outputs; no preprocessing inside models.
+- Reuse `preprocessing.config.settings.RANDOM_SEED` for reproducibility.
+- Testing requires sklearn: use the CrewAI venv
+  (`backend/CrewAI/.venv-opencode`) which has sklearn/joblib.
 
 ## Status
 
-Milestone 1 complete. Models milestone next.
+Models: shared + tabular complete. Image/multimodal and federation next.

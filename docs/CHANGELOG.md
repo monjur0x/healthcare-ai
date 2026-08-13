@@ -25,6 +25,12 @@
   `config.py` and `FusionError` exception.
 - Unit tests for the multimodal preprocessing module
   (`tests/test_multimodal.py`, 12 tests passing).
+- `backend/models/` module: `base.py` (abstract model interface),
+  `exceptions.py`, and `csv/tabular.py` (`TabularClassifier` wrapping
+  sklearn gradient boosting / logistic / mlp with joblib persistence).
+- `backend/requirements.txt` covering backend dependencies.
+- Unit tests for the models module (`models/tests/test_tabular.py`,
+  10 tests passing).
 
 ### Changed
 

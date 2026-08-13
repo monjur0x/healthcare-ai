@@ -55,5 +55,37 @@
 
 ## Not yet planned
 
-Milestones for `models/`, `federated/`, `rag/`, `evaluation/`, `api/`
+Milestones for `federated/`, `rag/`, `evaluation/`, `api/`
 are defined at the repository level but not yet scoped in the backlog.
+
+---
+
+## Milestone 2 — Models
+
+### Shared (`backend/models`)
+
+- [x] Model interface (`base.py`) — fit / predict / predict_proba / save / load
+- [x] Model exceptions (`exceptions.py`)
+- [x] Unit tests (`models/tests/test_tabular.py`)
+
+### CSV / tabular (`backend/models/csv`)
+
+- [x] `TabularClassifier` (`tabular.py`) — gradient boosting / logistic / MLP
+- [x] Persistence via joblib
+- [x] Unit tests — 10 passing
+
+### Image (`backend/models/image`)
+
+- [ ] Vision models (EfficientNetV2 / DenseNet / Swin-T) — requires torch
+
+### Multimodal (`backend/models/multimodal`)
+
+- [ ] Model consuming `FusionResult`
+
+---
+
+## Testing
+
+- [x] Preprocessing: 70 tests passing
+- [x] Models: 10 tests passing
+- [ ] Full test command documented in README/AGENTS (see `AGENTS.md` tooling note)
