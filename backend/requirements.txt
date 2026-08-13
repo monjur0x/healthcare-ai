@@ -1,0 +1,17 @@
+# Healthcare AI Backend - Dependencies
+# Python 3.12+ required
+
+# Core
+numpy>=2.0.0
+pandas>=2.2.0
+pydantic-settings>=2.7.0
+Pillow>=11.0.0
+
+# Machine Learning
+scikit-learn>=1.6.0
+
+# Development
+pytest>=8.3.0
+
+# Optional: DICOM image support
+# pydicom>=2.4.0
