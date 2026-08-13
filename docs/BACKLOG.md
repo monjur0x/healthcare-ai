@@ -74,13 +74,19 @@ trained locally per hospital, and are aggregated by Flower (FedAvg).
 
 ## Image
 
-- [ ] Vision models (EfficientNetV2 / DenseNet / Swin-T) — requires torch
-- [ ] Unit tests
+- [x] `ImageClassifier` (torch CNN: conv → batch-norm → pool → MLP head)
+- [x] Consumes channels-last `(N, H, W, C)` `ImageResult`-style batches
+- [x] Fixed seed + deterministic dataloader for reproducibility
+- [x] Persistence via `torch.save` / `load`
+- [x] Unit tests
+- [ ] Pretrained backbones (EfficientNetV2 / DenseNet / Swin-T) —
+      deferred; current CNN is dependency-light and offline-friendly
 
 ## Multimodal
 
-- [ ] Model consuming `FusionResult` from preprocessing
-- [ ] Unit tests
+- [x] `FusionClassifier` consuming `FusionResult` from preprocessing
+- [x] MLP (sklearn) over the fused feature matrix by default
+- [x] Unit tests
 
 ## Evaluation hooks
 

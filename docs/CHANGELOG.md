@@ -31,6 +31,19 @@
 - `backend/requirements.txt` covering backend dependencies.
 - Unit tests for the models module (`models/tests/test_tabular.py`,
   10 tests passing).
+- `backend/models/config.py` with `ModelSettings` (seed, image training
+  hyperparameters, device; env prefix `MODEL_`).
+- `backend/models/image/` module: `cnn.py` (`ImageClassifier`, a torch
+  CNN with adaptive pooling) and package `__init__.py`. Accepts
+  channels-last `(N, H, W, C)` or channels-first batches, trains
+  deterministically with a seeded dataloader, persists via
+  `torch.save` / `load`.
+- `backend/models/multimodal/` module: `fusion_model.py`
+  (`FusionClassifier` = MLP over `FusionResult.fused`, composing
+  `TabularClassifier`) and package `__init__.py`.
+- Unit tests for the new model modules (`models/tests/test_cnn.py`,
+  12 passing; `models/tests/test_fusion_model.py`, 10 passing).
+- Added `torch` to `backend/requirements.txt`.
 
 ### Changed
 
@@ -39,6 +52,9 @@
 - Standardized tooling on `backend/pyproject.toml`.
 - Aligned `[tool.isort]` `lines_between_types = 1` with the Ruff isort
   rule so both tools agree on import formatting.
+- `TabularClassifier` and the new image/fusion models now read the
+  random seed from `models.config` (`MODEL_RANDOM_SEED` via
+  `models/config.py`) instead of `preprocessing.config`.
 
 ### Fixed
 

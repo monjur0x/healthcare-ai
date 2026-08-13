@@ -76,16 +76,30 @@ are defined at the repository level but not yet scoped in the backlog.
 
 ### Image (`backend/models/image`)
 
-- [ ] Vision models (EfficientNetV2 / DenseNet / Swin-T) — requires torch
+- [x] `ImageClassifier` (`cnn.py`) — torch CNN, trains/infers on
+      channels-last `(N, H, W, C)` batches
+- [x] Adaptive pooling CNN: conv → batch-norm → pool → MLP head
+- [x] Deterministic training (seeded RNG + seeded dataloader shuffle)
+- [x] Persistence via `torch.save` / `ImageClassifier.load`
+- [x] Unit tests (`models/tests/test_cnn.py`) — 12 passing
 
 ### Multimodal (`backend/models/multimodal`)
 
-- [ ] Model consuming `FusionResult`
+- [x] `FusionClassifier` (`fusion_model.py`) consuming `FusionResult`
+      directly (or raw fused matrix); MLP over fused features
+- [x] Composes `TabularClassifier` (DRY), joblib persistence
+- [x] Unit tests (`models/tests/test_fusion_model.py`) — 10 passing
+
+### Model configuration (`backend/models/config.py`)
+
+- [x] `ModelSettings` — seed, image epochs / batch size / learning rate /
+      device; env prefix `MODEL_`
 
 ---
 
 ## Testing
 
 - [x] Preprocessing: 70 tests passing
-- [x] Models: 10 tests passing
+- [x] Models: 32 tests passing (tabular 10 / CNN 12 / fusion 10)
+- [x] Full suite: 102 tests passing (`pytest preprocessing/tests models/tests`)
 - [ ] Full test command documented in README/AGENTS (see `AGENTS.md` tooling note)
