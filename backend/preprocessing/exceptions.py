@@ -73,3 +73,9 @@ class ImageAugmentationError(PreprocessingError):
     """
     Raised when image augmentation fails.
     """
+
+
+class FusionError(PreprocessingError):
+    """
+    Raised when multimodal fusion fails.
+    """

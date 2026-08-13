@@ -66,6 +66,14 @@ class PreprocessingSettings(BaseSettings):
     IMAGE_ROTATION_RANGE: int = 15
 
     ##########################################
+    # Multimodal
+    ##########################################
+
+    FUSION_MODE: str = "concatenate"
+
+    FUSION_IMAGE_REDUCTION: str = "summary"
+
+    ##########################################
     # Supported Files
     ##########################################
 
