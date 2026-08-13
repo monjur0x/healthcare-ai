@@ -34,15 +34,15 @@
 
 ### Image
 
-- [ ] Validator
+- [x] Validator
 
-- [ ] Loader
+- [x] Loader
 
-- [ ] Augmentation
+- [x] Augmentation
 
-- [ ] Normalization
+- [x] Normalization
 
-- [ ] Pipeline
+- [x] Pipeline
 
 ### Multimodal
 
@@ -59,6 +59,11 @@
 - [ ] Add datetime parsing to feature engineering.
 - [ ] Add robust error-reporting structure to `CSVPipeline` (~ `valid_frame` etc.).
 - [ ] Expose a CLI or fit/persist for scaler/encoder parameters (reproducibility).
+- [ ] Persist image normalization statistics (mean/std) for inference-time
+      consistency (currently stateless fallback for `standard` mode).
+- [ ] Add DICOM unit tests; requires adding `pydicom` to dependencies.
+- [ ] Consider aspect-ratio-preserving (letterbox) resize option in
+      `ImageLoader` (currently exact square resize).
 
 ### Milestone 2+ (not yet scoped)
 

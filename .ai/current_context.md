@@ -10,22 +10,22 @@ backend/preprocessing
 
 ## Current Task
 
-Preprocessing is implemented for CSV. The next engineering work is the image preprocessing module.
+Preprocessing is implemented for CSV and image. The next engineering
+work is the multimodal preprocessing module.
 
 ## Completed
 
 - Preprocessing scaffolding (config, exceptions, logger)
 - Preprocessing CSV pipeline (validator, cleaner, imputer, encoder, feature engineering, scaler, transformer, pipeline)
 - CSV unit tests (27 passing)
-- Tooling config (backend/pyproject.toml)
+- Preprocessing image pipeline (validator, loader, augmentation, normalization, pipeline, convenience API)
+- Image unit tests (31 passing)
+- Tooling config (backend/pyproject.toml, isort/ruff aligned)
 
-## Next Files (backend/preprocessing/image)
+## Next Files (backend/preprocessing/multimodal)
 
-- validator.py
-- loader.py
-- augmentation.py
-- normalization.py
-- pipeline.py
+- fusion.py
+- metadata.py
 
 ## Design Notes
 
@@ -41,6 +41,10 @@ No prediction.
 
 Only preprocessing.
 
+Image preprocessing is dependency-light (Pillow + NumPy). DICOM support
+requires optional `pydicom`. Augmentation is deterministic via a seeded
+RNG.
+
 ## Status
 
-CSV complete. Image pipeline in progress.
+CSV and image complete. Multimodal in progress.

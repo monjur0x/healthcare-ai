@@ -27,14 +27,15 @@
 - [x] Transformer / pipeline orchestration (`transformer.py`)
 - [x] High-level entry point (`pipeline.py`)
 - [x] Unit tests (`tests/test_csv.py`) — 27 passing
-
 ### Image preprocessing (`backend/preprocessing/image`)
 
-- [ ] Validator
-- [ ] Loader
-- [ ] Augmentation
-- [ ] Normalization
-- [ ] Pipeline
+- [x] Validator (`validator.py`)
+- [x] Loader (`loader.py`) — PNG/JPG via Pillow, DICOM via optional `pydicom`
+- [x] Augmentation (`augmentation.py`) — deterministic, seeded
+- [x] Normalization (`normalization.py`) — minmax / zero_mean / standard
+- [x] Pipeline (`pipeline.py`) — load → validate → resize → augment → normalize
+- [x] Convenience API (`preprocessing.py`) — single image, batch, directory
+- [x] Unit tests (`tests/test_image.py`) — 31 passing
 
 ### Multimodal preprocessing (`backend/preprocessing/multimodal`)
 

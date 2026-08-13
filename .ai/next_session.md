@@ -2,25 +2,31 @@
 
 ## Objective
 
-Implement the medical image preprocessing module: `backend/preprocessing/image`.
+Implement the multimodal preprocessing module: `backend/preprocessing/multimodal`.
 
 ## Suggested Steps
 
 1. Read `docs/SOFTWARE_ARCHITECTURE.md` and `.ai/current_context.md`.
 2. Implement, in order:
-   - `image/validator.py` — file type, dimension, channel validation.
-   - `image/loader.py` — PNG/JPG/DICOM loading via Pillow (+ `pydicom` for `.dcm`).
-   - `image/augmentation.py` — deterministic augmentation (fixed seed).
-   - `image/normalization.py` — resize to `IMAGE_WIDTH/HEIGHT`, normalize to `IMAGE_CHANNELS`.
-   - `image/pipeline.py` + `image/__init__.py`.
-3. Add unit tests under `backend/preprocessing/tests/test_image.py`.
+   - `multimodal/metadata.py` — shared metadata dataclasses/schema for
+     images and tabular EHR records.
+   - `multimodal/fusion.py` — align and combine preprocessed image and
+     CSV outputs (reuse `ImagePipeline` and `CSVPipeline`; do not
+     duplicate logic).
+   - `multimodal/__init__.py`.
+3. Add unit tests under `backend/preprocessing/tests/test_multimodal.py`.
 4. Run: `pytest`, black, ruff, isort (against `backend/pyproject.toml`).
 5. Update `docs/DEVELOPMENT_STATUS.md`, `docs/CHANGELOG.md`, `docs/BACKLOG.md`,
    `.ai/current_context.md`, `.ai/next_session.md`.
 
 ## Conventions Reminder
 
-- Normalize inputs before validation (match CSV module behavior).
-- Dependency-light where reasonable; add `pydicom` to `backend/CrewAI/requirements.txt`
-  only if needed for `.dcm` support.
+- Reuse existing preprocessing stages; never duplicate logic.
+- Dependency-light where reasonable.
 - Log via `get_logger(__name__)`; raise custom exceptions from `exceptions.py`.
+
+## Open Questions
+
+- Image normalization statistics are not persisted for inference-time
+  consistency (stateless fallback for `standard` mode) — see
+  `docs/BACKLOG.md`.
