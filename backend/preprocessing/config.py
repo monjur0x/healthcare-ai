@@ -49,7 +49,21 @@ class PreprocessingSettings(BaseSettings):
 
     IMAGE_CHANNELS: int = 3
 
+    IMAGE_RESIZE: bool = True
+
     NORMALIZE_IMAGES: bool = True
+
+    IMAGE_NORMALIZE_MODE: str = "minmax"
+
+    IMAGE_MEAN: tuple = (0.485, 0.456, 0.406)
+
+    IMAGE_STD: tuple = (0.229, 0.224, 0.225)
+
+    IMAGE_AUGMENTATION_ENABLED: bool = False
+
+    IMAGE_AUGMENT_PROBABILITY: float = 0.5
+
+    IMAGE_ROTATION_RANGE: int = 15
 
     ##########################################
     # Supported Files

@@ -9,6 +9,7 @@ logger = get_logger(__name__)
 from __future__ import annotations
 
 import logging
+
 from logging.handlers import RotatingFileHandler
 
 from .config import settings

@@ -61,3 +61,15 @@ class EncodingError(PreprocessingError):
     """
     Raised when categorical encoding fails.
     """
+
+
+class ImageNormalizationError(PreprocessingError):
+    """
+    Raised when image normalization fails.
+    """
+
+
+class ImageAugmentationError(PreprocessingError):
+    """
+    Raised when image augmentation fails.
+    """
