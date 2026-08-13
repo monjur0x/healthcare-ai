@@ -20,13 +20,13 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.neural_network import MLPClassifier
 
 from models.base import BaseModel
+from models.config import settings
 from models.exceptions import (
     InvalidModelInputError,
     ModelLoadError,
     ModelNotFittedError,
     UnsupportedModelError,
 )
-from preprocessing.config import settings
 from preprocessing.logger import get_logger
 
 logger = get_logger(__name__)

@@ -10,6 +10,12 @@ base
 csv
     Tabular classification models for structured healthcare data.
 
+image
+    PyTorch CNN image classification models.
+
+multimodal
+    Models consuming the multimodal ``FusionResult``.
+
 This module never performs preprocessing; use ``preprocessing`` for
 validation, cleaning, scaling, encoding, and image normalization.
 """
@@ -23,9 +29,13 @@ from .exceptions import (
     ModelNotFittedError,
     UnsupportedModelError,
 )
+from .image import ImageClassifier
+from .multimodal import FusionClassifier
 
 __all__ = [
     "BaseModel",
+    "FusionClassifier",
+    "ImageClassifier",
     "InvalidModelInputError",
     "ModelError",
     "ModelLoadError",

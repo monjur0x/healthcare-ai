@@ -9,6 +9,7 @@ Pillow>=11.0.0
 
 # Machine Learning
 scikit-learn>=1.6.0
+torch>=2.2.0
 
 # Development
 pytest>=8.3.0
