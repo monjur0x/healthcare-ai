@@ -55,9 +55,41 @@
 
 ## Not yet planned
 
-Milestones for `federated/`, `rag/`, `evaluation/`, and CrewAI
-orchestration are complete; `api/` and `n8n/` are not yet scoped in the
+Milestones for `federated/`, `rag/`, `evaluation/`, CrewAI orchestration,
+and the FastAPI `api/` are complete; `n8n/` is not yet scoped in the
 backlog.
+
+---
+
+## Milestone 5 — FastAPI API (`backend/api`)
+
+### Scaffolding
+
+- [x] `config.py` — `APISettings` (env prefix `API_`): server metadata,
+      `MODEL_PATH`, `CORPUS_DIR`, optional `API_TOKEN`, CORS origins
+- [x] `exceptions.py` — `APIError` + `ServiceUnavailableError` /
+      `InvalidInputError` / `AuthenticationError` / `NotFoundError`
+- [x] `schemas.py` — request models (`PredictRequest`, `RetrieveRequest`,
+      `AnalyzeRequest`, `HealthResponse`) reusing orchestrator
+      `PredictionResult` / `EvidenceItem` / `ClinicalReport` responses
+
+### Service layer
+
+- [x] `services.py` — `AnalysisService` facade: lazy model load,
+      RAG corpus ingest (directory or built-in corpus), deterministic
+      crew analysis; domain exceptions translated to typed `APIError`s
+- [x] `load_predictive_model` / `build_rag_pipeline` helpers
+
+### Routes (validation + delegation only)
+
+- [x] `routes.py` — `/api/v1/predict`, `/api/v1/retrieve`,
+      `/api/v1/analyze`; optional bearer-token auth (router dependency)
+- [x] `main.py` — `create_app()` factory (DI via app state, CORS,
+      `APIError` → JSON handler); module-level `app` for uvicorn
+- [x] Unit tests (`tests/test_api.py`, `tests/test_services.py`) —
+      19 passing
+- [ ] OAuth / full user authentication (currently an optional static
+      bearer token; see backlog)
 
 ---
 

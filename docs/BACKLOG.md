@@ -231,6 +231,29 @@ and retrieval modules; they never implement ML.
 - [ ] Consider aspect-ratio-preserving (letterbox) resize option in
       `ImageLoader` (currently exact square resize).
 
-### Milestone 3+ (not yet scoped)
+### Milestone 5 — FastAPI API (complete)
 
-- [ ] `api/` and `n8n/` backlog entries.
+Scope derived from `docs/SOFTWARE_ARCHITECTURE.md` §api/: request
+validation, authentication, response serialization; business logic stays
+in services (never in routes).
+
+- [x] `api/config.py` — `APISettings` (env prefix `API_`)
+- [x] `api/exceptions.py` — `APIError` hierarchy (status/code)
+- [x] `api/schemas.py` — request models + `HealthResponse`; responses
+      reuse orchestrator schemas
+- [x] `api/services.py` — `AnalysisService` facade + load/build helpers
+- [x] `api/routes.py` — `/api/v1/predict`, `/api/v1/retrieve`,
+      `/api/v1/analyze` (validation + delegation only; optional bearer
+      token auth)
+- [x] `api/main.py` — `create_app()` factory + uvicorn entry point
+- [x] Unit tests (`api/tests/`) — 19 passing
+- [x] `fastapi` / `uvicorn[standard]` added to `backend/requirements.txt`
+
+### Milestone 6+ (not yet scoped)
+
+- [ ] `n8n/` orchestration workflows that trigger the API / crew
+- [ ] Full OAuth / per-user authentication (currently an optional static
+      bearer token via `API_TOKEN`)
+- [ ] File upload endpoint for CSV / image inference
+- [ ] Deployment container for the API (the old app's Dockerfile was
+      removed with the superseded demo)

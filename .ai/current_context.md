@@ -2,16 +2,16 @@
 
 ## Current Milestone
 
-Milestone 4 — CrewAI orchestration (complete)
+Milestone 5 — FastAPI API (complete)
 
 ## Current Module
 
-backend/CrewAI/orchestrator
+backend/api
 
 ## Current Task
 
-The orchestrator module and its demo are complete and pushed. Next:
-FastAPI (`api/`), then n8n orchestration.
+The API module and its tests are complete and verified. Next: n8n
+orchestration workflows, then the real flwr deployment path.
 
 ## Completed
 
@@ -55,29 +55,56 @@ FastAPI (`api/`), then n8n orchestration.
   `requirements.txt`, `.env.example`, `README.md`) and untracked its
   generated `artifacts/` (`.gitignore` now covers `artifacts/`); the old
   demo's DP module is recorded in the backlog for a future port
+- `backend/api/` — FastAPI module (Milestone 5, complete):
+  - `config.py` — `APISettings` (env prefix `API_`): server metadata,
+    `MODEL_PATH`, `CORPUS_DIR`, optional `API_TOKEN`, CORS origins
+  - `exceptions.py` — `APIError` + `ServiceUnavailableError` /
+    `InvalidInputError` / `AuthenticationError` / `NotFoundError`
+  - `schemas.py` — `PredictRequest`, `RetrieveRequest`,
+    `AnalyzeRequest`, `HealthResponse`; responses reuse orchestrator
+    schemas (`PredictionResult` / `EvidenceItem` / `ClinicalReport`)
+  - `services.py` — `AnalysisService` facade (lazy model load + RAG
+    corpus ingest + deterministic crew analysis) translating domain
+    exceptions into typed `APIError`s; `load_predictive_model`,
+    `build_rag_pipeline` (corpus dir or built-in `DEFAULT_CORPUS`)
+  - `routes.py` — `/api/v1/predict`, `/api/v1/retrieve`,
+    `/api/v1/analyze` (validation + delegation only; optional
+    bearer-token auth via router dependency)
+  - `main.py` — `create_app()` factory (DI service via `app.state`,
+    CORS, `APIError` → JSON handler) + module-level `app` for uvicorn
+  - Tests: 19 passing (`test_services.py` real fitted model,
+    `test_api.py` hermetic fake service); `fastapi` / `uvicorn[standard]`
+    added to `backend/requirements.txt`
+- Full suite **241 passing** (`pytest preprocessing/tests models/tests evaluation/tests federated/tests rag/tests examples/tests CrewAI/orchestrator/tests api/tests`)
+  — black / isort / ruff clean
 
 ## Next Files (backend)
 
-- `api/` FastAPI routes (services only; no business logic in routes);
-  endpoints to run the clinical crew, predict, and retrieve
 - `n8n/` orchestration workflows that trigger the API / crew
 - `federated/` — real flwr `run_simulation` / networked `ServerApp`
   (blocked: `ray` not installed); privacy budget metrics
 - Orchestrator LLM path: wire a provider (needs `crewai[google-genai]`
   or similar + API key; never commit secrets)
+- API hardening: full OAuth, file upload endpoint, deployment container
 
 ## Design Notes
 
 - ADR-008: the crew runs a deterministic tool pipeline by default
   (prediction → risk → evidence → report) that needs no LLM and is
   fully testable; the CrewAI layer is optional narrative enrichment.
+- ADR-009: FastAPI routes delegate to `AnalysisService` (no business
+  logic in routes); domain exceptions are translated to typed
+  `APIError`s (status + code) at the service boundary; optional static
+  bearer-token auth via `API_TOKEN`; service injected through
+  `app.state` for hermetic route tests.
 - Agents/tasks/crew construct without an LLM key; `create_agents(llm=...)`
   binds the provider only on the LLM path. CrewAI 1.15 warns internally
   (deprecations) — unrelated to this module.
 - `ClinicalCrew` needs `features` (full preprocessed row) when `model`
   is set; `markers` (raw clinical values) feed risk factor flags.
 - CrewAI venv (`backend/CrewAI/.venv-opencode`) has crewai 1.15.11,
-  pydantic 2.12, qdrant-client, sentence-transformers, flwr, torch.
+  pydantic 2.12, qdrant-client, sentence-transformers, flwr, torch,
+  fastapi 0.138, uvicorn, httpx.
 - The old `CrewAI/app/*` demo was removed (superseded by
   `preprocessing/`, `models/`, `federated/`, `rag/`, and
   `CrewAI/orchestrator/`); the production CrewAI module is
@@ -85,5 +112,5 @@ FastAPI (`api/`), then n8n orchestration.
 
 ## Status
 
-Milestone 4 (CrewAI orchestration + demo) complete and pushed. Next
-milestone is FastAPI (`api/`), then n8n.
+Milestone 5 (FastAPI API) complete and verified locally. Next milestone
+is n8n orchestration.

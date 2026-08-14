@@ -148,6 +148,27 @@
   or `--corpus-dir` knowledge base; writes `report.json`.
 - Smoke tests for the clinical crew demo
   (`examples/tests/test_clinical_crew_demo.py`) — 2 passing.
+- `backend/api/` module (Milestone 5, FastAPI):
+  - `config.py` — `APISettings` (env prefix `API_`): server metadata,
+    `MODEL_PATH`, `CORPUS_DIR`, optional `API_TOKEN`, CORS origins
+  - `exceptions.py` — `APIError` + `ServiceUnavailableError` /
+    `InvalidInputError` / `AuthenticationError` / `NotFoundError`
+  - `schemas.py` — `PredictRequest`, `RetrieveRequest`,
+    `AnalyzeRequest`, `HealthResponse`; responses reuse the
+    orchestrator `PredictionResult` / `EvidenceItem` / `ClinicalReport`
+  - `services.py` — `AnalysisService` facade (lazy model load + RAG
+    corpus ingest + deterministic crew analysis) translating domain
+    exceptions into typed `APIError`s; `load_predictive_model`,
+    `build_rag_pipeline` with a default built-in medical corpus
+  - `routes.py` — `/api/v1/predict`, `/api/v1/retrieve`,
+    `/api/v1/analyze`; routes only validate + delegate, optional
+    bearer-token auth via router dependency
+  - `main.py` — `create_app()` factory (DI service via app state, CORS,
+    `APIError` → JSON handler) + module-level `app` for uvicorn
+- Unit tests for the API module (`api/tests/test_services.py`,
+  `test_api.py`) — 19 passing (hermetic TestClient with a fake service
+  plus a real fitted-model service test).
+- Added `fastapi` / `uvicorn[standard]` to `backend/requirements.txt`.
 
 ### Removed
 

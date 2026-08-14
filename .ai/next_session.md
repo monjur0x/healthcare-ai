@@ -2,8 +2,8 @@
 
 ## Objective
 
-Milestone 5+ — FastAPI (`api/`), then n8n orchestration, then the real
-flwr deployment path.
+Milestone 6 — n8n orchestration workflows, then the real flwr deployment
+path.
 
 ## Suggested Steps
 
@@ -11,23 +11,24 @@ flwr deployment path.
    `.ai/current_context.md`.
 2. Read `docs/BACKLOG.md` for the scoped items.
 3. Pick one of:
-   - FastAPI `api/`: a `services/` layer that runs `ClinicalCrew` /
-     `RAGPipeline` / models; routes only validate + delegate (no
-     business logic in routes per `AGENTS.md`). Endpoints: prediction,
-     evidence retrieval, clinical analysis report.
-   - n8n: workflow definitions that trigger the API / crew.
+   - n8n: workflow definitions that trigger the API (`/api/v1/analyze`,
+     `/api/v1/predict`, `/api/v1/retrieve`) / the crew; orchestration
+     only — AI reasoning stays in CrewAI (`AGENTS.md`).
    - Real flwr driver: wrap the synchronous `FedAvgServer` round logic
      in a `ServerApp`/`ClientApp` and run `flwr.simulation.run_simulation`
      (Ray backend). BLOCKED until `ray` is installed (heavy dependency).
+   - API hardening: file-upload endpoint for CSV / image inference,
+     full OAuth (currently optional static `API_TOKEN`), deployment
+     Dockerfile for `uvicorn api.main:app`.
    - Port differential privacy from the removed old demo
      (`backend/CrewAI/app/federated/privacy.py`, noise-multiplier
      approach) into `federated/` — see `docs/BACKLOG.md`.
 4. Add unit tests under the module's `tests/` directory; keep test-file
    basenames unique across `backend/`.
-5. Run: `pytest preprocessing/tests models/tests evaluation/tests federated/tests rag/tests examples/tests CrewAI/orchestrator/tests`,
+5. Run: `pytest preprocessing/tests models/tests evaluation/tests federated/tests rag/tests examples/tests CrewAI/orchestrator/tests api/tests`,
    black, ruff, isort (against `backend/pyproject.toml`); use the CrewAI
    venv (`backend/CrewAI/.venv-opencode`, has flwr 1.33.0, torch,
-   sklearn, PIL, pydantic-settings, crewai 1.15.11).
+   sklearn, PIL, pydantic-settings, crewai 1.15.11, fastapi 0.138).
 6. Update `docs/DEVELOPMENT_STATUS.md`, `docs/CHANGELOG.md`,
    `docs/BACKLOG.md`, `docs/DECISIONS.md` (if a new ADR),
    `.ai/current_context.md`, `.ai/next_session.md`.
@@ -37,6 +38,8 @@ flwr deployment path.
 - Preprocessing stays in `preprocessing/`, models in `models/`,
   retrieval in `rag/`, orchestration in `CrewAI/orchestrator/`,
   API in `api/`.
+- API routes only validate + delegate to `api/services.AnalysisService`;
+  domain exceptions are mapped to `APIError` subclasses (ADR-009).
 - Federation only moves weights; training/inference stay in models.
 - Agents orchestrate reasoning and consume pipeline outputs; they never
   implement ML algorithms (see `AGENTS.md`).
@@ -57,5 +60,5 @@ flwr deployment path.
   interfaces).
 - Which LLM provider to wire into `ClinicalCrew.run_llm`
   (needs an API key; never commit secrets).
-- FastAPI dependency availability in the CrewAI venv (add `fastapi` /
-  `uvicorn` to `backend/requirements.txt`).
+- n8n: whether to commit plain JSON workflow definitions (n8n format)
+  or generate them from a small Python config.

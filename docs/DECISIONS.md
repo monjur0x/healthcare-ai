@@ -124,3 +124,27 @@ Reason
   google provider extra is not required).
 - Tools are thin wrappers over `orchestrator/services.py`, so the
   deterministic core is testable in isolation.
+
+---
+
+ADR-009
+
+FastAPI routes delegate to a service layer and map errors via typed
+`APIError` subclasses.
+
+Reason
+
+- Per `AGENTS.md`, routes never contain business logic. `AnalysisService`
+  (in `api/services.py`) owns the orchestration and translates domain
+  exceptions (prediction / risk / retrieval / orchestration) into typed
+  `APIError`s at the service boundary, so routes and handlers never
+  import domain exceptions.
+- Each `APIError` carries an HTTP status + machine `code`, and a single
+  handler in `create_app()` serializes them to a consistent JSON error
+  shape.
+- Authentication is an optional static bearer token (`API_TOKEN`),
+  enforced by a router dependency and off by default — full OAuth is
+  deferred to the backlog.
+- The service is injected through `app.state` by `create_app(service=...)`,
+  so route tests use a hermetic fake service without touching real
+  models or corpora.
