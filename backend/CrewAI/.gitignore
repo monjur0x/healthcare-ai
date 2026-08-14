@@ -76,3 +76,5 @@ healthcare_ai.log
 models/*.pkl
 models/*.h5
 .cache/
+artifacts/
+.mimocode/
