@@ -107,3 +107,26 @@ def test_server_global_parameters_structure(clients) -> None:
     assert parameters is not None
     assert all(isinstance(parameter, np.ndarray) for parameter in parameters)
     assert len(parameters) >= 2
+
+
+def test_server_metrics_report(clients) -> None:
+    server = FedAvgServer(clients=clients, num_rounds=2).run()
+
+    metrics = server.metrics
+    assert metrics.n_rounds == 2
+    assert metrics.n_clients == 3
+    assert metrics.total_bytes_exchanged > 0
+    assert metrics.bytes_exchanged_per_round == metrics.total_bytes_exchanged // 2
+    assert len(metrics.round_times_s) == 2
+    assert all(duration > 0.0 for duration in metrics.round_times_s)
+    assert metrics.total_time_s > 0.0
+    assert len(metrics.accuracy_deltas) == 1
+
+    assert all(result.round_duration_s is not None for result in server.history)
+    assert all(result.bytes_exchanged is not None for result in server.history)
+
+
+def test_server_metrics_require_run(clients) -> None:
+    server = FedAvgServer(clients=clients, num_rounds=2)
+    with pytest.raises(RuntimeError):
+        _ = server.metrics

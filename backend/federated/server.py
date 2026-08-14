@@ -10,12 +10,20 @@ and defaults to :func:`federated.parameters.average_weights`.
 
 from __future__ import annotations
 
+import time
+
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 import numpy as np
 
 from federated.client import FederatedClient
+from federated.metrics import (
+    FederatedMetrics,
+    convergence_round,
+    parameter_set_bytes,
+    round_accuracy_deltas,
+)
 from federated.parameters import average_weights
 from preprocessing.logger import get_logger
 
@@ -29,6 +37,23 @@ AggregateFn = Callable[[Sequence[list[np.ndarray]]], list[np.ndarray]]
 class RoundResult:
     """
     Global evaluation outcome for one FedAvg round.
+
+    Attributes
+    ----------
+    round_index : int
+        1-based round number.
+    n_clients : int
+        Number of participating clients.
+    accuracy : float
+        Global accuracy after this round.
+    log_loss : float | None
+        Global log loss, when available.
+    roc_auc : float | None
+        Global ROC-AUC, when available.
+    round_duration_s : float | None
+        Wall-clock duration of the round.
+    bytes_exchanged : int | None
+        Estimated bytes moved during the round.
     """
 
     round_index: int
@@ -36,6 +61,8 @@ class RoundResult:
     accuracy: float
     log_loss: float | None = None
     roc_auc: float | None = None
+    round_duration_s: float | None = None
+    bytes_exchanged: int | None = None
 
     def to_dict(self) -> dict[str, float | int | None]:
         """
@@ -53,6 +80,8 @@ class RoundResult:
             "accuracy": self.accuracy,
             "log_loss": self.log_loss,
             "roc_auc": self.roc_auc,
+            "round_duration_s": self.round_duration_s,
+            "bytes_exchanged": self.bytes_exchanged,
         }
 
 
@@ -92,6 +121,8 @@ class FedAvgServer:
         self._evaluate_fn = evaluate_fn
         self._global_parameters: list[np.ndarray] | None = None
         self._history: list[RoundResult] = []
+        self._round_durations: list[float] = []
+        self._round_bytes: list[int] = []
 
     @property
     def global_parameters(self) -> list[np.ndarray] | None:
@@ -102,6 +133,39 @@ class FedAvgServer:
     def history(self) -> tuple[RoundResult, ...]:
         """Per-round global evaluation results."""
         return tuple(self._history)
+
+    @property
+    def metrics(self) -> FederatedMetrics:
+        """
+        Cost, convergence, and timing statistics for the run.
+
+        Returns
+        -------
+        FederatedMetrics
+            Aggregate cost, convergence, and timing statistics for the
+            completed run.
+
+        Raises
+        ------
+        RuntimeError
+            If the server has not been run yet.
+        """
+
+        if not self._history:
+            raise RuntimeError("FedAvgServer must be run before metrics are available.")
+        accuracies = [result.accuracy for result in self._history]
+        return FederatedMetrics(
+            n_rounds=len(self._history),
+            n_clients=len(self._clients),
+            total_bytes_exchanged=sum(self._round_bytes),
+            bytes_exchanged_per_round=(
+                self._round_bytes[0] if self._round_bytes else 0
+            ),
+            round_times_s=tuple(self._round_durations),
+            total_time_s=sum(self._round_durations),
+            accuracy_deltas=round_accuracy_deltas(accuracies),
+            convergence_round=convergence_round(accuracies),
+        )
 
     def run(self) -> FedAvgServer:
         """
@@ -120,16 +184,30 @@ class FedAvgServer:
         self._global_parameters = initial
 
         for round_index in range(1, self._num_rounds + 1):
+            round_start = time.perf_counter()
             logger.info("Starting federated round %d", round_index)
             updated = [
                 client.fit(self._global_parameters, {})[0] for client in self._clients
             ]
             self._global_parameters = self._aggregate_fn(updated)
-            self._history.append(self._evaluate_round(round_index))
+            round_duration_s = time.perf_counter() - round_start
+            bytes_exchanged = (
+                2 * len(self._clients) * parameter_set_bytes(self._global_parameters)
+            )
+            self._round_durations.append(round_duration_s)
+            self._round_bytes.append(bytes_exchanged)
+            self._history.append(
+                self._evaluate_round(round_index, round_duration_s, bytes_exchanged)
+            )
 
         return self
 
-    def _evaluate_round(self, round_index: int) -> RoundResult:
+    def _evaluate_round(
+        self,
+        round_index: int,
+        round_duration_s: float,
+        bytes_exchanged: int,
+    ) -> RoundResult:
         """Evaluate the aggregated weights for a round."""
         if self._evaluate_fn is not None:
             metrics = self._evaluate_fn(self._global_parameters)
@@ -139,6 +217,8 @@ class FedAvgServer:
                 accuracy=metrics.get("accuracy", 0.0),
                 log_loss=metrics.get("log_loss"),
                 roc_auc=metrics.get("roc_auc"),
+                round_duration_s=round_duration_s,
+                bytes_exchanged=bytes_exchanged,
             )
 
         losses, counts, metric_dicts = zip(
@@ -168,6 +248,8 @@ class FedAvgServer:
             n_clients=len(self._clients),
             accuracy=float(accuracy),
             log_loss=float(log_loss),
+            round_duration_s=round_duration_s,
+            bytes_exchanged=bytes_exchanged,
         )
 
 

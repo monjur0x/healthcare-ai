@@ -155,6 +155,7 @@ def build_report(
     return {
         "baseline_accuracy": baseline_accuracy,
         "baseline_roc_auc": baseline_auc,
+        "federated_metrics": server.metrics.to_dict(),
         "rounds": [round_result.to_dict() for round_result in server.history],
     }
 
@@ -227,15 +228,26 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     report = build_report(server, baseline.accuracy, baseline.roc_auc)
+    metrics = server.metrics
     logger.info("Baseline accuracy: %.4f", baseline.accuracy)
     for result in server.history:
         logger.info(
-            "Round %d: accuracy=%.4f roc_auc=%s log_loss=%s",
+            "Round %d: accuracy=%.4f roc_auc=%s log_loss=%s " "time=%.2fs bytes=%d",
             result.round_index,
             result.accuracy,
             result.roc_auc,
             result.log_loss,
+            result.round_duration_s or 0.0,
+            result.bytes_exchanged or 0,
         )
+    logger.info(
+        "Federated metrics: total_time=%.2fs exchanged=%d bytes "
+        "per_round=%d convergence_round=%s",
+        metrics.total_time_s,
+        metrics.total_bytes_exchanged,
+        metrics.bytes_exchanged_per_round,
+        metrics.convergence_round,
+    )
 
     args.out.mkdir(parents=True, exist_ok=True)
     global_model = TabularClassifier(model_name=args.model)
