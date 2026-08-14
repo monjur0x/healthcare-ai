@@ -8,6 +8,8 @@ orchestrator schemas (``ClinicalReport``, ``PredictionResult``,
 
 from __future__ import annotations
 
+from typing import Any, Literal
+
 from pydantic import BaseModel, Field
 
 from CrewAI.orchestrator.schemas import (
@@ -16,6 +18,86 @@ from CrewAI.orchestrator.schemas import (
     PatientInfo,
     PredictionResult,
 )
+
+DatasetPreset = Literal["diabetes", "heart", "kidney", "sepsis"]
+
+
+class TrainRequest(BaseModel):
+    """
+    Train (or retrain) a tabular model from a dataset.
+
+    Either ``preset`` or both ``dataset`` and ``target`` must be given.
+    When ``federated`` is true the model is trained through the federated
+    FedAvg path; otherwise a single central model is fitted.
+
+    Parameters
+    ----------
+    preset : DatasetPreset | None
+        Named dataset preset resolved against the configured dataset dir.
+    dataset : str | None
+        Explicit path to a CSV (mutually exclusive with ``preset``).
+    target : str | None
+        Target column name (required when ``dataset`` is given).
+    model : Literal["mlp", "logistic"]
+        Scikit-learn model family to fit.
+    test_size : float
+        Fraction of rows held out for evaluation.
+    seed : int
+        Random seed for reproducibility.
+    max_rows : int | None
+        Optional cap on the number of rows used.
+    federated : bool
+        When true, train through the federated FedAvg path.
+    clients : int
+        Number of simulated hospital clients (federated path).
+    rounds : int
+        Number of federated rounds (federated path).
+    """
+
+    preset: DatasetPreset | None = None
+    dataset: str | None = None
+    target: str | None = None
+    model: Literal["mlp", "logistic"] = "mlp"
+    test_size: float = Field(default=0.25, ge=0.1, le=0.5)
+    seed: int = 42
+    max_rows: int | None = Field(default=None, ge=1)
+    federated: bool = False
+    clients: int = Field(default=3, ge=1, le=16)
+    rounds: int = Field(default=3, ge=1, le=50)
+
+
+class TrainResponse(BaseModel):
+    """
+    Result of a training run.
+
+    Parameters
+    ----------
+    model_path : str
+        Path to the persisted model artifact.
+    dataset : str
+        Dataset the model was trained on.
+    target : str
+        Target column used.
+    accuracy : float
+        Hold-out accuracy.
+    roc_auc : float | None
+        Hold-out ROC-AUC (None if undefined).
+    f1 : float | None
+        Hold-out macro F1 (None if undefined).
+    federated : bool
+        Whether the federated path was used.
+    federated_metrics : dict[str, Any] | None
+        Federated round metrics (federated path only).
+    """
+
+    model_path: str
+    dataset: str
+    target: str
+    accuracy: float
+    roc_auc: float | None = None
+    f1: float | None = None
+    federated: bool = False
+    federated_metrics: dict[str, Any] | None = None
 
 
 class PredictRequest(BaseModel):
@@ -95,10 +177,13 @@ class HealthResponse(BaseModel):
 __all__ = [
     "AnalyzeRequest",
     "ClinicalReport",
+    "DatasetPreset",
     "EvidenceItem",
     "HealthResponse",
     "PatientInfo",
     "PredictRequest",
     "PredictionResult",
     "RetrieveRequest",
+    "TrainRequest",
+    "TrainResponse",
 ]

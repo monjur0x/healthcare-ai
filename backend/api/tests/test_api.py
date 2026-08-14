@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 from api.config import APISettings
 from api.exceptions import ServiceUnavailableError
 from api.main import create_app
-from api.services import AnalysisService
+from api.services import AnalysisService, TrainResult
 from CrewAI.orchestrator.schemas import (
     ClinicalReport,
     EvidenceItem,
@@ -62,6 +62,18 @@ class FakeService(AnalysisService):
             risk=None,
             evidence=[],
             recommendations=list(recommendations or []),
+        )
+
+    def train(self, preset=None, dataset=None, target=None, **kwargs):
+        return TrainResult(
+            model_path="/tmp/fake/global_model.joblib",
+            dataset="diabetes.csv",
+            target="outcome",
+            accuracy=0.82,
+            roc_auc=0.91,
+            f1=0.78,
+            federated=bool(kwargs.get("federated", False)),
+            federated_metrics=None,
         )
 
 
@@ -132,6 +144,42 @@ def test_analyze_invalid_patient_is_422(client):
         "/api/v1/analyze",
         json={"patient": {"age": "not-an-int"}},
     )
+    assert response.status_code == 422
+
+
+def test_train_returns_metrics(client):
+    response = client.post("/api/v1/train", json={"preset": "diabetes"})
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["model_path"].endswith("global_model.joblib")
+    assert payload["dataset"] == "diabetes.csv"
+    assert 0.0 <= payload["accuracy"] <= 1.0
+    assert payload["federated"] is False
+
+
+def test_train_accepts_explicit_dataset_and_federated(client):
+    response = client.post(
+        "/api/v1/train",
+        json={"dataset": "data.csv", "target": "outcome", "federated": True},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["federated"] is True
+
+
+def test_train_invalid_preset_is_422(client):
+    response = client.post("/api/v1/train", json={"preset": "unknown"})
+    assert response.status_code == 422
+    assert response.json()["detail"][0]["loc"] == ["body", "preset"]
+
+
+def test_train_bad_model_choice_is_422(client):
+    response = client.post("/api/v1/train", json={"preset": "diabetes", "model": "svm"})
+    assert response.status_code == 422
+
+
+def test_train_rounds_out_of_range_is_422(client):
+    response = client.post("/api/v1/train", json={"preset": "diabetes", "rounds": 0})
     assert response.status_code == 422
 
 

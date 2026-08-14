@@ -7,6 +7,8 @@ corpus ingest + crew analysis) without any network or LLM dependency.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -17,6 +19,7 @@ from api.services import (
     AnalysisService,
     build_rag_pipeline,
     load_predictive_model,
+    prepare_tabular_data,
 )
 from CrewAI.orchestrator.schemas import PatientInfo
 from models import TabularClassifier
@@ -131,3 +134,99 @@ def test_analyze_without_model_still_builds_report(tmp_path):
 def test_load_predictive_model_missing_path_raises(tmp_path):
     with pytest.raises(ServiceUnavailableError):
         load_predictive_model(tmp_path / "missing.joblib")
+
+
+def _write_csv(tmp_path, n=80, name="dataset.csv") -> Path:
+    rng = np.random.default_rng(7)
+    frame = pd.DataFrame(
+        {
+            "glucose": rng.uniform(70, 200, n),
+            "bmi": rng.uniform(18, 40, n),
+            "age": rng.integers(20, 80, n),
+        }
+    )
+    frame["Outcome"] = (frame["glucose"] > 126).astype(int)
+    path = tmp_path / name
+    frame.to_csv(path, index=False)
+    return path
+
+
+def test_prepare_tabular_data_returns_features_and_labels(tmp_path):
+    dataset = _write_csv(tmp_path)
+    features, labels = prepare_tabular_data(dataset, "Outcome", max_rows=None)
+    assert features.shape[0] == labels.shape[0] == 80
+    assert "outcome" not in features.columns
+    assert set(labels.unique()) == {0, 1}
+
+
+def test_prepare_tabular_data_missing_target_raises(tmp_path):
+    dataset = _write_csv(tmp_path)
+    with pytest.raises(InvalidInputError):
+        prepare_tabular_data(dataset, "missing_col", max_rows=None)
+
+
+def test_train_central_fits_and_saves(tmp_path):
+    dataset = _write_csv(tmp_path)
+    service = AnalysisService(artifacts_dir=tmp_path / "artifacts")
+    result = service.train(dataset=str(dataset), target="Outcome", model="logistic")
+    assert result.model_path.endswith("global_model.joblib")
+    assert result.federated is False
+    assert 0.0 <= result.accuracy <= 1.0
+    assert service.model is not None
+    prediction = service.predict({"glucose": 150.0, "bmi": 25.0, "age": 55.0})
+    assert prediction.predicted_class in {"0", "1"}
+
+
+def test_train_preset_resolves_and_updates_service(tmp_path):
+    _write_csv(tmp_path, name="diabetes.csv")
+    service = AnalysisService(
+        artifacts_dir=tmp_path / "artifacts",
+        dataset_dir=tmp_path,
+    )
+    service.train(preset="diabetes", model="logistic")
+    assert service.model is not None
+
+
+def test_train_without_preset_or_dataset_raises(tmp_path):
+    service = AnalysisService(artifacts_dir=tmp_path / "artifacts")
+    with pytest.raises(InvalidInputError):
+        service.train()
+
+
+def test_train_unknown_preset_raises(tmp_path):
+    service = AnalysisService(artifacts_dir=tmp_path / "artifacts")
+    with pytest.raises(InvalidInputError):
+        service.train(preset="unknown")
+
+
+def test_train_missing_dataset_file_raises(tmp_path):
+    service = AnalysisService(artifacts_dir=tmp_path / "artifacts")
+    with pytest.raises(InvalidInputError):
+        service.train(dataset=str(tmp_path / "nope.csv"), target="Outcome")
+
+
+def test_train_federated_aggregates_global_model(tmp_path):
+    dataset = _write_csv(tmp_path, n=120)
+    service = AnalysisService(artifacts_dir=tmp_path / "artifacts")
+    result = service.train(
+        dataset=str(dataset),
+        target="Outcome",
+        model="mlp",
+        federated=True,
+        clients=3,
+        rounds=2,
+    )
+    assert result.federated is True
+    assert result.federated_metrics is not None
+    assert service.model is not None
+    prediction = service.predict({"glucose": 150.0, "bmi": 25.0, "age": 55.0})
+    assert prediction.predicted_class in {"0", "1"}
+
+
+def test_train_federated_rejects_non_mlp(tmp_path):
+    dataset = _write_csv(tmp_path)
+    service = AnalysisService(artifacts_dir=tmp_path / "artifacts")
+    with pytest.raises(InvalidInputError):
+        service.train(
+            dataset=str(dataset), target="Outcome", model="logistic", federated=True
+        )

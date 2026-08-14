@@ -19,7 +19,13 @@ from CrewAI.orchestrator.schemas import (
 )
 
 from .exceptions import AuthenticationError, ServiceUnavailableError
-from .schemas import AnalyzeRequest, PredictRequest, RetrieveRequest
+from .schemas import (
+    AnalyzeRequest,
+    PredictRequest,
+    RetrieveRequest,
+    TrainRequest,
+    TrainResponse,
+)
 from .services import AnalysisService
 
 
@@ -80,6 +86,39 @@ router = APIRouter(
     tags=["clinical"],
     dependencies=[Depends(get_token_validator)],
 )
+
+
+@router.post("/train", response_model=TrainResponse)
+def train(request: TrainRequest, service: ServiceDependency) -> TrainResponse:
+    """
+    Train (or retrain) a tabular model and serve it immediately.
+
+    Parameters
+    ----------
+    request : TrainRequest
+        Training request (preset or dataset + target).
+    service : AnalysisService
+        Injected analysis service.
+
+    Returns
+    -------
+    TrainResponse
+        Artifact path and hold-out metrics.
+    """
+
+    result = service.train(
+        preset=request.preset,
+        dataset=request.dataset,
+        target=request.target,
+        model=request.model,
+        test_size=request.test_size,
+        seed=request.seed,
+        max_rows=request.max_rows,
+        federated=request.federated,
+        clients=request.clients,
+        rounds=request.rounds,
+    )
+    return TrainResponse(**result.to_dict())
 
 
 @router.post("/predict", response_model=PredictionResult)

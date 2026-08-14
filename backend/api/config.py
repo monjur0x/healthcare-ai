@@ -45,6 +45,15 @@ class APISettings(BaseSettings):
     #: RAG. Empty uses a small built-in medical corpus.
     CORPUS_DIR: str = ""
 
+    #: Base directory where ``/api/v1/train`` writes trained model
+    #: artifacts (one sub-directory per dataset).
+    ARTIFACTS_DIR: str = "artifacts"
+
+    #: Base directory for preset datasets (``diabetes.csv``, ...). When
+    #: empty, falls back to the ``DATASET_DIR`` environment variable and
+    #: then the current working directory.
+    DATASET_DIR: str = ""
+
     ##########################################
     # Security
     ##########################################
