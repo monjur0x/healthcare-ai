@@ -58,6 +58,12 @@
   `NumPyClient` with warm start and per-round local training), package
   `__init__.py`, and unit tests (`tests/test_parameters.py`,
   `tests/test_client.py`, 18 passing).
+- `backend/federated/server.py` — synchronous `FedAvgServer` driver
+  (initial global aggregation, per-round client fit / aggregate /
+  evaluate) and `make_global_evaluator`; mirrors flwr `FedAvg`
+  semantics without the Ray-based `run_simulation` process spawn so
+  experiments stay hermetic. Unit tests (`tests/test_server.py`,
+  5 passing).
 - Added `flwr` to `backend/requirements.txt`.
 
 ### Changed
@@ -73,6 +79,11 @@
 - `TabularClassifier.get_parameters` now returns interleaved
   `coefs_`/`intercepts_` (alternating W/b) so round-tripping through
   `set_parameters` is self-consistent for MLP and logistic.
+- `TabularClassifier.set_parameters` now materializes an unfitted
+  estimator with a deterministic dummy fit (structure only), so global
+  weights can be injected into fresh models (used by the global
+  evaluator); fitted estimators are validated for feature/count
+  alignment.
 
 ### Fixed
 

@@ -106,8 +106,13 @@ trained locally per hospital, and are aggregated by Flower (FedAvg).
 - [x] Weight exchange on models: `get_parameters` / `set_parameters`
       (tabular logistic/MLP, fusion, CNN via state dict);
       `partial_fit` (MLP)
-- [x] Unit tests (roundtrip, FedAvg round, client evaluate)
-- [ ] Full flwr server strategy / simulation driver
+- [x] `federated/server.py` — synchronous `FedAvgServer` driver
+      (init global weights → per-round client fit → aggregate →
+      evaluate) + `make_global_evaluator`; mirrors flwr `FedAvg`
+      without the Ray process spawn (hermetic)
+- [x] Unit tests (roundtrip, FedAvg round, client + server evaluate)
+- [ ] Run the driver against real flwr `run_simulation` / a networked
+      `ServerApp` for deployment
 - [ ] Federate the CNN end-to-end (needs a torch `partial_fit`)
 
 ---

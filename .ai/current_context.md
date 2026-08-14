@@ -30,14 +30,20 @@ server/simulation driver, federating the CNN end-to-end (needs a torch
 - `federated/parameters.py` — `average_weights` (FedAvg)
 - `federated/client.py` — `FederatedClient` (flwr 1.33 `NumPyClient`):
   warm start, one local partial-fit per round, log-loss + accuracy eval
+- `federated/server.py` — synchronous `FedAvgServer` driver (initial
+  aggregation, per-round client fit → aggregate → evaluate) +
+  `make_global_evaluator` (central hold-out scoring); mirrors flwr
+  `FedAvg` without the Ray process spawn
+- `TabularClassifier.set_parameters` materializes unfitted estimators
+  via deterministic dummy fit (structure only)
 - `flwr>=1.33.0` added to `backend/requirements.txt` (installed in
   CrewAI venv)
-- Tests: models 32, evaluation 11, federated 18; full suite 131 passing
+- Tests: models 32, evaluation 11, federated 23; full suite 136 passing
 
 ## Next Files (backend)
 
-- `federated/` — flwr `ServerApp` / FedAvg strategy driver +
-  simulation; federated metrics (communication cost / convergence /
+- `federated/` — real flwr `run_simulation` / networked `ServerApp`
+  deployment; federated metrics (communication cost / convergence /
   training time)
 - CNN federation — add torch `partial_fit` (continue from current
   weights) so the image path can join rounds
@@ -62,6 +68,7 @@ server/simulation driver, federating the CNN end-to-end (needs a torch
 
 ## Status
 
-Milestone 2 (models + evaluation + federated tie-in) substantially
-complete. Remaining: server driver, CNN federation, direct CSV pipeline
+Milestone 2 (models + evaluation + federated tie-in + sync server
+driver) substantially complete. Remaining: real flwr
+simulation/deployment, CNN federation, direct CSV pipeline
 consumption.
