@@ -61,3 +61,22 @@ Reason
   global weights; `MLPClassifier.partial_fit` supports it.
 - Tabular/Fusion `get_parameters`/`set_parameters` still work for
   logistic; only the incremental training step requires MLP.
+
+---
+
+ADR-006
+
+`ImageClassifier` supports federated local training via `partial_fit`.
+
+Reason
+
+- The torch CNN can continue training from any weight state, so the
+  image path joins federated rounds without changing the
+  `FederatedClient` or `FedAvgServer` contracts.
+- `partial_fit` mirrors the tabular one-pass contract (single epoch of
+  gradient steps reusing the current weights); labels are restricted to
+  the classes seen at `fit` time so the exchangeable weight shapes stay
+  stable across clients and rounds.
+- `get_parameters` returns memory-shared NumPy views of the state dict;
+  callers that need a stable snapshot must copy them before the model
+  trains further.

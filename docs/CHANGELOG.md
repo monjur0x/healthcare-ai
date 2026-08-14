@@ -70,6 +70,13 @@
   class-balanced client shards, trains an MLP with the synchronous
   `FedAvgServer`, and reports global metrics against a central
   baseline. Writes `global_model.joblib` and `report.json` to `--out`.
+- `ImageClassifier.partial_fit` — one-epoch incremental CNN training
+  from the current weights (labels restricted to fit-time classes), so
+  the image path joins federated rounds via the existing
+  `FederatedClient`/`FedAvgServer`; `BaseModel` now documents a default
+  `partial_fit` raising `NotImplementedError`.
+- End-to-end CNN federation tests (`federated/tests/test_cnn_federation.py`)
+  plus `partial_fit` unit tests in `models/tests/test_cnn.py`.
 - Added `flwr` to `backend/requirements.txt`.
 
 ### Changed

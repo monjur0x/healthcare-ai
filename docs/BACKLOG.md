@@ -113,9 +113,11 @@ trained locally per hospital, and are aggregated by Flower (FedAvg).
       evaluate) + `make_global_evaluator`; mirrors flwr `FedAvg`
       without the Ray process spawn (hermetic)
 - [x] Unit tests (roundtrip, FedAvg round, client + server evaluate)
+- [x] Federate the CNN end-to-end via `ImageClassifier.partial_fit`
+      (one-epoch incremental training, ADR-006)
 - [ ] Run the driver against real flwr `run_simulation` / a networked
-      `ServerApp` for deployment
-- [ ] Federate the CNN end-to-end (needs a torch `partial_fit`)
+      `ServerApp` for deployment (blocked: `ray` not installed; flwr
+      simulation uses a Ray backend)
 
 ---
 

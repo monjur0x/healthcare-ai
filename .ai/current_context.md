@@ -10,10 +10,9 @@ backend/federated (tie-in complete)
 
 ## Current Task
 
-Federated tie-in and the CSV → FedAvg end-to-end demo are complete.
-Remaining scoped items: a full flwr `run_simulation` / networked
-`ServerApp` deployment, and federating the CNN end-to-end (needs a
-torch `partial_fit`).
+Federated tie-in, the CSV → FedAvg demo, and CNN federation are
+complete. Remaining scoped items: a full flwr `run_simulation` /
+networked `ServerApp` deployment (blocked: `ray` not installed).
 
 ## Completed
 
@@ -44,15 +43,20 @@ torch `partial_fit`).
   presets for diabetes / heart / kidney / sepsis; writes
   `global_model.joblib` + `report.json`; `RoundResult.to_dict()` for
   JSON metrics
-- Tests: models 32, evaluation 11, federated 23; full suite 136 passing
+- `ImageClassifier.partial_fit` — one-epoch incremental CNN training
+  from current weights (labels restricted to fit-time classes); the
+  image path joins federated rounds via the existing client/server
+  (ADR-006). `BaseModel` documents a default `partial_fit`.
+- CNN federation end-to-end tests (`federated/tests/test_cnn_federation.py`)
+- Tests: models 36, evaluation 11, federated 25; full suite 142 passing
 
 ## Next Files (backend)
 
 - `federated/` — real flwr `run_simulation` / networked `ServerApp`
-  deployment; federated metrics (communication cost / convergence /
-  training time)
-- CNN federation — add torch `partial_fit` (continue from current
-  weights) so the image path can join rounds
+  deployment (needs `ray` installed) ; federated metrics (communication
+  cost / convergence / training time)
+- Extend `fedavg_demo.py` to the image path using the brain-tumor MRI
+  dataset (needs a GPU for practical runtimes)
 
 ## Design Notes
 
@@ -74,5 +78,5 @@ torch `partial_fit`).
 ## Status
 
 Milestone 2 (models + evaluation + federated tie-in + sync server
-driver + CSV → FedAvg demo) substantially complete. Remaining: real
-flwr simulation/deployment and CNN federation.
+driver + CSV → FedAvg demo + CNN federation) substantially complete.
+Remaining: real flwr simulation/deployment (blocked on `ray`).

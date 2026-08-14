@@ -79,9 +79,11 @@ are defined at the repository level but not yet scoped in the backlog.
 - [x] `ImageClassifier` (`cnn.py`) — torch CNN, trains/infers on
       channels-last `(N, H, W, C)` batches
 - [x] Adaptive pooling CNN: conv → batch-norm → pool → MLP head
+- [x] `partial_fit` — one-epoch incremental training from current
+      weights; the image path joins federated rounds (ADR-006)
 - [x] Deterministic training (seeded RNG + seeded dataloader shuffle)
 - [x] Persistence via `torch.save` / `ImageClassifier.load`
-- [x] Unit tests (`models/tests/test_cnn.py`) — 12 passing
+- [x] Unit tests (`models/tests/test_cnn.py`) — 16 passing
 
 ### Multimodal (`backend/models/multimodal`)
 
@@ -117,7 +119,9 @@ are defined at the repository level but not yet scoped in the backlog.
       client fit, aggregate, evaluate) + `make_global_evaluator`;
       mirrors flwr `FedAvg` without the Ray process spawn
 - [x] Unit tests (`tests/test_parameters.py`, `test_client.py`,
-      `test_server.py`) — 23 passing
+      `test_server.py`, `test_cnn_federation.py`) — 25 passing
+- [x] CNN federates end-to-end via `ImageClassifier.partial_fit`
+      (ADR-006); end-to-end tests in `federated/tests/`
 
 ### End-to-end demo (`backend/examples`)
 
@@ -133,8 +137,8 @@ are defined at the repository level but not yet scoped in the backlog.
 ## Testing
 
 - [x] Preprocessing: 70 tests passing
-- [x] Models: 32 tests passing (tabular 10 / CNN 12 / fusion 10)
+- [x] Models: 36 tests passing (tabular 10 / CNN 16 / fusion 10)
 - [x] Evaluation: 11 tests passing
-- [x] Federated: 23 tests passing
-- [x] Full suite: 136 tests passing (`pytest preprocessing/tests models/tests evaluation/tests federated/tests`)
+- [x] Federated: 25 tests passing
+- [x] Full suite: 142 tests passing (`pytest preprocessing/tests models/tests evaluation/tests federated/tests`)
 - [ ] Full test command documented in README/AGENTS (see `AGENTS.md` tooling note)
