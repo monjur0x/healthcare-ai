@@ -472,6 +472,78 @@ class ImageClassifier(BaseModel):
         self._model.load_state_dict(updates)
         logger.info("Loaded %d federated weight arrays", len(parameters))
 
+    def partial_fit(self, X: Any, y: np.ndarray) -> ImageClassifier:
+        """
+        Continue local training from the current weights (one pass).
+
+        Used by federated clients to fine-tune the aggregated global
+        weights on local image data. Runs one epoch of gradient steps
+        that reuse the existing CNN weights; labels must already be
+        known from ``fit``.
+
+        Parameters
+        ----------
+        X : Any
+            Image batch with shape (N, H, W, C) or (N, C, H, W).
+        y : np.ndarray
+            Target labels (a subset of the classes seen at fit time).
+
+        Returns
+        -------
+        ImageClassifier
+            Self, updated.
+
+        Raises
+        ------
+        ModelNotFittedError
+            If the model has not been fitted.
+        InvalidModelInputError
+            If the batch is malformed or contains unseen labels.
+        """
+
+        self._require_fitted()
+        batch = _as_channels_first(X, self._in_channels)
+        y = np.asarray(y)
+        if batch.shape[0] == 0:
+            raise InvalidModelInputError("Image batch is empty.")
+        if len(y) != batch.shape[0]:
+            raise InvalidModelInputError(
+                f"X has {batch.shape[0]} rows but y has {len(y)} labels."
+            )
+
+        label_map = {int(label): index for index, label in enumerate(self._classes)}
+        if not {int(value) for value in y}.issubset(label_map):
+            raise InvalidModelInputError(
+                "partial_fit received labels not present at fit time."
+            )
+        targets = np.array([label_map[int(value)] for value in y], dtype=np.int64)
+
+        torch.manual_seed(self._seed)
+        generator = torch.Generator().manual_seed(self._seed)
+        loader = DataLoader(
+            _TensorDataset(batch, targets),
+            batch_size=self._batch_size,
+            shuffle=True,
+            generator=generator,
+        )
+
+        optimizer = torch.optim.Adam(self._model.parameters(), lr=self._learning_rate)
+        criterion = nn.CrossEntropyLoss()
+
+        self._model.train()
+        for images, labels in loader:
+            images = images.to(self._device)
+            labels = labels.to(self._device)
+            optimizer.zero_grad()
+            output = self._model(images)
+            loss = criterion(output, labels)
+            loss.backward()
+            optimizer.step()
+
+        self._fitted = True
+        logger.info("Ran one partial-fit round on %d images", batch.shape[0])
+        return self
+
     @staticmethod
     def _validate(batch: np.ndarray, y: np.ndarray) -> None:
         """Validate image/label input shapes."""

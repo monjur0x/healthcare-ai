@@ -174,3 +174,33 @@ class BaseModel(ABC):
         raise NotImplementedError(
             f"{self.__class__.__name__} does not support set_parameters."
         )
+
+    def partial_fit(self, X: np.ndarray, y: np.ndarray) -> BaseModel:
+        """
+        Continue local training from the current weights.
+
+        Used by federated clients to fine-tune aggregated global weights
+        on local data. Models that cannot be trained incrementally
+        should leave this unimplemented.
+
+        Parameters
+        ----------
+        X : np.ndarray
+            Local feature matrix or batch.
+        y : np.ndarray
+            Local target labels.
+
+        Returns
+        -------
+        BaseModel
+            Self, updated.
+
+        Raises
+        ------
+        NotImplementedError
+            If the model does not support incremental training.
+        """
+
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not support partial_fit."
+        )

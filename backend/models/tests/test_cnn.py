@@ -129,6 +129,44 @@ def test_image_deterministic_same_seed(image_data) -> None:
     np.testing.assert_array_equal(first, second)
 
 
+def test_image_partial_fit_requires_fit(image_data) -> None:
+    X, y = image_data
+    with pytest.raises(ModelNotFittedError):
+        _fast_model().partial_fit(X, y)
+
+
+def test_image_partial_fit_continues_training(image_data) -> None:
+    X, y = image_data
+    model = _fast_model().fit(X[::2], y[::2])
+    before = [np.asarray(array).copy() for array in model.get_parameters()]
+
+    model.partial_fit(X[1::2], y[1::2])
+    after = model.get_parameters()
+
+    assert model.is_fitted
+    assert [array.shape for array in before] == [array.shape for array in after]
+    assert any(
+        not np.allclose(first, second)
+        for first, second in zip(before, after, strict=True)
+    )
+    assert _accuracy(model.predict(X), y) >= 0.75
+
+
+def test_image_partial_fit_preserves_classes(image_data) -> None:
+    X, y = image_data
+    model = _fast_model().fit(X, y)
+    model.partial_fit(X[:8], y[:8])
+    np.testing.assert_array_equal(model.classes_, np.array([0, 1]))
+
+
+def test_image_partial_fit_rejects_unseen_labels(image_data) -> None:
+    X, y = image_data
+    model = _fast_model().fit(X, y)
+    unseen = np.where(y == 0, 5, 6)
+    with pytest.raises(InvalidModelInputError):
+        model.partial_fit(X, unseen)
+
+
 def test_image_invalid_constructor_args() -> None:
     with pytest.raises(ValueError):
         ImageClassifier(epochs=0)
