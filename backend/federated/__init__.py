@@ -8,5 +8,12 @@ and clients; all training and inference stays inside the models.
 
 from .client import FederatedClient
 from .parameters import average_weights
+from .server import FedAvgServer, RoundResult, make_global_evaluator
 
-__all__ = ["FederatedClient", "average_weights"]
+__all__ = [
+    "FedAvgServer",
+    "FederatedClient",
+    "RoundResult",
+    "average_weights",
+    "make_global_evaluator",
+]

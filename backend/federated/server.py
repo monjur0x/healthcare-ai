@@ -1,0 +1,199 @@
+"""
+Synchronous FedAvg server driver.
+
+Implements the same FedAvg semantics as Flower's ``FedAvg`` strategy
+(aggregate client weights, distribute, evaluate) without the Ray-based
+``flwr.simulation.run_simulation`` process spawn, so experiments and
+tests stay hermetic and deterministic. Weight aggregation is pluggable
+and defaults to :func:`federated.parameters.average_weights`.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass
+
+import numpy as np
+
+from federated.client import FederatedClient
+from federated.parameters import average_weights
+from preprocessing.logger import get_logger
+
+logger = get_logger(__name__)
+
+EvaluateFn = Callable[[list[np.ndarray]], dict[str, float]]
+AggregateFn = Callable[[Sequence[list[np.ndarray]]], list[np.ndarray]]
+
+
+@dataclass(frozen=True)
+class RoundResult:
+    """
+    Global evaluation outcome for one FedAvg round.
+    """
+
+    round_index: int
+    n_clients: int
+    accuracy: float
+    log_loss: float | None = None
+    roc_auc: float | None = None
+
+
+class FedAvgServer:
+    """
+    Orchestrate federated rounds over a set of clients.
+
+    Parameters
+    ----------
+    clients : Sequence[FederatedClient]
+        Local clients participating in federation.
+    aggregate_fn : AggregateFn
+        Weight aggregation function; defaults to ``average_weights``.
+    num_rounds : int
+        Number of FedAvg rounds to run.
+    evaluate_fn : EvaluateFn | None
+        Optional global evaluation of the aggregated weights. When
+        omitted, per-client evaluations are combined (loss- and
+        count-weighted) into a global estimate.
+    """
+
+    def __init__(
+        self,
+        clients: Sequence[FederatedClient],
+        aggregate_fn: AggregateFn = average_weights,
+        num_rounds: int = 3,
+        evaluate_fn: EvaluateFn | None = None,
+    ) -> None:
+        if not clients:
+            raise ValueError("FedAvgServer requires at least one client.")
+        if num_rounds < 1:
+            raise ValueError("num_rounds must be a positive integer.")
+
+        self._clients = list(clients)
+        self._aggregate_fn = aggregate_fn
+        self._num_rounds = num_rounds
+        self._evaluate_fn = evaluate_fn
+        self._global_parameters: list[np.ndarray] | None = None
+        self._history: list[RoundResult] = []
+
+    @property
+    def global_parameters(self) -> list[np.ndarray] | None:
+        """Most recently aggregated global weights."""
+        return self._global_parameters
+
+    @property
+    def history(self) -> tuple[RoundResult, ...]:
+        """Per-round global evaluation results."""
+        return tuple(self._history)
+
+    def run(self) -> FedAvgServer:
+        """
+        Execute the federated training rounds.
+
+        Returns
+        -------
+        FedAvgServer
+            Self, with updated global weights and round history.
+        """
+
+        logger.info("Initializing global weights from %d clients", len(self._clients))
+        initial = self._aggregate_fn(
+            [client.get_parameters({}) for client in self._clients]
+        )
+        self._global_parameters = initial
+
+        for round_index in range(1, self._num_rounds + 1):
+            logger.info("Starting federated round %d", round_index)
+            updated = [
+                client.fit(self._global_parameters, {})[0] for client in self._clients
+            ]
+            self._global_parameters = self._aggregate_fn(updated)
+            self._history.append(self._evaluate_round(round_index))
+
+        return self
+
+    def _evaluate_round(self, round_index: int) -> RoundResult:
+        """Evaluate the aggregated weights for a round."""
+        if self._evaluate_fn is not None:
+            metrics = self._evaluate_fn(self._global_parameters)
+            return RoundResult(
+                round_index=round_index,
+                n_clients=len(self._clients),
+                accuracy=metrics.get("accuracy", 0.0),
+                log_loss=metrics.get("log_loss"),
+                roc_auc=metrics.get("roc_auc"),
+            )
+
+        losses, counts, metric_dicts = zip(
+            *[client.evaluate(self._global_parameters, {}) for client in self._clients],
+            strict=True,
+        )
+        total = sum(counts)
+        accuracy = (
+            sum(
+                count * metrics["accuracy"]
+                for count, metrics in zip(counts, metric_dicts, strict=True)
+            )
+            / total
+        )
+        log_loss = (
+            sum(count * loss for count, loss in zip(counts, losses, strict=True))
+            / total
+        )
+        logger.info(
+            "Round %d: global accuracy=%.4f log_loss=%.4f",
+            round_index,
+            accuracy,
+            log_loss,
+        )
+        return RoundResult(
+            round_index=round_index,
+            n_clients=len(self._clients),
+            accuracy=float(accuracy),
+            log_loss=float(log_loss),
+        )
+
+
+def make_global_evaluator(
+    model_factory: Callable[[], object],
+    X: object,
+    y_true: np.ndarray,
+) -> EvaluateFn:
+    """
+    Build a global evaluator that scores the aggregated weights on a
+    central hold-out dataset.
+
+    Parameters
+    ----------
+    model_factory : Callable[[], object]
+        Callable returning a fresh model with ``set_parameters``,
+        ``predict``, and ``predict_proba``.
+    X : object
+        Central validation features.
+    y_true : np.ndarray
+        Central validation labels.
+
+    Returns
+    -------
+    EvaluateFn
+        Function mapping global weights to an accuracy / log-loss /
+        ROC-AUC metrics dictionary.
+    """
+
+    from evaluation import evaluate_classifier
+
+    def evaluate(parameters: list[np.ndarray]) -> dict[str, float]:
+        model = model_factory()
+        model.set_parameters(parameters)
+        metrics = evaluate_classifier(model, X, y_true)
+        return {
+            "accuracy": metrics.accuracy,
+            "log_loss": (
+                metrics.log_loss_value if metrics.log_loss_value is not None else 0.0
+            ),
+            "roc_auc": metrics.roc_auc if metrics.roc_auc is not None else 0.0,
+        }
+
+    return evaluate
+
+
+__all__ = ["FedAvgServer", "RoundResult", "make_global_evaluator"]

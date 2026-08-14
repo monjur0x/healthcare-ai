@@ -15,6 +15,7 @@ import joblib
 import numpy as np
 import pandas as pd
 
+from sklearn.base import clone
 from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.neural_network import MLPClassifier
@@ -349,27 +350,41 @@ class TabularClassifier(BaseModel):
         """
 
         self._require_exchangeable()
-        self._require_fitted()
         if not parameters:
             raise InvalidModelInputError("No parameters provided.")
+        if len(parameters) % 2 != 0:
+            raise InvalidModelInputError(
+                "Parameters must alternate coefficient/intercept arrays."
+            )
 
-        if isinstance(self._classifier, MLPClassifier):
-            expected = 2 * len(self._classifier.coefs_)
+        n_features, n_classes = _parameter_shapes(self._model_name, parameters)
+
+        if not self._fitted:
+            n_dummy = max(n_classes, 2)
+            estimator = clone(self._classifier)
+            estimator.fit(
+                np.zeros((n_dummy, n_features)),
+                np.arange(n_dummy),
+            )
+            self._classifier = estimator
         else:
-            expected = 2
-        if len(parameters) != expected:
-            raise InvalidModelInputError(
-                f"Expected {expected} parameter arrays, got {len(parameters)}."
-            )
-
-        n_features, _ = _parameter_shapes(self._model_name, parameters)
-        if n_features != self._classifier.n_features_in_:
-            raise InvalidModelInputError(
-                f"Parameter features ({n_features}) do not match fitted "
-                f"features ({self._classifier.n_features_in_})."
-            )
+            if n_features != self._classifier.n_features_in_:
+                raise InvalidModelInputError(
+                    f"Parameter features ({n_features}) do not match fitted "
+                    f"features ({self._classifier.n_features_in_})."
+                )
+            if isinstance(self._classifier, MLPClassifier):
+                expected = 2 * len(self._classifier.coefs_)
+            else:
+                expected = 2
+            if len(parameters) != expected:
+                raise InvalidModelInputError(
+                    f"Expected {expected} parameter arrays, got {len(parameters)}."
+                )
 
         _assign_sklearn_weights(self._classifier, parameters)
+        self._classes = np.asarray(self._classifier.classes_)
+        self._fitted = True
         logger.info("Loaded %d federated weight arrays", len(parameters))
 
     def partial_fit(
