@@ -2,16 +2,17 @@
 
 ## Current Milestone
 
-Milestone 5 — FastAPI API (complete)
+Milestone 6 — n8n orchestration (complete)
 
 ## Current Module
 
-backend/api
+n8n/
 
 ## Current Task
 
-The API module and its tests are complete and verified. Next: n8n
-orchestration workflows, then the real flwr deployment path.
+The n8n orchestration workflows and README are complete (not yet
+committed — awaiting user go-ahead to push). Next: the real flwr
+deployment path, then API hardening.
 
 ## Completed
 
@@ -77,15 +78,29 @@ orchestration workflows, then the real flwr deployment path.
     added to `backend/requirements.txt`
 - Full suite **241 passing** (`pytest preprocessing/tests models/tests evaluation/tests federated/tests rag/tests examples/tests CrewAI/orchestrator/tests api/tests`)
   — black / isort / ruff clean
+- `n8n/` orchestration (Milestone 6, complete — uncommitted):
+  - `clinical-analysis.json` — webhook `/webhook/healthcare-analyze` →
+    `POST /api/v1/analyze` → validate + summarize → structured
+    `status: success|error` response (error branch merges HTTP and
+    validation failures)
+  - `clinical-pipeline-modality.json` — webhook
+    `/webhook/healthcare-pipeline` → normalize → switch on `modality`
+    (image / csv) → `/api/v1/analyze` with matching `input_type` →
+    merged summary or merged errors
+  - Optional bearer-token auth via an `httpHeaderAuth` credential
+    (placeholder reference; fine while `API_TOKEN` unset)
+  - `README.md` — import, config, payloads, smoke test
+  - Removed stale `workflow.json` / `workflow2.json` (they targeted the
+    removed old demo endpoints)
 
 ## Next Files (backend)
 
-- `n8n/` orchestration workflows that trigger the API / crew
 - `federated/` — real flwr `run_simulation` / networked `ServerApp`
   (blocked: `ray` not installed); privacy budget metrics
 - Orchestrator LLM path: wire a provider (needs `crewai[google-genai]`
   or similar + API key; never commit secrets)
-- API hardening: full OAuth, file upload endpoint, deployment container
+- API hardening: full OAuth, file upload endpoint, deployment container,
+  downstream n8n storage/notification branches
 
 ## Design Notes
 
@@ -112,5 +127,6 @@ orchestration workflows, then the real flwr deployment path.
 
 ## Status
 
-Milestone 5 (FastAPI API) complete and verified locally. Next milestone
-is n8n orchestration.
+Milestone 6 (n8n orchestration) complete; the n8n work is staged locally
+and awaiting user approval before commit + push. Next milestone is the
+real flwr deployment path.

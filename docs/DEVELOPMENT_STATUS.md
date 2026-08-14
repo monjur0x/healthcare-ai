@@ -56,8 +56,37 @@
 ## Not yet planned
 
 Milestones for `federated/`, `rag/`, `evaluation/`, CrewAI orchestration,
-and the FastAPI `api/` are complete; `n8n/` is not yet scoped in the
-backlog.
+the FastAPI `api/`, and `n8n/` are complete.
+
+---
+
+## Milestone 6 — n8n orchestration (`n8n/`)
+
+### Principles
+
+- Orchestration only: n8n triggers workflows and calls the FastAPI
+  backend; AI reasoning stays in the CrewAI crew, prediction / retrieval
+  stay in `models/` / `rag/` (`AGENTS.md`).
+
+### Workflows
+
+- [x] `clinical-analysis.json` — webhook (`/webhook/healthcare-analyze`)
+      → `POST /api/v1/analyze` → validate + summarize → structured
+      `status: success|error` response (error branch merges HTTP and
+      validation failures)
+- [x] `clinical-pipeline-modality.json` — webhook
+      (`/webhook/healthcare-pipeline`) → normalize input → switch on
+      `modality` (image / csv) → `/api/v1/analyze` with matching
+      `input_type` → merged success summary or merged error payload
+- [x] Optional bearer-token auth via an `httpHeaderAuth` credential
+      (placeholder reference; works while `API_TOKEN` is unset)
+- [x] `README.md` — import, configuration, example payloads, local smoke
+      test
+
+### Housekeeping
+
+- [x] Removed stale `n8n/workflow.json` / `workflow2.json` (targeted the
+      removed old demo endpoints)
 
 ---
 

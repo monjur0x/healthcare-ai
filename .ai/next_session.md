@@ -2,8 +2,9 @@
 
 ## Objective
 
-Milestone 6 — n8n orchestration workflows, then the real flwr deployment
-path.
+Milestone 7 — real flwr deployment path, then API hardening. The n8n
+workflows (Milestone 6) are done and staged locally awaiting the user's
+go-ahead to commit + push.
 
 ## Suggested Steps
 
@@ -11,15 +12,15 @@ path.
    `.ai/current_context.md`.
 2. Read `docs/BACKLOG.md` for the scoped items.
 3. Pick one of:
-   - n8n: workflow definitions that trigger the API (`/api/v1/analyze`,
-     `/api/v1/predict`, `/api/v1/retrieve`) / the crew; orchestration
-     only — AI reasoning stays in CrewAI (`AGENTS.md`).
    - Real flwr driver: wrap the synchronous `FedAvgServer` round logic
      in a `ServerApp`/`ClientApp` and run `flwr.simulation.run_simulation`
      (Ray backend). BLOCKED until `ray` is installed (heavy dependency).
    - API hardening: file-upload endpoint for CSV / image inference,
      full OAuth (currently optional static `API_TOKEN`), deployment
      Dockerfile for `uvicorn api.main:app`.
+   - Downstream n8n branches: append report to a local file, notify via
+     Slack/Discord (requires real credentials), docker-compose profile
+     running n8n + FastAPI + Qdrant together.
    - Port differential privacy from the removed old demo
      (`backend/CrewAI/app/federated/privacy.py`, noise-multiplier
      approach) into `federated/` — see `docs/BACKLOG.md`.
@@ -37,7 +38,8 @@ path.
 
 - Preprocessing stays in `preprocessing/`, models in `models/`,
   retrieval in `rag/`, orchestration in `CrewAI/orchestrator/`,
-  API in `api/`.
+  API in `api/`, orchestration only in `n8n/` (n8n triggers, CrewAI
+  reasons — `AGENTS.md`).
 - API routes only validate + delegate to `api/services.AnalysisService`;
   domain exceptions are mapped to `APIError` subclasses (ADR-009).
 - Federation only moves weights; training/inference stay in models.
@@ -60,5 +62,3 @@ path.
   interfaces).
 - Which LLM provider to wire into `ClinicalCrew.run_llm`
   (needs an API key; never commit secrets).
-- n8n: whether to commit plain JSON workflow definitions (n8n format)
-  or generate them from a small Python config.

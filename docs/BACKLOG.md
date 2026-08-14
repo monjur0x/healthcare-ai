@@ -249,11 +249,34 @@ in services (never in routes).
 - [x] Unit tests (`api/tests/`) — 19 passing
 - [x] `fastapi` / `uvicorn[standard]` added to `backend/requirements.txt`
 
-### Milestone 6+ (not yet scoped)
+### Milestone 6 — n8n orchestration (complete)
 
-- [ ] `n8n/` orchestration workflows that trigger the API / crew
+Scope derived from `docs/SOFTWARE_ARCHITECTURE.md` §n8n/: orchestration
+only — n8n triggers workflows and calls the FastAPI backend; AI
+reasoning stays in the CrewAI crew (see `AGENTS.md`).
+
+- [x] `n8n/clinical-analysis.json` — webhook (`/webhook/healthcare-analyze`)
+      → `POST /api/v1/analyze` → validate + summarize → structured
+      `status: success|error` response
+- [x] `n8n/clinical-pipeline-modality.json` — webhook
+      (`/webhook/healthcare-pipeline`) → normalize → switch on
+      `modality` (image / csv) → `/api/v1/analyze` with matching
+      `input_type` → merged summary or merged errors
+- [x] Optional bearer-token support via an `httpHeaderAuth` credential
+      (placeholder reference; backend `API_TOKEN` off by default)
+- [x] `n8n/README.md` — import, configuration, example payloads, local
+      smoke test
+- [x] Removed the stale `n8n/workflow.json` / `workflow2.json` (they
+      targeted the removed old demo endpoints `/predict/federated`,
+      `/predict/image`, `/agents/run-crew`)
+
+### Milestone 7+ (not yet scoped)
+
 - [ ] Full OAuth / per-user authentication (currently an optional static
       bearer token via `API_TOKEN`)
 - [ ] File upload endpoint for CSV / image inference
 - [ ] Deployment container for the API (the old app's Dockerfile was
       removed with the superseded demo)
+- [ ] Downstream n8n storage/notification branches (e.g. append report
+      to a local file, Slack/Discord notify) using real credentials
+- [ ] Docker Compose profile that runs n8n + FastAPI + Qdrant together

@@ -169,9 +169,27 @@
   `test_api.py`) — 19 passing (hermetic TestClient with a fake service
   plus a real fitted-model service test).
 - Added `fastapi` / `uvicorn[standard]` to `backend/requirements.txt`.
+- `n8n/` orchestration workflows (Milestone 6):
+  - `n8n/clinical-analysis.json` — webhook (`healthcare-analyze`) →
+    `POST /api/v1/analyze` → validate & summarize → structured
+    `status: success|error` webhook response (error branch merges HTTP
+    and validation failures)
+  - `n8n/clinical-pipeline-modality.json` — webhook
+    (`healthcare-pipeline`) → normalize input → switch on `modality`
+    (image vs csv) → `/api/v1/analyze` with matching `input_type` →
+    merged success summary or merged error payload
+  - Optional backend bearer-token auth wired through an
+    `httpHeaderAuth` credential (placeholder reference; works without
+    the credential while `API_TOKEN` is unset)
+  - `n8n/README.md` — import steps, configuration, example payloads,
+    security notes, local smoke test
 
 ### Removed
 
+- Removed the stale `n8n/workflow.json` and `n8n/workflow2.json`: they
+  targeted the removed old demo endpoints (`/predict/federated`,
+  `/predict/image`, `/agents/run-crew`, Streamlit dashboard, Qdrant
+  direct search) that no longer exist after the CrewAI demo cleanup.
 - Removed the superseded old CrewAI demo under `backend/CrewAI/`:
   `app/` (4,200 lines of orphaned demo API / crew / federated / models /
   rag / utils code), its `tests/test_healthcare.py` (one test failing),
