@@ -1,0 +1,11 @@
+# Healthcare AI Dashboard - Frontend Dependencies
+# Python 3.12+ required
+
+# Dashboard
+streamlit>=1.40.0
+
+# HTTP client for the FastAPI backend
+httpx>=0.28.0
+
+# Development
+pytest>=8.3.0

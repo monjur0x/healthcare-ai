@@ -1,0 +1,188 @@
+"""
+Tests for the dashboard API client using a mocked HTTP transport.
+
+The client is tested against canned backend responses so the tests are
+hermetic (no network, no running server).
+"""
+
+from __future__ import annotations
+
+import json
+
+import httpx
+import pytest
+from dashboard.client import APIConfig, HealthcareAPIClient, HealthcareAPIError
+
+
+def _client(handler) -> HealthcareAPIClient:
+    transport = httpx.MockTransport(handler)
+    return HealthcareAPIClient(
+        config=APIConfig(base_url="http://test"), transport=transport
+    )
+
+
+def _report():
+    return {
+        "patient": {"id": "p-1", "name": "Patient", "age": 54, "notes": ""},
+        "input_type": "csv",
+        "patient_summary": "Analysis completed.",
+        "prediction": {
+            "predicted_class": "1",
+            "probabilities": {"0": 0.3, "1": 0.7},
+            "confidence": 0.7,
+            "model_name": "tabular",
+        },
+        "risk": {
+            "risk_score": 0.7,
+            "risk_level": "high",
+            "risk_factors": [],
+            "monitoring_schedule": [],
+        },
+        "evidence": [
+            {
+                "document_id": "diabetes.txt",
+                "source": "protocols",
+                "score": 0.9,
+                "text": "diabetes is managed with metformin",
+            }
+        ],
+        "context": "",
+        "recommendations": ["Review with a physician."],
+        "limitations": "AI analysis has inherent limitations.",
+        "doctor_notice": "AI-assisted.",
+    }
+
+
+def test_health_parses_metadata():
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/health"
+        return httpx.Response(
+            200, json={"status": "healthy", "name": "Backend", "version": "1.0.0"}
+        )
+
+    client = _client(handler)
+    try:
+        result = client.health()
+    finally:
+        client.close()
+    assert result["status"] == "healthy"
+    assert result["version"] == "1.0.0"
+
+
+def test_predict_sends_features_and_parses():
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/api/v1/predict"
+        assert request.read() is not None
+        payload = json.loads(request.content)
+        assert payload["features"] == {"glucose": 148.0}
+        return httpx.Response(200, json=_report()["prediction"])
+
+    client = _client(handler)
+    try:
+        result = client.predict({"glucose": 148.0})
+    finally:
+        client.close()
+    assert result["predicted_class"] == "1"
+    assert result["confidence"] == 0.7
+
+
+def test_retrieve_forwards_query_and_top_k():
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        assert payload["query"] == "diabetes"
+        assert payload["top_k"] == 2
+        return httpx.Response(200, json=[_report()["evidence"][0]])
+
+    client = _client(handler)
+    try:
+        result = client.retrieve("diabetes", top_k=2)
+    finally:
+        client.close()
+    assert isinstance(result, list)
+    assert result[0]["document_id"] == "diabetes.txt"
+
+
+def test_analyze_builds_full_payload():
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["json"] = json.loads(request.content)
+        captured["url"] = request.url.path
+        return httpx.Response(200, json=_report())
+
+    client = _client(handler)
+    try:
+        result = client.analyze(
+            patient={"id": "p-1", "name": "Patient"},
+            features={"glucose": 148.0, "bmi": 27.3},
+            markers={"glucose": 148.0},
+            recommendations=["Review."],
+            input_type="csv",
+        )
+    finally:
+        client.close()
+
+    assert captured["url"] == "/api/v1/analyze"
+    assert captured["json"]["patient"]["id"] == "p-1"
+    assert captured["json"]["features"]["bmi"] == 27.3
+    assert captured["json"]["markers"]["glucose"] == 148.0
+    assert captured["json"]["recommendations"] == ["Review."]
+    assert captured["json"]["input_type"] == "csv"
+    assert result["prediction"]["predicted_class"] == "1"
+
+
+def test_analyze_omits_optional_fields_when_unset():
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["json"] = json.loads(request.content)
+        return httpx.Response(200, json=_report())
+
+    client = _client(handler)
+    try:
+        client.analyze(patient={"id": "p-1"}, features={"glucose": 148.0})
+    finally:
+        client.close()
+
+    assert "markers" not in captured["json"]
+    assert "recommendations" not in captured["json"]
+
+
+def test_error_response_raises_typed_error():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            503,
+            json={
+                "detail": {
+                    "code": "service_unavailable",
+                    "message": "No model configured.",
+                }
+            },
+        )
+
+    client = _client(handler)
+    try:
+        with pytest.raises(HealthcareAPIError) as excinfo:
+            client.predict({"glucose": 148.0})
+    finally:
+        client.close()
+
+    assert excinfo.value.status_code == 503
+    assert excinfo.value.code == "service_unavailable"
+    assert "No model configured" in excinfo.value.message
+
+
+def test_token_header_sent_when_configured():
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.headers["authorization"] == "Bearer s3cret"
+        return httpx.Response(200, json={"status": "healthy"})
+
+    transport = httpx.MockTransport(handler)
+    client = HealthcareAPIClient(
+        config=APIConfig(base_url="http://test", api_token="s3cret"),
+        transport=transport,
+    )
+    try:
+        client.health()
+    finally:
+        client.close()
