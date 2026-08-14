@@ -164,6 +164,47 @@ from PubMed / WHO / CDC / NICE / hospital-protocol knowledge sources.
 
 ---
 
+# Milestone 4 — CrewAI Orchestration (complete)
+
+Scope derived from `docs/SOFTWARE_ARCHITECTURE.md` §CrewAI/: agents
+orchestrate reasoning over the outputs of preprocessing, prediction,
+and retrieval modules; they never implement ML.
+
+## Scaffolding
+
+- [x] `orchestrator/config.py` — `CrewSettings` (env prefix `CREW_`)
+- [x] `orchestrator/exceptions.py` — `CrewError` + subclasses
+- [x] `orchestrator/schemas.py` — `PatientInfo`, `PredictionResult`,
+      `RiskResult`, `EvidenceItem`, `ClinicalReport`
+
+## Deterministic services
+
+- [x] `run_prediction` — single-row prediction from a fitted model
+- [x] `assess_risk` — risk score/level + monitoring schedule
+- [x] `retrieve_evidence` — RAG evidence wrapper
+- [x] `assemble_clinical_report` — final structured report
+
+## CrewAI layer
+
+- [x] `prompts.py` — seven agent profiles + task descriptions + report schema
+- [x] `tools.py` — `PredictionTool`, `RiskAssessmentTool`,
+      `RAGRetrievalTool`, `ClinicalReportTool`
+- [x] `agents.py` / `tasks.py` — seven agents and chained tasks
+- [x] `crew.py` — `ClinicalCrew` (deterministic + optional LLM path,
+      ADR-008)
+- [x] Unit tests — 25 passing (hermetic, no LLM keys)
+- [x] Demo (`examples/clinical_crew_demo.py`) + smoke tests (2 passing)
+
+## Deferred
+
+- [ ] Wire the LLM path to an installed provider (crewai google/OpenAI
+      extra); requires a provider API key (never commit secrets)
+- [ ] Image-path analysis through the crew (`input_type="image"` with
+      `ImageClassifier` outputs)
+- [ ] Crew memory / long-term storage of past reports
+
+---
+
 ## Backlog
 
 ### Examples
@@ -187,4 +228,4 @@ from PubMed / WHO / CDC / NICE / hospital-protocol knowledge sources.
 
 ### Milestone 3+ (not yet scoped)
 
-- [ ] `api/`, `CrewAI/`, `n8n/` backlog entries.
+- [ ] `api/` and `n8n/` backlog entries.

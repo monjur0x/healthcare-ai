@@ -100,3 +100,27 @@ Reason
   hermetic tests and fully offline setups.
 - Chunking is deterministic (word-based sliding window with overlap),
   so re-indexing the same corpus yields identical embeddings.
+
+---
+
+ADR-008
+
+CrewAI orchestration runs a deterministic tool pipeline by default, with
+an optional LLM layer.
+
+Reason
+
+- The seven-role crew must work, run end-to-end, and be tested without
+  an LLM API key, keeping the framework reproducible and hermetic.
+- `ClinicalCrew.run_analysis()` executes the tools directly
+  (prediction → risk → evidence retrieval → report assembly) and
+  always produces a structured `ClinicalReport`; agents never implement
+  ML, they consume pipeline outputs.
+- `run_llm()` (enabled only when `CREW_LLM_API_KEY` is set) builds the
+  CrewAI agents/tasks/crew from the same prompts and falls back to the
+  deterministic report when the crew result cannot be parsed.
+- Agents/tasks are constructed without a bound LLM unless the LLM path
+  is requested, so building them stays dependency-light (crewai's
+  google provider extra is not required).
+- Tools are thin wrappers over `orchestrator/services.py`, so the
+  deterministic core is testable in isolation.

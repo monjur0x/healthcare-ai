@@ -55,8 +55,9 @@
 
 ## Not yet planned
 
-Milestones for `federated/`, `rag/`, `evaluation/` are complete;
-`api/`, `CrewAI/`, and `n8n/` are not yet scoped in the backlog.
+Milestones for `federated/`, `rag/`, `evaluation/`, and CrewAI
+orchestration are complete; `api/` and `n8n/` are not yet scoped in the
+backlog.
 
 ---
 
@@ -198,6 +199,60 @@ context retrieval, per `docs/SOFTWARE_ARCHITECTURE.md` §rag/.
 
 ---
 
+## Milestone 4 — CrewAI Orchestration
+
+Scope: multi-agent reasoning over the outputs of the preprocessing,
+prediction, and retrieval modules, per `docs/SOFTWARE_ARCHITECTURE.md`
+§CrewAI/.
+
+### Package scaffolding (`backend/CrewAI/orchestrator`)
+
+- [x] Configuration (`config.py`) — `CrewSettings` (env prefix `CREW_`):
+      optional LLM provider/model/key, crew verbosity/memory, RAG top-k,
+      risk + marker thresholds
+- [x] Exceptions (`exceptions.py`) — `CrewError` + tool / report /
+      `LLMNotConfiguredError` subclasses
+- [x] Schemas (`schemas.py`) — `PatientInfo`, `PredictionResult`,
+      `RiskResult`, `EvidenceItem`, `ClinicalReport` (pydantic)
+
+### Deterministic services (`services.py`)
+
+- [x] `run_prediction` — single-row prediction from a fitted
+      `TabularClassifier` (feature-aligned, error-guarded)
+- [x] `assess_risk` — risk score/level from confidence + clinical
+      marker thresholds, with a deterministic monitoring schedule
+- [x] `retrieve_evidence` — wraps `RAGPipeline` into `EvidenceItem`s
+- [x] `assemble_clinical_report` — final structured report, consistent
+      prediction+risk pairing enforced
+
+### CrewAI layer
+
+- [x] `prompts.py` — role/goal/backstory for the seven agents, task
+      descriptions, report schema instructions
+- [x] `tools.py` — `PredictionTool`, `RiskAssessmentTool`,
+      `RAGRetrievalTool`, `ClinicalReportTool` (crewai `BaseTool`
+      wrappers over the services)
+- [x] `agents.py` — seven agents (Patient Analysis, Disease Prediction,
+      Medical Research, Treatment Planning, Explainability, Risk
+      Monitoring, Report Writing)
+- [x] `tasks.py` — chained tasks (analysis → prediction → evidence →
+      treatment → explanation → risk → report)
+- [x] `crew.py` — `ClinicalCrew`: `run_analysis()` offline
+      deterministic pipeline (ADR-008), `run_llm()` optional CrewAI
+      kickoff with deterministic fallback, `run()` selects by config
+- [x] Agents/tasks/crew construct without an LLM key (hermetic)
+- [x] Unit tests (`CrewAI/orchestrator/tests/`) — 25 passing
+
+### Orchestration demo (`backend/examples`)
+
+- [x] `clinical_crew_demo.py` — CSV → `CSVPipeline` →
+      `TabularClassifier` → `ClinicalCrew.run_analysis()` → clinical
+      report (`report.json`); built-in or `--corpus-dir` knowledge base
+- [x] Smoke tests (`examples/tests/test_clinical_crew_demo.py`) —
+      2 passing
+
+---
+
 ## Testing
 
 - [x] Preprocessing: 70 tests passing
@@ -205,6 +260,7 @@ context retrieval, per `docs/SOFTWARE_ARCHITECTURE.md` §rag/.
 - [x] Evaluation: 11 tests passing
 - [x] Federated: 35 tests passing
 - [x] RAG: 38 tests passing
-- [x] Examples: 5 tests passing
-- [x] Full suite: 195 tests passing (`pytest preprocessing/tests models/tests evaluation/tests federated/tests examples/tests rag/tests`)
+- [x] Orchestration (CrewAI): 25 tests passing
+- [x] Examples: 7 tests passing
+- [x] Full suite: 222 tests passing (`pytest preprocessing/tests models/tests evaluation/tests federated/tests rag/tests examples/tests CrewAI/orchestrator/tests`)
 - [ ] Full test command documented in README/AGENTS (see `AGENTS.md` tooling note)

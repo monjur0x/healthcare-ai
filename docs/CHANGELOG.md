@@ -114,6 +114,40 @@
   ground-truth JSON map is supplied. Writes `report.json` to `--out`.
 - Smoke tests for the RAG demo (`examples/tests/test_rag_demo.py`) —
   2 passing (synthetic corpus, no external data).
+- `backend/CrewAI/orchestrator/` — CrewAI multi-agent orchestration
+  consuming the preprocessing / models / rag modules:
+  - `config.py` — `CrewSettings` (env prefix `CREW_`): optional LLM
+    provider/model/key, crew verbosity/memory/max-iter, RAG top-k, risk
+    thresholds, clinical marker thresholds
+  - `exceptions.py` — `CrewError` + tool / report / LLM-configuration
+    subclasses
+  - `schemas.py` — `PatientInfo`, `PredictionResult`, `RiskResult`,
+    `EvidenceItem`, `ClinicalReport` (pydantic, serializable)
+  - `services.py` — deterministic, LLM-free core: `run_prediction`,
+    `assess_risk`, `retrieve_evidence` (wraps `RAGPipeline`),
+    `assemble_clinical_report`
+  - `prompts.py` — role/goal/backstory profiles for the seven agents,
+    task descriptions, and the report schema instructions
+  - `tools.py` — crewai `BaseTool` wrappers: `PredictionTool`,
+    `RiskAssessmentTool`, `RAGRetrievalTool`, `ClinicalReportTool`
+  - `agents.py` / `tasks.py` — the seven agents (Patient Analysis,
+    Disease Prediction, Medical Research, Treatment, Explainability,
+    Risk Monitoring, Report Writing) and their chained tasks; LLM is
+    bound only on the LLM path so construction stays hermetic
+  - `crew.py` — `ClinicalCrew`: `run_analysis()` (offline deterministic
+    pipeline, ADR-008), `run_llm()` (CrewAI kickoff when
+    `CREW_LLM_API_KEY` is set, with fallback to the deterministic
+    report), `run()` picks by configuration
+- Unit tests for the orchestrator (`CrewAI/orchestrator/tests/`
+  `test_prediction_service.py`, `test_risk_service.py`,
+  `test_report_service.py`, `test_tools.py`, `test_crew.py`,
+  `test_agents.py`) — 25 passing (hermetic, no LLM keys).
+- `examples/clinical_crew_demo.py` — end-to-end offline demo: CSV →
+  `CSVPipeline` → `TabularClassifier` → `ClinicalCrew.run_analysis()`
+  (prediction → risk → RAG evidence → clinical report) with a built-in
+  or `--corpus-dir` knowledge base; writes `report.json`.
+- Smoke tests for the clinical crew demo
+  (`examples/tests/test_clinical_crew_demo.py`) — 2 passing.
 
 ### Changed
 
