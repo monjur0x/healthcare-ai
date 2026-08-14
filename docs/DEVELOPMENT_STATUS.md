@@ -119,6 +119,15 @@ are defined at the repository level but not yet scoped in the backlog.
 - [x] Unit tests (`tests/test_parameters.py`, `test_client.py`,
       `test_server.py`) — 23 passing
 
+### End-to-end demo (`backend/examples`)
+
+- [x] `fedavg_demo.py` — CSV → `CSVPipeline` → `TabularClassifier`
+      (MLP) → FedAvg rounds → evaluation report. Presets for the local
+      datasets: diabetes / heart / kidney / sepsis. Partitions train
+      rows into class-balanced client shards (StratifiedKFold), trains
+      the synchronous `FedAvgServer`, compares against a central
+      baseline, writes `global_model.joblib` + `report.json`.
+
 ---
 
 ## Testing

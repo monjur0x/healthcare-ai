@@ -63,7 +63,13 @@
   evaluate) and `make_global_evaluator`; mirrors flwr `FedAvg`
   semantics without the Ray-based `run_simulation` process spawn so
   experiments stay hermetic. Unit tests (`tests/test_server.py`,
-  5 passing).
+  5 passing). `RoundResult` gained `to_dict()` for JSON reports.
+- `backend/examples/fedavg_demo.py` — end-to-end CSV → preprocessing →
+  FedAvg demo. Loads a hospital CSV (presets: diabetes / heart /
+  kidney / sepsis), runs `CSVPipeline`, partitions train rows into
+  class-balanced client shards, trains an MLP with the synchronous
+  `FedAvgServer`, and reports global metrics against a central
+  baseline. Writes `global_model.joblib` and `report.json` to `--out`.
 - Added `flwr` to `backend/requirements.txt`.
 
 ### Changed

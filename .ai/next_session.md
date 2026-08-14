@@ -18,8 +18,6 @@ real simulation API, or federate the CNN.
    - CNN federation: add `ImageClassifier.partial_fit` (a few gradient
      steps reusing existing weights) and a client test so the image path
      joins rounds.
-   - End-to-end demo: `CSVPipeline` → `TabularClassifier` → FedAvg
-     rounds → `evaluation.classification_metrics` report.
 4. Add unit tests under `backend/federated/tests/` or `backend/tests/`.
 5. Run: `pytest`, black, ruff, isort (against `backend/pyproject.toml`);
    use the CrewAI venv (has flwr 1.33.0).

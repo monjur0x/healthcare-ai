@@ -10,9 +10,10 @@ backend/federated (tie-in complete)
 
 ## Current Task
 
-Federated tie-in is complete. Remaining scoped items: a full flwr
-server/simulation driver, federating the CNN end-to-end (needs a torch
-`partial_fit`), and consuming `CSVPipeline` output directly.
+Federated tie-in and the CSV → FedAvg end-to-end demo are complete.
+Remaining scoped items: a full flwr `run_simulation` / networked
+`ServerApp` deployment, and federating the CNN end-to-end (needs a
+torch `partial_fit`).
 
 ## Completed
 
@@ -38,6 +39,11 @@ server/simulation driver, federating the CNN end-to-end (needs a torch
   via deterministic dummy fit (structure only)
 - `flwr>=1.33.0` added to `backend/requirements.txt` (installed in
   CrewAI venv)
+- `backend/examples/fedavg_demo.py` — end-to-end CSV → `CSVPipeline` →
+  `TabularClassifier` (MLP) → `FedAvgServer` → evaluation report;
+  presets for diabetes / heart / kidney / sepsis; writes
+  `global_model.joblib` + `report.json`; `RoundResult.to_dict()` for
+  JSON metrics
 - Tests: models 32, evaluation 11, federated 23; full suite 136 passing
 
 ## Next Files (backend)
@@ -47,7 +53,6 @@ server/simulation driver, federating the CNN end-to-end (needs a torch
   training time)
 - CNN federation — add torch `partial_fit` (continue from current
   weights) so the image path can join rounds
-- consume `CSVPipeline` output directly (accepts DataFrame today)
 
 ## Design Notes
 
@@ -69,6 +74,5 @@ server/simulation driver, federating the CNN end-to-end (needs a torch
 ## Status
 
 Milestone 2 (models + evaluation + federated tie-in + sync server
-driver) substantially complete. Remaining: real flwr
-simulation/deployment, CNN federation, direct CSV pipeline
-consumption.
+driver + CSV → FedAvg demo) substantially complete. Remaining: real
+flwr simulation/deployment and CNN federation.

@@ -68,9 +68,11 @@ trained locally per hospital, and are aggregated by Flower (FedAvg).
 ## CSV / tabular
 
 - [x] `TabularClassifier` (sklearn: gradient boosting / logistic / MLP)
-- [ ] Consume `CSVPipeline` output directly (accepts preprocessed DataFrame)
+- [x] Consume `CSVPipeline` output directly (accepts preprocessed DataFrame)
 - [x] Persistence to `artifacts/` via joblib
 - [x] Unit tests
+- [x] End-to-end CSV → FedAvg demo (`examples/fedavg_demo.py`, presets
+      for diabetes / heart / kidney / sepsis datasets)
 
 ## Image
 
