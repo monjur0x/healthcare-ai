@@ -251,6 +251,16 @@ prediction, and retrieval modules, per `docs/SOFTWARE_ARCHITECTURE.md`
 - [x] Smoke tests (`examples/tests/test_clinical_crew_demo.py`) —
       2 passing
 
+### Cleanup (`backend/CrewAI`)
+
+- [x] Removed the superseded old demo (`app/`, `tests/test_healthcare.py`,
+      `Dockerfile`, `docker-compose.yml`, `requirements.txt`,
+      `.env.example`, `README.md`) — nothing referenced it and the new
+      modules supersede it
+- [x] Untracked generated artifacts (`artifacts/*.pt`, `artifacts/*.json`)
+      and ignored `artifacts/` via `.gitignore`
+- [ ] Differential privacy port from the old demo (recorded in backlog)
+
 ---
 
 ## Testing

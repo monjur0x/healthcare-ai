@@ -149,6 +149,20 @@
 - Smoke tests for the clinical crew demo
   (`examples/tests/test_clinical_crew_demo.py`) — 2 passing.
 
+### Removed
+
+- Removed the superseded old CrewAI demo under `backend/CrewAI/`:
+  `app/` (4,200 lines of orphaned demo API / crew / federated / models /
+  rag / utils code), its `tests/test_healthcare.py` (one test failing),
+  `Dockerfile`, `docker-compose.yml`, `requirements.txt`,
+  `.env.example`, and `README.md`. Nothing referenced the old app; all
+  of it is superseded by `preprocessing/`, `models/`, `federated/`,
+  `rag/`, and `CrewAI/orchestrator/`.
+- Untracked generated artifacts under `backend/CrewAI/artifacts/`
+  (`global_model.pt`, `federation_summary.json`, `metrics.json`) and
+  added `artifacts/` to `backend/CrewAI/.gitignore`; `backend/artifacts/`
+  was already ignored.
+
 ### Changed
 
 - Replaced sklearn-based scaling with a dependency-light NumPy

@@ -19,6 +19,9 @@ flwr deployment path.
    - Real flwr driver: wrap the synchronous `FedAvgServer` round logic
      in a `ServerApp`/`ClientApp` and run `flwr.simulation.run_simulation`
      (Ray backend). BLOCKED until `ray` is installed (heavy dependency).
+   - Port differential privacy from the removed old demo
+     (`backend/CrewAI/app/federated/privacy.py`, noise-multiplier
+     approach) into `federated/` — see `docs/BACKLOG.md`.
 4. Add unit tests under the module's `tests/` directory; keep test-file
    basenames unique across `backend/`.
 5. Run: `pytest preprocessing/tests models/tests evaluation/tests federated/tests rag/tests examples/tests CrewAI/orchestrator/tests`,

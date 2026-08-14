@@ -50,6 +50,11 @@ FastAPI (`api/`), then n8n orchestration.
   knowledge base; smoke tests (2 passing)
 - Full suite **222 passing** (`pytest preprocessing/tests models/tests evaluation/tests federated/tests rag/tests examples/tests CrewAI/orchestrator/tests`)
   — black / isort / ruff clean
+- Cleanup: removed the superseded old CrewAI demo (`app/`,
+  `tests/test_healthcare.py`, `Dockerfile`, `docker-compose.yml`,
+  `requirements.txt`, `.env.example`, `README.md`) and untracked its
+  generated `artifacts/` (`.gitignore` now covers `artifacts/`); the old
+  demo's DP module is recorded in the backlog for a future port
 
 ## Next Files (backend)
 
@@ -73,8 +78,10 @@ FastAPI (`api/`), then n8n orchestration.
   is set; `markers` (raw clinical values) feed risk factor flags.
 - CrewAI venv (`backend/CrewAI/.venv-opencode`) has crewai 1.15.11,
   pydantic 2.12, qdrant-client, sentence-transformers, flwr, torch.
-- Existing `CrewAI/app/*` is the old FastAPI demo; the new module is
-  `CrewAI/orchestrator/` (backward compatible).
+- The old `CrewAI/app/*` demo was removed (superseded by
+  `preprocessing/`, `models/`, `federated/`, `rag/`, and
+  `CrewAI/orchestrator/`); the production CrewAI module is
+  `CrewAI/orchestrator/`.
 
 ## Status
 

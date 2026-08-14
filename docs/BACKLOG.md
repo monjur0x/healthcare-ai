@@ -101,6 +101,11 @@ trained locally per hospital, and are aggregated by Flower (FedAvg).
       `convergence_round`), training time (per-round + total) via
       `federated/metrics.py` and the `server.metrics` property
 - [ ] Privacy budget metrics — deferred (no privacy mechanism yet)
+- [ ] Differential privacy — the removed old demo
+      (`backend/CrewAI/app/federated/privacy.py`) contained a DP module
+      (noise-multiplier approach, epsilon/delta targets) that was never
+      ported to the new `federated/` module; port it when a privacy
+      mechanism is scoped
 
 ## Federated
 
