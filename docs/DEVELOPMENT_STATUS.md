@@ -105,6 +105,16 @@ are defined at the repository level but not yet scoped in the backlog.
       fitted `BaseModel` (tabular / image / fusion)
 - [x] Unit tests (`tests/test_metrics.py`) — 11 passing
 
+### Federated (`backend/federated`)
+
+- [x] `parameters.py` — `average_weights` (element-wise FedAvg)
+- [x] `client.py` — `FederatedClient` (flwr 1.33 `NumPyClient`): warm
+      start, one local `partial_fit` per round, log-loss + accuracy eval
+- [x] Weight exchange on models (`get_parameters` / `set_parameters`)
+      for tabular logistic/MLP, fusion, and CNN; `partial_fit` for MLP
+- [x] Unit tests (`tests/test_parameters.py`, `tests/test_client.py`) —
+      18 passing
+
 ---
 
 ## Testing
@@ -112,5 +122,6 @@ are defined at the repository level but not yet scoped in the backlog.
 - [x] Preprocessing: 70 tests passing
 - [x] Models: 32 tests passing (tabular 10 / CNN 12 / fusion 10)
 - [x] Evaluation: 11 tests passing
-- [x] Full suite: 113 tests passing (`pytest preprocessing/tests models/tests evaluation/tests`)
+- [x] Federated: 18 tests passing
+- [x] Full suite: 131 tests passing (`pytest preprocessing/tests models/tests evaluation/tests federated/tests`)
 - [ ] Full test command documented in README/AGENTS (see `AGENTS.md` tooling note)

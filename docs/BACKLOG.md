@@ -97,6 +97,19 @@ trained locally per hospital, and are aggregated by Flower (FedAvg).
 - [ ] Federated metrics (communication cost / convergence / training time)
       and privacy budget — deferred to federated milestone
 
+## Federated
+
+- [x] `federated/parameters.py` — `average_weights` (FedAvg), NumPy-native
+- [x] `federated/client.py` — `FederatedClient` (flwr `NumPyClient`,
+      flwr 1.33.0) with warm start, one local partial-fit per round,
+      log-loss + accuracy evaluation
+- [x] Weight exchange on models: `get_parameters` / `set_parameters`
+      (tabular logistic/MLP, fusion, CNN via state dict);
+      `partial_fit` (MLP)
+- [x] Unit tests (roundtrip, FedAvg round, client evaluate)
+- [ ] Full flwr server strategy / simulation driver
+- [ ] Federate the CNN end-to-end (needs a torch `partial_fit`)
+
 ---
 
 ## Backlog

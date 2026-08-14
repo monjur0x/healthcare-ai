@@ -50,6 +50,15 @@
   loss, and `evaluate_classifier` for uniform scoring of any fitted
   `BaseModel`), package `__init__.py`, and unit tests
   (`tests/test_metrics.py`, 11 passing).
+- Weight exchange on models: `get_parameters` / `set_parameters`
+  (tabular logistic/MLP, fusion, and CNN via torch state dict) and
+  `partial_fit` (incremental MLP training) for federated learning.
+- `backend/federated/` module: `parameters.py` (`average_weights`
+  FedAvg aggregation), `client.py` (`FederatedClient`, a flwr 1.33
+  `NumPyClient` with warm start and per-round local training), package
+  `__init__.py`, and unit tests (`tests/test_parameters.py`,
+  `tests/test_client.py`, 18 passing).
+- Added `flwr` to `backend/requirements.txt`.
 
 ### Changed
 
@@ -61,6 +70,9 @@
 - `TabularClassifier` and the new image/fusion models now read the
   random seed from `models.config` (`MODEL_RANDOM_SEED` via
   `models/config.py`) instead of `preprocessing.config`.
+- `TabularClassifier.get_parameters` now returns interleaved
+  `coefs_`/`intercepts_` (alternating W/b) so round-tripping through
+  `set_parameters` is self-consistent for MLP and logistic.
 
 ### Fixed
 

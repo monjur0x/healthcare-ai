@@ -6,59 +6,62 @@ Milestone 2 — Models (in progress)
 
 ## Current Module
 
-backend/evaluation
+backend/federated (tie-in complete)
 
 ## Current Task
 
-Evaluation hooks are complete. Remaining scoped items: the Flower
-federated tie-in (`federated/`) and consuming `CSVPipeline` output
-directly.
+Federated tie-in is complete. Remaining scoped items: a full flwr
+server/simulation driver, federating the CNN end-to-end (needs a torch
+`partial_fit`), and consuming `CSVPipeline` output directly.
 
 ## Completed
 
 - Milestone 1: preprocessing (CSV + image + multimodal), 70 tests
 - Shared model interface (`models/base.py`) and exceptions
-- `TabularClassifier` (`models/csv/tabular.py`) — sklearn gradient
-  boosting / logistic / mlp, joblib persistence
-- `ImageClassifier` (`models/image/cnn.py`) — torch CNN, channels-last
-  (N, H, W, C) or channels-first input, adaptive pooling, deterministic
-  training, `torch.save` / `load`
-- `FusionClassifier` (`models/multimodal/fusion_model.py`) — MLP over
-  `FusionResult.fused`, composes `TabularClassifier`
-- `models/config.py` — `ModelSettings` (seed, epochs, batch size,
-  learning rate, device; env prefix `MODEL_`); tabular seed unified here
-- `evaluation/metrics.py` — `ClassificationMetrics`, `classification_metrics`,
-  `evaluate_classifier` (accuracy, macro P/R/F1, MCC, ROC-AUC, PR-AUC,
-  log loss; binary + multiclass; None for undefined metrics)
-- `backend/requirements.txt` (+ torch)
-- Tests: models 32, evaluation 11; full suite 113 passing
+- `TabularClassifier` — sklearn GB / logistic / MLP, joblib persistence
+- `ImageClassifier` — torch CNN, channels-last or channels-first input
+- `FusionClassifier` — MLP over `FusionResult.fused`
+- `models/config.py` — `ModelSettings` (env prefix `MODEL_`)
+- `evaluation/metrics.py` — `ClassificationMetrics`,
+  `classification_metrics`, `evaluate_classifier`
+- Weight exchange on models: `get_parameters` / `set_parameters`
+  (tabular logistic/MLP, fusion, CNN); `partial_fit` (MLP only — sklearn
+  LogisticRegression/GB lack incremental training, see ADR-005)
+- `federated/parameters.py` — `average_weights` (FedAvg)
+- `federated/client.py` — `FederatedClient` (flwr 1.33 `NumPyClient`):
+  warm start, one local partial-fit per round, log-loss + accuracy eval
+- `flwr>=1.33.0` added to `backend/requirements.txt` (installed in
+  CrewAI venv)
+- Tests: models 32, evaluation 11, federated 18; full suite 131 passing
 
 ## Next Files (backend)
 
-- `federated/` — Flower (FedAvg) server + client wrapping
-  `TabularClassifier` / `ImageClassifier` / `FusionClassifier`; flwr not
-  yet installed in the CrewAI venv
+- `federated/` — flwr `ServerApp` / FedAvg strategy driver +
+  simulation; federated metrics (communication cost / convergence /
+  training time)
+- CNN federation — add torch `partial_fit` (continue from current
+  weights) so the image path can join rounds
 - consume `CSVPipeline` output directly (accepts DataFrame today)
-- federated + privacy metrics (proposal §12) deferred
 
 ## Design Notes
 
-- Models consume preprocessing outputs; no preprocessing inside models.
-- `ImageClassifier` accepts `(N, H, W, C)` (from `ImagePipeline`) or
-  `(N, C, H, W)`; auto-detects layout from the channel axis.
-- `FusionClassifier.fit/predict` accept a `FusionResult` or a raw 2D
-  fused matrix.
-- `evaluate_classifier(model, X, y_true)` scores any fitted `BaseModel`
-  via `predict` / `predict_proba`; AUC metrics omitted when the target
-  or scores cannot support them (single observed class, no proba).
-- Reproducibility: `MODEL_RANDOM_SEED` in `models/config.py`; the image
-  model seeds RNG and its dataloader shuffle generator.
-- Testing requires sklearn + torch: use the CrewAI venv
-  (`backend/CrewAI/.venv-opencode`), which has both.
+- Models expose weight exchange; federation only orchestrates weights.
+- `FederatedClient._build()` warm-starts an unfitted factory model on
+  local data so weight structure/classes are materialized before
+  `set_parameters`; each round rebuilds the model and applies the
+  aggregated global weights before one `partial_fit` pass.
+- `TabularClassifier.get_parameters` interleaves coefs/intercepts
+  (alternating W/b) — `set_parameters` mirrors that order.
+- `partial_fit` requires `model_name="mlp"` (ADR-005); logistic/GB
+  exchange weights but cannot do incremental local steps.
+- Reproducibility: `MODEL_RANDOM_SEED` in `models/config.py`.
+- Testing: use the CrewAI venv (`backend/CrewAI/.venv-opencode`) which
+  has sklearn, torch, flwr 1.33.0.
 - Existing `CrewAI/app/models/*` are old demos; do not mix with
   `backend/models/`.
 
 ## Status
 
-Milestone 2 models + evaluation complete. Federation is the next step;
-flwr must be added to the CrewAI venv first.
+Milestone 2 (models + evaluation + federated tie-in) substantially
+complete. Remaining: server driver, CNN federation, direct CSV pipeline
+consumption.
