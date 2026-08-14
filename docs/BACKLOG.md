@@ -124,6 +124,46 @@ trained locally per hospital, and are aggregated by Flower (FedAvg).
 
 ---
 
+# Milestone 3 — RAG (complete)
+
+Scope derived from `docs/SOFTWARE_ARCHITECTURE.md` §rag/: document
+ingestion, embedding generation, vector search, and context retrieval
+from PubMed / WHO / CDC / NICE / hospital-protocol knowledge sources.
+
+## Scaffolding
+
+- [x] Exceptions (`rag/exceptions.py`)
+- [x] Configuration (`rag/config.py`) — `RAGSettings`, env prefix `RAG_`
+- [x] Data structures (`rag/documents.py`) — `Document` / `Chunk` /
+      `RetrievalResult`
+- [x] Unit tests (`rag/tests/test_chunker.py`, `test_embedder.py`,
+      `test_vector_store.py`, `test_retriever.py`, `test_rag_metrics.py`,
+      `test_rag_pipeline.py`) — 38 passing
+
+## Retrieval
+
+- [x] `TextChunker` — deterministic word-based sliding window with
+      configurable overlap
+- [x] `Embedder` ABC + `TfidfEmbedder` (corpus-fitted, default) +
+      `HashingEmbedder` (fit-free fixed-dim) + `build_embedder`
+- [x] `VectorStore` — in-memory NumPy nearest-neighbour (cosine / dot)
+- [x] `Retriever` — incremental ingest, query → top-k chunks,
+      `build_context` (source-labelled prompt block)
+- [x] `RetrievalMetrics` — `precision_at_k`, `recall_at_k`, MRR
+- [x] `RAGPipeline` — chunker → embedder → store → retriever
+- [x] Demo (`examples/rag_demo.py`) — corpus → ingest → queries →
+      context + quality metrics; smoke tests (2 passing)
+
+## Deferred
+
+- [ ] Dense / transformer embeddings (sentence-transformers, Qdrant,
+      GPU) — deferred; TF-IDF + in-memory store keep the module
+      dependency-light and offline-friendly (ADR-007)
+- [ ] Streaming ingestion from PubMed / WHO / CDC / NICE APIs
+- [ ] Hybrid retrieval (BM25 + dense) and re-ranking
+
+---
+
 ## Backlog
 
 ### Examples
@@ -131,7 +171,8 @@ trained locally per hospital, and are aggregated by Flower (FedAvg).
 - [x] `fedavg_demo.py` — CSV → `CSVPipeline` → MLP → FedAvg + report
 - [x] `image_fedavg_demo.py` — image folders → `ImagePipeline` → CNN →
       FedAvg + report (smoke-tested on synthetic trees)
-- [ ] Add a RAG demo (`examples/rag_demo.py`) once the RAG module exists
+- [x] `rag_demo.py` — corpus directory → `RAGPipeline` → queries →
+      context + quality metrics (smoke-tested on synthetic corpus)
 
 ### Preprocessing enhancements
 
@@ -146,4 +187,4 @@ trained locally per hospital, and are aggregated by Flower (FedAvg).
 
 ### Milestone 3+ (not yet scoped)
 
-- [ ] `federated/`, `rag/`, `evaluation/`, `api/` backlog entries.
+- [ ] `api/`, `CrewAI/`, `n8n/` backlog entries.

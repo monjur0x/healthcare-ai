@@ -2,92 +2,79 @@
 
 ## Current Milestone
 
-Milestone 2 — Models (in progress)
+Milestone 3 — RAG (complete)
 
 ## Current Module
 
-backend/federated (tie-in complete)
+backend/rag
 
 ## Current Task
 
-Federated tie-in, CSV → FedAvg demo, CNN federation, and federated
-metrics are complete. Remaining scoped items: a full flwr
-`run_simulation` / networked `ServerApp` deployment (blocked: `ray`
-not installed).
+The RAG module (`backend/rag/`) and its demo are complete and pushed.
+Next: CrewAI agents consuming preprocessing / model / RAG outputs, then
+`api/` and `n8n/`.
 
 ## Completed
 
 - Milestone 1: preprocessing (CSV + image + multimodal), 70 tests
-- Shared model interface (`models/base.py`) and exceptions
-- `TabularClassifier` — sklearn GB / logistic / MLP, joblib persistence
-- `ImageClassifier` — torch CNN, channels-last or channels-first input
-- `FusionClassifier` — MLP over `FusionResult.fused`
-- `models/config.py` — `ModelSettings` (env prefix `MODEL_`)
-- `evaluation/metrics.py` — `ClassificationMetrics`,
-  `classification_metrics`, `evaluate_classifier`
-- Weight exchange on models: `get_parameters` / `set_parameters`
-  (tabular logistic/MLP, fusion, CNN); `partial_fit` (MLP only — sklearn
-  LogisticRegression/GB lack incremental training, see ADR-005)
-- `federated/parameters.py` — `average_weights` (FedAvg)
-- `federated/client.py` — `FederatedClient` (flwr 1.33 `NumPyClient`):
-  warm start, one local partial-fit per round, log-loss + accuracy eval
-- `federated/server.py` — synchronous `FedAvgServer` driver (initial
-  aggregation, per-round client fit → aggregate → evaluate) +
-  `make_global_evaluator` (central hold-out scoring); mirrors flwr
-  `FedAvg` without the Ray process spawn
-- `TabularClassifier.set_parameters` materializes unfitted estimators
-  via deterministic dummy fit (structure only)
-- `flwr>=1.33.0` added to `backend/requirements.txt` (installed in
-  CrewAI venv)
-- `backend/examples/fedavg_demo.py` — end-to-end CSV → `CSVPipeline` →
-  `TabularClassifier` (MLP) → `FedAvgServer` → evaluation report;
-  presets for diabetes / heart / kidney / sepsis; writes
-  `global_model.joblib` + `report.json`; `RoundResult.to_dict()` for
-  JSON metrics
-- `ImageClassifier.partial_fit` — one-epoch incremental CNN training
-  from current weights (labels restricted to fit-time classes); the
-  image path joins federated rounds via the existing client/server
-  (ADR-006). `BaseModel` documents a default `partial_fit`.
-- CNN federation end-to-end tests (`federated/tests/test_cnn_federation.py`)
-- `federated/metrics.py` — `FederatedMetrics` + `parameter_set_bytes`,
-  `round_accuracy_deltas`, `convergence_round`; `FedAvgServer.run()`
-  records per-round duration + bytes (client upload + broadcast),
-  surfaced via `RoundResult` fields and the `server.metrics` property;
-  demo report includes a `federated_metrics` section
-- `examples/image_fedavg_demo.py` — image-path FedAvg demo (folder
-  discovery → `ImagePipeline` → CNN shards → `FedAvgServer` → report +
-  `global_model.pt`); verified on the brain-tumor MRI dataset;
-  smoke-tested with synthetic trees (`examples/tests`)
-- Tests: models 36, evaluation 11, federated 35, examples 3; full
-  suite 155 passing
+- Milestone 2: models, evaluation, federated tie-in, sync FedAvg server,
+  CSV → FedAvg demo, CNN federation, federated metrics, image FedAvg
+  demo (see git history and `docs/DEVELOPMENT_STATUS.md`)
+- `backend/rag/` — document ingestion → chunking → embedding → vector
+  search → context retrieval:
+  - `exceptions.py` — `RAGError` + `EmptyCorpusError`,
+    `EmptyQueryError`, `InvalidDocumentError`, `EmbeddingError`,
+    `RetrievalError`
+  - `config.py` — `RAGSettings` (env prefix `RAG_`): chunk size/overlap,
+    embedding model, max features, top-k, similarity metric
+  - `documents.py` — frozen `Document` / `Chunk` / `RetrievalResult`
+    dataclasses with `to_dict()`; `Chunk` inherits the document source
+  - `chunker.py` — `TextChunker`: deterministic word-based sliding
+    window with overlap
+  - `embedder.py` — `Embedder` ABC, `TfidfEmbedder` (corpus-fitted,
+    default), `HashingEmbedder` (fit-free fixed-dim), `build_embedder`
+  - `store.py` — `VectorStore`: in-memory NumPy nearest-neighbour over
+    cosine / dot
+  - `retriever.py` — `Retriever`: incremental ingest, query → top-k
+    chunks, `build_context` (source-labelled prompt block)
+  - `metrics.py` — `precision_at_k`, `recall_at_k`,
+    `mean_reciprocal_rank`, `RetrievalMetrics`
+  - `pipeline.py` — `RAGPipeline` composing chunker → embedder → store →
+    retriever (`ingest_documents`, `ingest_texts`, `retrieve`,
+    `build_context`)
+  - No new dependencies (reuses scikit-learn); ADR-007
+- `examples/rag_demo.py` — corpus directory → `RAGPipeline` → queries →
+  top-k chunks + context; quality metrics when `--ground-truth` JSON
+  (query → relevant document ids) is supplied; writes `report.json`
+- Tests: RAG 38 + examples 2 (demo smoke tests) new; full suite
+  **195 passing** (`pytest preprocessing/tests models/tests evaluation/tests federated/tests examples/tests rag/tests`)
+  — black / isort / ruff clean
 
 ## Next Files (backend)
 
+- `CrewAI/` agents/tasks consuming preprocessing + model + RAG outputs
+  (retrieval tools wrapping `RAGPipeline`)
+- `api/` FastAPI routes (services only; no business logic in routes)
+- `n8n/` orchestration triggers
 - `federated/` — real flwr `run_simulation` / networked `ServerApp`
-  deployment (needs `ray` installed); privacy budget metrics
-- RAG module + demo (`rag/`, `examples/rag_demo.py`) — next milestone
-- CrewAI agents consuming model + preprocessing outputs
+  (blocked: `ray` not installed); privacy budget metrics
 
 ## Design Notes
 
-- Models expose weight exchange; federation only orchestrates weights.
-- `FederatedClient._build()` warm-starts an unfitted factory model on
-  local data so weight structure/classes are materialized before
-  `set_parameters`; each round rebuilds the model and applies the
-  aggregated global weights before one `partial_fit` pass.
-- `TabularClassifier.get_parameters` interleaves coefs/intercepts
-  (alternating W/b) — `set_parameters` mirrors that order.
-- `partial_fit` requires `model_name="mlp"` (ADR-005); logistic/GB
-  exchange weights but cannot do incremental local steps.
-- Reproducibility: `MODEL_RANDOM_SEED` in `models/config.py`.
-- Testing: use the CrewAI venv (`backend/CrewAI/.venv-opencode`) which
-  has sklearn, torch, flwr 1.33.0.
+- RAG follows the preprocessing pipeline pattern: `RAGPipeline` is the
+  single reusable entry point for CrewAI / API / examples.
+- Embedding and storage are swappable behind `Embedder` ABC and
+  `VectorStore`; dense models (sentence-transformers) and Qdrant are the
+  deferred production path (ADR-007).
+- `Retriever.build_context` labels chunks with document id + source —
+  the prompt-ready context block for CrewAI tasks.
+- Demo report shape: corpus stats + per-query results (document ids +
+  scores) + context + optional metrics.
+- Testing: use the CrewAI venv (`backend/CrewAI/.venv-opencode`).
 - Existing `CrewAI/app/models/*` are old demos; do not mix with
   `backend/models/`.
 
 ## Status
 
-Milestone 2 (models + evaluation + federated tie-in + sync server
-driver + CSV → FedAvg demo + CNN federation + federated metrics +
-image FedAvg demo) substantially complete. Remaining: real flwr
-simulation/deployment (blocked on `ray`).
+Milestone 3 (RAG module + demo) complete and pushed. Next milestone is
+CrewAI agent orchestration, then FastAPI, then n8n.

@@ -55,8 +55,8 @@
 
 ## Not yet planned
 
-Milestones for `federated/`, `rag/`, `evaluation/`, `api/`
-are defined at the repository level but not yet scoped in the backlog.
+Milestones for `federated/`, `rag/`, `evaluation/` are complete;
+`api/`, `CrewAI/`, and `n8n/` are not yet scoped in the backlog.
 
 ---
 
@@ -156,12 +156,55 @@ are defined at the repository level but not yet scoped in the backlog.
 
 ---
 
+## Milestone 3 — RAG (Retrieval-Augmented Generation)
+
+Scope: document ingestion, embedding generation, vector search, and
+context retrieval, per `docs/SOFTWARE_ARCHITECTURE.md` §rag/.
+
+### Package scaffolding (`backend/rag`)
+
+- [x] Exceptions (`exceptions.py`) — `RAGError` + `EmptyCorpusError`,
+      `EmptyQueryError`, `InvalidDocumentError`, `EmbeddingError`,
+      `RetrievalError`
+- [x] Configuration (`config.py`) — `RAGSettings` (env prefix `RAG_`):
+      chunk size/overlap, embedding model, max features, top-k, metric
+- [x] Data structures (`documents.py`) — `Document` / `Chunk` /
+      `RetrievalResult`, all frozen dataclasses with `to_dict()`
+
+### Retrieval components
+
+- [x] `chunker.py` — `TextChunker`: deterministic word-based sliding
+      window with configurable overlap
+- [x] `embedder.py` — `Embedder` ABC + `TfidfEmbedder` (corpus-fitted)
+      + `HashingEmbedder` (fit-free fixed-dim) + `build_embedder`;
+      transformer embedders swappable behind the interface
+- [x] `store.py` — `VectorStore`: in-memory NumPy nearest-neighbour
+      search over cosine / dot
+- [x] `retriever.py` — `Retriever`: incremental ingest, query → top-k
+      chunks, `build_context` (source-labelled prompt block)
+- [x] `metrics.py` — `precision_at_k`, `recall_at_k`,
+      `mean_reciprocal_rank`, `RetrievalMetrics`
+- [x] `pipeline.py` — `RAGPipeline` composing chunker → embedder →
+      store → retriever (`ingest_documents`, `ingest_texts`,
+      `retrieve`, `build_context`)
+- [x] No new dependencies (reuses scikit-learn)
+- [x] Unit tests (`rag/tests/`) — 38 passing
+
+### Retrieval demo (`backend/examples`)
+
+- [x] `rag_demo.py` — corpus directory → `RAGPipeline` → queries →
+      top-k chunks + context + (optional) quality metrics
+- [x] Smoke tests (`examples/tests/test_rag_demo.py`) — 2 passing
+
+---
+
 ## Testing
 
 - [x] Preprocessing: 70 tests passing
 - [x] Models: 36 tests passing (tabular 10 / CNN 16 / fusion 10)
 - [x] Evaluation: 11 tests passing
 - [x] Federated: 35 tests passing
-- [x] Examples: 3 tests passing
-- [x] Full suite: 155 tests passing (`pytest preprocessing/tests models/tests evaluation/tests federated/tests examples/tests`)
+- [x] RAG: 38 tests passing
+- [x] Examples: 5 tests passing
+- [x] Full suite: 195 tests passing (`pytest preprocessing/tests models/tests evaluation/tests federated/tests examples/tests rag/tests`)
 - [ ] Full test command documented in README/AGENTS (see `AGENTS.md` tooling note)

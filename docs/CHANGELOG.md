@@ -92,6 +92,28 @@
   with a saved `global_model.pt`. Smoke tests in
   `examples/tests/test_image_fedavg_demo.py`.
 - Added `flwr` to `backend/requirements.txt`.
+- `backend/rag/` module: `exceptions.py` (`RAGError` + empty corpus /
+  query, invalid document, embedding, retrieval subclasses),
+  `config.py` (`RAGSettings`, env prefix `RAG_`), `documents.py`
+  (`Document` / `Chunk` / `RetrievalResult`), `chunker.py`
+  (`TextChunker`, word-based sliding window with configurable overlap),
+  `embedder.py` (`Embedder` ABC + `TfidfEmbedder` + `HashingEmbedder`
+  + `build_embedder`), `store.py` (`VectorStore`, NumPy cosine / dot
+  nearest-neighbour), `retriever.py` (`Retriever` with incremental
+  ingest and `build_context`), `metrics.py` (`precision_at_k`,
+  `recall_at_k`, `mean_reciprocal_rank`, `RetrievalMetrics`), and
+  `pipeline.py` (`RAGPipeline` composing chunker → embedder → store →
+  retriever). No new dependencies (reuses scikit-learn).
+- Unit tests for the RAG module (`rag/tests/test_chunker.py`,
+  `test_embedder.py`, `test_vector_store.py`, `test_retriever.py`,
+  `test_rag_metrics.py`, `test_rag_pipeline.py`) — 38 passing.
+- `examples/rag_demo.py` — end-to-end retrieval demo. Loads a corpus
+  directory of `.txt`/`.md` files, ingests them through `RAGPipeline`,
+  answers queries with top-k chunks + a prompt-ready context block, and
+  reports retrieval quality metrics (precision@k, recall@k, MRR) when a
+  ground-truth JSON map is supplied. Writes `report.json` to `--out`.
+- Smoke tests for the RAG demo (`examples/tests/test_rag_demo.py`) —
+  2 passing (synthetic corpus, no external data).
 
 ### Changed
 

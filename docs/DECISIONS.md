@@ -80,3 +80,23 @@ Reason
 - `get_parameters` returns memory-shared NumPy views of the state dict;
   callers that need a stable snapshot must copy them before the model
   trains further.
+
+---
+
+ADR-007
+
+RAG uses a TF-IDF embedder and an in-memory vector store.
+
+Reason
+
+- Retrieval stays dependency-light (reuses scikit-learn) and fully
+  offline-friendly, matching the repository's research constraints
+  (reproducibility, no hidden randomness, minimal dependencies).
+- An `Embedder` ABC plus `VectorStore` keep the production path
+  swappable: dense models (sentence-transformers) and a persistent
+  backend (Qdrant) can replace them behind the same interfaces without
+  touching `Retriever` / `RAGPipeline`.
+- `HashingEmbedder` provides a fit-free fixed-dimension fallback for
+  hermetic tests and fully offline setups.
+- Chunking is deterministic (word-based sliding window with overlap),
+  so re-indexing the same corpus yields identical embeddings.
