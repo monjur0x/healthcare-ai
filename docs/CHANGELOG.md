@@ -84,6 +84,13 @@
   estimated bytes exchanged (client upload + broadcast); `RoundResult`
   and the `server.metrics` property surface them, and the FedAvg demo
   report now includes a `federated_metrics` section.
+- `examples/image_fedavg_demo.py` — end-to-end image-path FedAvg demo.
+  Discovers class-labelled image folders, preprocesses batches with
+  `ImagePipeline`, partitions train rows into class-balanced client
+  shards, trains the CNN via `ImageClassifier.partial_fit` on the
+  synchronous `FedAvgServer`, and reports baseline + federated metrics
+  with a saved `global_model.pt`. Smoke tests in
+  `examples/tests/test_image_fedavg_demo.py`.
 - Added `flwr` to `backend/requirements.txt`.
 
 ### Changed

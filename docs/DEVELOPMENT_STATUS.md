@@ -146,6 +146,13 @@ are defined at the repository level but not yet scoped in the backlog.
       rows into class-balanced client shards (StratifiedKFold), trains
       the synchronous `FedAvgServer`, compares against a central
       baseline, writes `global_model.joblib` + `report.json`.
+- [x] `image_fedavg_demo.py` — image-path FedAvg demo. Discovers
+      class-labelled image folders (e.g. the brain-tumor MRI dataset),
+      preprocesses with `ImagePipeline`, federates the CNN via
+      `ImageClassifier.partial_fit`, reports baseline + federated
+      metrics, writes `global_model.pt` + `report.json`.
+- [x] Smoke tests (`examples/tests/test_image_fedavg_demo.py`) — 3
+      passing (run on synthetic image trees, no external data)
 
 ---
 
@@ -155,5 +162,6 @@ are defined at the repository level but not yet scoped in the backlog.
 - [x] Models: 36 tests passing (tabular 10 / CNN 16 / fusion 10)
 - [x] Evaluation: 11 tests passing
 - [x] Federated: 35 tests passing
-- [x] Full suite: 152 tests passing (`pytest preprocessing/tests models/tests evaluation/tests federated/tests`)
+- [x] Examples: 3 tests passing
+- [x] Full suite: 155 tests passing (`pytest preprocessing/tests models/tests evaluation/tests federated/tests examples/tests`)
 - [ ] Full test command documented in README/AGENTS (see `AGENTS.md` tooling note)

@@ -126,6 +126,13 @@ trained locally per hospital, and are aggregated by Flower (FedAvg).
 
 ## Backlog
 
+### Examples
+
+- [x] `fedavg_demo.py` — CSV → `CSVPipeline` → MLP → FedAvg + report
+- [x] `image_fedavg_demo.py` — image folders → `ImagePipeline` → CNN →
+      FedAvg + report (smoke-tested on synthetic trees)
+- [ ] Add a RAG demo (`examples/rag_demo.py`) once the RAG module exists
+
 ### Preprocessing enhancements
 
 - [ ] Add datetime parsing to feature engineering.

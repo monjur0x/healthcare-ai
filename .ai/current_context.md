@@ -54,14 +54,19 @@ not installed).
   records per-round duration + bytes (client upload + broadcast),
   surfaced via `RoundResult` fields and the `server.metrics` property;
   demo report includes a `federated_metrics` section
-- Tests: models 36, evaluation 11, federated 35; full suite 152 passing
+- `examples/image_fedavg_demo.py` — image-path FedAvg demo (folder
+  discovery → `ImagePipeline` → CNN shards → `FedAvgServer` → report +
+  `global_model.pt`); verified on the brain-tumor MRI dataset;
+  smoke-tested with synthetic trees (`examples/tests`)
+- Tests: models 36, evaluation 11, federated 35, examples 3; full
+  suite 155 passing
 
 ## Next Files (backend)
 
 - `federated/` — real flwr `run_simulation` / networked `ServerApp`
   deployment (needs `ray` installed); privacy budget metrics
-- Extend `fedavg_demo.py` to the image path using the brain-tumor MRI
-  dataset (needs a GPU for practical runtimes)
+- RAG module + demo (`rag/`, `examples/rag_demo.py`) — next milestone
+- CrewAI agents consuming model + preprocessing outputs
 
 ## Design Notes
 
@@ -83,6 +88,6 @@ not installed).
 ## Status
 
 Milestone 2 (models + evaluation + federated tie-in + sync server
-driver + CSV → FedAvg demo + CNN federation + federated metrics)
-substantially complete. Remaining: real flwr simulation/deployment
-(blocked on `ray`).
+driver + CSV → FedAvg demo + CNN federation + federated metrics +
+image FedAvg demo) substantially complete. Remaining: real flwr
+simulation/deployment (blocked on `ray`).
