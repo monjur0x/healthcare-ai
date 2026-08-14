@@ -37,6 +37,24 @@ class RoundResult:
     log_loss: float | None = None
     roc_auc: float | None = None
 
+    def to_dict(self) -> dict[str, float | int | None]:
+        """
+        Serialize the round result to a JSON-friendly dictionary.
+
+        Returns
+        -------
+        dict[str, float | int | None]
+            Round metadata and metrics keyed by name.
+        """
+
+        return {
+            "round_index": self.round_index,
+            "n_clients": self.n_clients,
+            "accuracy": self.accuracy,
+            "log_loss": self.log_loss,
+            "roc_auc": self.roc_auc,
+        }
+
 
 class FedAvgServer:
     """
