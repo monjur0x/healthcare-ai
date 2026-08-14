@@ -96,8 +96,11 @@ trained locally per hospital, and are aggregated by Flower (FedAvg).
 - [x] `evaluate_classifier(model, X, y_true)` scores any fitted `BaseModel`
 - [x] Accuracy, precision/recall/F1 (macro), MCC, ROC-AUC, PR-AUC, log loss
 - [x] Unit tests
-- [ ] Federated metrics (communication cost / convergence / training time)
-      and privacy budget — deferred to federated milestone
+- [x] Federated metrics — communication cost (`parameter_set_bytes`,
+      per-round + total bytes), convergence (`round_accuracy_deltas`,
+      `convergence_round`), training time (per-round + total) via
+      `federated/metrics.py` and the `server.metrics` property
+- [ ] Privacy budget metrics — deferred (no privacy mechanism yet)
 
 ## Federated
 

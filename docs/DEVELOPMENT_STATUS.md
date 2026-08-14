@@ -123,6 +123,21 @@ are defined at the repository level but not yet scoped in the backlog.
 - [x] CNN federates end-to-end via `ImageClassifier.partial_fit`
       (ADR-006); end-to-end tests in `federated/tests/`
 
+### Federated metrics (`federated/metrics.py`)
+
+- [x] `parameter_set_bytes` — bytes for a full weight exchange
+- [x] `round_accuracy_deltas` + `convergence_round` — round-to-round
+      accuracy change and first converged round (threshold-tunable)
+- [x] `FederatedMetrics` dataclass (rounds/clients, bytes exchanged,
+      per-round + total time, accuracy deltas, convergence round) with
+      `to_dict()` for JSON reports
+- [x] `FedAvgServer.run()` records per-round wall-clock duration and
+      estimated communication bytes (client upload + broadcast);
+      exposed via `RoundResult` fields and the `server.metrics` property
+- [x] Demo report (`fedavg_demo.py`) now includes `federated_metrics`
+- [x] Unit tests (`tests/test_federated_metrics.py`) + server tests —
+      10 passing
+
 ### End-to-end demo (`backend/examples`)
 
 - [x] `fedavg_demo.py` — CSV → `CSVPipeline` → `TabularClassifier`
@@ -139,6 +154,6 @@ are defined at the repository level but not yet scoped in the backlog.
 - [x] Preprocessing: 70 tests passing
 - [x] Models: 36 tests passing (tabular 10 / CNN 16 / fusion 10)
 - [x] Evaluation: 11 tests passing
-- [x] Federated: 25 tests passing
-- [x] Full suite: 142 tests passing (`pytest preprocessing/tests models/tests evaluation/tests federated/tests`)
+- [x] Federated: 35 tests passing
+- [x] Full suite: 152 tests passing (`pytest preprocessing/tests models/tests evaluation/tests federated/tests`)
 - [ ] Full test command documented in README/AGENTS (see `AGENTS.md` tooling note)

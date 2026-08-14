@@ -77,6 +77,13 @@
   `partial_fit` raising `NotImplementedError`.
 - End-to-end CNN federation tests (`federated/tests/test_cnn_federation.py`)
   plus `partial_fit` unit tests in `models/tests/test_cnn.py`.
+- `federated/metrics.py` — `FederatedMetrics` + helpers
+  (`parameter_set_bytes`, `round_accuracy_deltas`, `convergence_round`)
+  for communication cost, convergence, and training time.
+  `FedAvgServer.run()` records per-round wall-clock duration and
+  estimated bytes exchanged (client upload + broadcast); `RoundResult`
+  and the `server.metrics` property surface them, and the FedAvg demo
+  report now includes a `federated_metrics` section.
 - Added `flwr` to `backend/requirements.txt`.
 
 ### Changed
