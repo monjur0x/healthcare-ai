@@ -56,7 +56,8 @@
 ## Not yet planned
 
 Milestones for `federated/`, `rag/`, `evaluation/`, CrewAI orchestration,
-the FastAPI `api/`, and `n8n/` are complete.
+the FastAPI `api/`, `n8n/`, and the frontend Streamlit dashboard are
+complete.
 
 ---
 
@@ -87,6 +88,44 @@ the FastAPI `api/`, and `n8n/` are complete.
 
 - [x] Removed stale `n8n/workflow.json` / `workflow2.json` (targeted the
       removed old demo endpoints)
+
+---
+
+## Milestone 7 — Streamlit dashboard (`frontend/`)
+
+### Principles
+
+- Thin view layer only: the dashboard talks to the FastAPI backend and
+  renders; all reasoning happens server-side (`backend/api` -> CrewAI
+  crew). ADR-010.
+
+### Client (`frontend/dashboard`)
+
+- [x] `client.py` — `HealthcareAPIClient` (httpx): `health`, `predict`,
+      `retrieve`, `analyze`; optional bearer token; `HealthcareAPIError`
+      with status + code from the backend error detail
+- [x] Unit tests (`tests/test_client.py`) — 7 passing via
+      `httpx.MockTransport` (hermetic, no network)
+
+### UI (`frontend/streamlit_app.py`)
+
+- [x] Sidebar — backend URL + optional API token + live health indicator
+- [x] Tabs: Clinical Analysis (form -> full report with prediction, risk,
+      evidence, recommendations, JSON download), Prediction (bar chart
+      of probabilities), Evidence Retrieval (score bars), Info (health +
+      endpoint reference)
+- [x] AppTest smoke tests (`tests/test_app_smoke.py`) — 2 passing
+      (boot + mocked analyze submission renders the report)
+- [x] `frontend/requirements.txt` — `streamlit`, `httpx`, `pytest`
+
+### Verification
+
+- [x] Frontend suite: 9 passing; backend suite: 241 passing
+- [x] Live end-to-end: uvicorn backend + real client (`/health`,
+      `/api/v1/analyze` with evidence, `/api/v1/retrieve`, 503 on
+      predict without a configured model)
+- [ ] Next.js dashboard (architecture doc mentions it; the Streamlit
+      dashboard currently fills the frontend role)
 
 ---
 

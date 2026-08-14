@@ -183,6 +183,22 @@
     the credential while `API_TOKEN` is unset)
   - `n8n/README.md` — import steps, configuration, example payloads,
     security notes, local smoke test
+- `frontend/` Streamlit dashboard (Milestone 7):
+  - `frontend/dashboard/client.py` — `HealthcareAPIClient` (httpx) over
+    the FastAPI backend: `health` / `predict` / `retrieve` / `analyze`,
+    optional bearer token, typed `HealthcareAPIError` (status + code)
+    parsed from the backend error detail
+  - `frontend/streamlit_app.py` — thin view layer: sidebar backend URL /
+    token + live health indicator; tabs for Clinical Analysis (full
+    report with prediction, risk, evidence, recommendations, JSON
+    download), Prediction (probability bar chart), Evidence Retrieval
+    (score bars), and Info (health + endpoint reference)
+  - `frontend/dashboard/tests/` — 7 client tests (`httpx.MockTransport`)
+    + 2 Streamlit AppTest smoke tests, all hermetic
+  - `frontend/requirements.txt` — `streamlit`, `httpx`, `pytest`
+- Verified the dashboard client live against a running uvicorn backend
+  (`/health`, `/api/v1/analyze`, `/api/v1/retrieve`, and the 503
+  response when no model is configured).
 
 ### Removed
 

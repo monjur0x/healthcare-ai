@@ -2,17 +2,17 @@
 
 ## Current Milestone
 
-Milestone 6 — n8n orchestration (complete)
+Milestone 7 — Streamlit dashboard (complete)
 
 ## Current Module
 
-n8n/
+frontend/
 
 ## Current Task
 
-The n8n orchestration workflows and README are complete (not yet
-committed — awaiting user go-ahead to push). Next: the real flwr
-deployment path, then API hardening.
+The Streamlit dashboard, its client, and tests are complete and verified
+(end-to-end against a live backend). Not yet committed — awaiting user
+go-ahead. Next: API hardening / flwr deployment path.
 
 ## Completed
 
@@ -49,8 +49,6 @@ deployment path, then API hardening.
   `TabularClassifier` → `ClinicalCrew.run_analysis()` → clinical report
   (`report.json`); verified on diabetes; built-in or `--corpus-dir`
   knowledge base; smoke tests (2 passing)
-- Full suite **222 passing** (`pytest preprocessing/tests models/tests evaluation/tests federated/tests rag/tests examples/tests CrewAI/orchestrator/tests`)
-  — black / isort / ruff clean
 - Cleanup: removed the superseded old CrewAI demo (`app/`,
   `tests/test_healthcare.py`, `Dockerfile`, `docker-compose.yml`,
   `requirements.txt`, `.env.example`, `README.md`) and untracked its
@@ -92,6 +90,20 @@ deployment path, then API hardening.
   - `README.md` — import, config, payloads, smoke test
   - Removed stale `workflow.json` / `workflow2.json` (they targeted the
     removed old demo endpoints)
+- `frontend/` Streamlit dashboard (Milestone 7, complete — uncommitted):
+  - `dashboard/client.py` — `HealthcareAPIClient` (httpx): `health` /
+    `predict` / `retrieve` / `analyze`; optional bearer token; typed
+    `HealthcareAPIError` (status + code) from backend error detail
+  - `streamlit_app.py` — thin view layer: sidebar backend URL/token +
+    live health indicator; tabs Clinical Analysis / Prediction /
+    Evidence Retrieval / Info (report render, probability bar chart,
+    evidence score bars, JSON download)
+  - `dashboard/tests/` — 7 client tests (`httpx.MockTransport`) + 2
+    AppTest smoke tests; `frontend/requirements.txt`
+  - Verified live: health, analyze (3 evidence items), retrieve,
+    503 predict without configured model
+- Full suite **241 backend + 9 frontend passing** — black / isort /
+  ruff clean (frontend linted from `frontend/`)
 
 ## Next Files (backend)
 
@@ -119,7 +131,10 @@ deployment path, then API hardening.
   is set; `markers` (raw clinical values) feed risk factor flags.
 - CrewAI venv (`backend/CrewAI/.venv-opencode`) has crewai 1.15.11,
   pydantic 2.12, qdrant-client, sentence-transformers, flwr, torch,
-  fastapi 0.138, uvicorn, httpx.
+  fastapi 0.138, uvicorn, httpx, streamlit 1.61.
+- ADR-010: the frontend is a Streamlit dashboard that is a thin client
+  over the FastAPI backend (no reasoning client-side); a future Next.js
+  dashboard can reuse the same endpoints.
 - The old `CrewAI/app/*` demo was removed (superseded by
   `preprocessing/`, `models/`, `federated/`, `rag/`, and
   `CrewAI/orchestrator/`); the production CrewAI module is
@@ -127,6 +142,6 @@ deployment path, then API hardening.
 
 ## Status
 
-Milestone 6 (n8n orchestration) complete; the n8n work is staged locally
-and awaiting user approval before commit + push. Next milestone is the
-real flwr deployment path.
+Milestone 7 (Streamlit dashboard) complete and verified end-to-end; the
+frontend work is uncommitted, awaiting user go-ahead to commit + push.
+Next milestone is the real flwr deployment path, then API hardening.

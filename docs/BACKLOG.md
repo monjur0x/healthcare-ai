@@ -270,13 +270,39 @@ reasoning stays in the CrewAI crew (see `AGENTS.md`).
       targeted the removed old demo endpoints `/predict/federated`,
       `/predict/image`, `/agents/run-crew`)
 
-### Milestone 7+ (not yet scoped)
+### Milestone 7 — Streamlit dashboard (complete)
+
+Scope: a research-facing frontend for the FastAPI backend. The dashboard
+is a thin view layer; all reasoning stays server-side (ADR-010).
+
+- [x] `frontend/dashboard/client.py` — `HealthcareAPIClient` (httpx):
+      `health` / `predict` / `retrieve` / `analyze`, optional bearer
+      token, typed `HealthcareAPIError`
+- [x] `frontend/dashboard/tests/test_client.py` — 7 passing
+      (`httpx.MockTransport`, hermetic)
+- [x] `frontend/streamlit_app.py` — sidebar config + live health
+      indicator; tabs for Clinical Analysis, Prediction, Evidence
+      Retrieval, and Info
+- [x] `frontend/dashboard/tests/test_app_smoke.py` — 2 passing
+      (Streamlit AppTest: boots clean; mocked analyze submission renders
+      the report)
+- [x] `frontend/requirements.txt` — `streamlit`, `httpx`, `pytest`
+- [x] Live end-to-end verified against a running backend
+
+### Milestone 8+ (not yet scoped)
 
 - [ ] Full OAuth / per-user authentication (currently an optional static
       bearer token via `API_TOKEN`)
-- [ ] File upload endpoint for CSV / image inference
+- [ ] File upload endpoint for CSV / image inference (backend) + upload
+      widget in the dashboard
 - [ ] Deployment container for the API (the old app's Dockerfile was
       removed with the superseded demo)
 - [ ] Downstream n8n storage/notification branches (e.g. append report
       to a local file, Slack/Discord notify) using real credentials
 - [ ] Docker Compose profile that runs n8n + FastAPI + Qdrant together
+- [ ] Next.js dashboard (architecture doc names it; Streamlit currently
+      fills the frontend role)
+- [ ] Real flwr `run_simulation` / networked `ServerApp` (blocked:
+      `ray` not installed)
+- [ ] Differential privacy port from the removed old demo into
+      `federated/`

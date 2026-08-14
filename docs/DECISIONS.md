@@ -148,3 +148,25 @@ Reason
 - The service is injected through `app.state` by `create_app(service=...)`,
   so route tests use a hermetic fake service without touching real
   models or corpora.
+
+---
+
+ADR-010
+
+The frontend is a Streamlit dashboard that acts as a thin client over the
+FastAPI backend.
+
+Reason
+
+- The `frontend/` directory was empty; the architecture doc names a
+  Next.js dashboard but no implementation existed. A Streamlit app fills
+  the frontend role immediately: no build step, runs from the existing
+  Python venv, and is trivial to run headless in CI (AppTest).
+- The dashboard performs no reasoning: a small httpx client
+  (`frontend/dashboard/client.py`) only serializes requests, parses
+  responses, and surfaces typed errors; all business logic stays in the
+  backend (`api/services.py` -> CrewAI crew).
+- The API contract stays the source of truth; a future Next.js
+  dashboard can reuse the same endpoints.
+- Client logic is tested hermetically with `httpx.MockTransport`, and
+  the UI is smoke-tested with `streamlit.testing.v1.AppTest`.
