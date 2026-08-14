@@ -2,40 +2,41 @@
 
 ## Objective
 
-Continue Milestone 2 — Models: add the Flower federated learning tie-in
-and the evaluation hooks.
+Milestone 2 — Models: implement the Flower federated learning tie-in
+(and optionally a small end-to-end demo pipeline).
 
 ## Suggested Steps
 
 1. Read `docs/SOFTWARE_ARCHITECTURE.md` and `.ai/current_context.md`.
 2. Read `docs/BACKLOG.md` for the scoped Milestone 2 items.
-3. Pick one of:
-   - Federated tie-in: `backend/federated/` with a Flower (flwr)
-     server and a client that wraps a fitted `TabularClassifier`
-     (state-free numpy weights via `get_parameters`/`set_parameters`).
-   - Evaluation: `backend/evaluation/` metrics (ROC-AUC, PR-AUC, MCC)
-     consumed from each model's `predict_proba`.
-   - Wire a small end-to-end demo: `CSVPipeline` → `TabularClassifier`
-     → metrics, to validate the contract.
-4. Add unit tests under `backend/tests/` (avoid `test_image.py`
-   basename collision: preprocessing already owns it).
+3. Implement `backend/federated/`:
+   - Install `flwr` into the CrewAI venv
+     (`backend/CrewAI/.venv-opencode/bin/pip install flwr`) and add it to
+     `backend/requirements.txt`.
+   - A client wrapping a fitted `TabularClassifier`: `get_parameters` /
+     `set_parameters` over numpy weights, `fit` via
+     `model.classifier.coefs_`/`intercepts_` (or the state dict for the
+     CNN), plus `evaluate` using `evaluation.classification_metrics`.
+   - A minimal FedAvg server strategy for a 2-3 client smoke test.
+   - Prefer `flwr`'s in-process simulation or a local port for tests so
+     the suite stays hermetic.
+4. Add unit tests under `backend/federated/tests/`.
 5. Run: `pytest`, black, ruff, isort (against `backend/pyproject.toml`);
-   use the CrewAI venv for sklearn/torch-dependent tests.
+   use the CrewAI venv for flwr/sklearn/torch-dependent tests.
 6. Update `docs/DEVELOPMENT_STATUS.md`, `docs/CHANGELOG.md`,
    `docs/BACKLOG.md`, `.ai/current_context.md`, `.ai/next_session.md`.
 
 ## Conventions Reminder
 
-- Models perform inference only; reuse `preprocessing` outputs.
-- `MODEL_*` env vars (seed, training hyperparameters) in
-  `models/config.py`; keep weights exchange numpy-native for flwr.
+- Models perform inference only; federation only orchestrates weights.
+- Keep the flwr client numpy-native (no torch serialization for the
+  tabular path); record the flwr version in `docs/DECISIONS.md`.
 - Log via `get_logger(__name__)`; raise model exceptions from
   `models/exceptions.py`.
-- Record framework choices (flwr version) in `docs/DECISIONS.md`.
 
 ## Open Questions
 
-- flwr version / whether a full server is needed or only the
-  client-side parameter (de)serialization + a unit-tested `flwr` client.
-- Whether evaluation uses a plain `sklearn.metrics` module or a custom
-  `BackendMetrics` wrapper shared with CrewAI.
+- flwr version (0.13.x uses the `flwr.server` strategy API; 1.x moved to
+  `flwr.simulation` / `Flower` config) — pin the version installed.
+- Whether to federate all three model types now or only the tabular
+  path first (weights extraction differs per framework).

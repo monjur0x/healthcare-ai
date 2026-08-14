@@ -44,6 +44,12 @@
 - Unit tests for the new model modules (`models/tests/test_cnn.py`,
   12 passing; `models/tests/test_fusion_model.py`, 10 passing).
 - Added `torch` to `backend/requirements.txt`.
+- `backend/evaluation/` module: `metrics.py`
+  (`ClassificationMetrics` dataclass, `classification_metrics` for
+  accuracy / macro precision-recall-F1 / MCC / ROC-AUC / PR-AUC / log
+  loss, and `evaluate_classifier` for uniform scoring of any fitted
+  `BaseModel`), package `__init__.py`, and unit tests
+  (`tests/test_metrics.py`, 11 passing).
 
 ### Changed
 

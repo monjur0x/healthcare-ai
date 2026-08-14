@@ -90,7 +90,12 @@ trained locally per hospital, and are aggregated by Flower (FedAvg).
 
 ## Evaluation hooks
 
-- [ ] Expose predict_proba for ROC-AUC / PR-AUC / MCC (proposal §12)
+- [x] `evaluation/metrics.py` — `ClassificationMetrics` + `classification_metrics`
+- [x] `evaluate_classifier(model, X, y_true)` scores any fitted `BaseModel`
+- [x] Accuracy, precision/recall/F1 (macro), MCC, ROC-AUC, PR-AUC, log loss
+- [x] Unit tests
+- [ ] Federated metrics (communication cost / convergence / training time)
+      and privacy budget — deferred to federated milestone
 
 ---
 

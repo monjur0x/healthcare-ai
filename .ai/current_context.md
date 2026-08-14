@@ -6,12 +6,13 @@ Milestone 2 — Models (in progress)
 
 ## Current Module
 
-backend/models (shared, csv, image, multimodal complete)
+backend/evaluation
 
 ## Current Task
 
-Shared interface, tabular, image (CNN), and multimodal (fusion) models
-are complete. Next: the Flower federated tie-in wrapping these models.
+Evaluation hooks are complete. Remaining scoped items: the Flower
+federated tie-in (`federated/`) and consuming `CSVPipeline` output
+directly.
 
 ## Completed
 
@@ -26,16 +27,19 @@ are complete. Next: the Flower federated tie-in wrapping these models.
   `FusionResult.fused`, composes `TabularClassifier`
 - `models/config.py` — `ModelSettings` (seed, epochs, batch size,
   learning rate, device; env prefix `MODEL_`); tabular seed unified here
+- `evaluation/metrics.py` — `ClassificationMetrics`, `classification_metrics`,
+  `evaluate_classifier` (accuracy, macro P/R/F1, MCC, ROC-AUC, PR-AUC,
+  log loss; binary + multiclass; None for undefined metrics)
 - `backend/requirements.txt` (+ torch)
-- Model tests: 32 passing (tabular 10 / CNN 12 / fusion 10);
-  full suite 102 passing
+- Tests: models 32, evaluation 11; full suite 113 passing
 
 ## Next Files (backend)
 
 - `federated/` — Flower (FedAvg) server + client wrapping
-  `TabularClassifier` / `ImageClassifier` / `FusionClassifier`
-- `evaluation/` — ROC-AUC / PR-AUC / MCC hooks on `predict_proba`
+  `TabularClassifier` / `ImageClassifier` / `FusionClassifier`; flwr not
+  yet installed in the CrewAI venv
 - consume `CSVPipeline` output directly (accepts DataFrame today)
+- federated + privacy metrics (proposal §12) deferred
 
 ## Design Notes
 
@@ -44,6 +48,9 @@ are complete. Next: the Flower federated tie-in wrapping these models.
   `(N, C, H, W)`; auto-detects layout from the channel axis.
 - `FusionClassifier.fit/predict` accept a `FusionResult` or a raw 2D
   fused matrix.
+- `evaluate_classifier(model, X, y_true)` scores any fitted `BaseModel`
+  via `predict` / `predict_proba`; AUC metrics omitted when the target
+  or scores cannot support them (single observed class, no proba).
 - Reproducibility: `MODEL_RANDOM_SEED` in `models/config.py`; the image
   model seeds RNG and its dataloader shuffle generator.
 - Testing requires sklearn + torch: use the CrewAI venv
@@ -53,5 +60,5 @@ are complete. Next: the Flower federated tie-in wrapping these models.
 
 ## Status
 
-Milestone 2 models (shared/csv/image/multimodal) complete. Federation
-and evaluation are the remaining scoped items.
+Milestone 2 models + evaluation complete. Federation is the next step;
+flwr must be added to the CrewAI venv first.

@@ -95,11 +95,22 @@ are defined at the repository level but not yet scoped in the backlog.
 - [x] `ModelSettings` — seed, image epochs / batch size / learning rate /
       device; env prefix `MODEL_`
 
+### Evaluation (`backend/evaluation`)
+
+- [x] `metrics.py` — `ClassificationMetrics` dataclass (accuracy,
+      precision/recall/F1 macro, MCC, ROC-AUC, PR-AUC, log loss)
+- [x] `classification_metrics(y_true, y_pred, y_score, labels)` — pure
+      function, binary + multiclass, graceful None for undefined metrics
+- [x] `evaluate_classifier(model, X, y_true)` — uniform scoring of any
+      fitted `BaseModel` (tabular / image / fusion)
+- [x] Unit tests (`tests/test_metrics.py`) — 11 passing
+
 ---
 
 ## Testing
 
 - [x] Preprocessing: 70 tests passing
 - [x] Models: 32 tests passing (tabular 10 / CNN 12 / fusion 10)
-- [x] Full suite: 102 tests passing (`pytest preprocessing/tests models/tests`)
+- [x] Evaluation: 11 tests passing
+- [x] Full suite: 113 tests passing (`pytest preprocessing/tests models/tests evaluation/tests`)
 - [ ] Full test command documented in README/AGENTS (see `AGENTS.md` tooling note)
