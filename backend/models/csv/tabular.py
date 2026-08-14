@@ -50,6 +50,33 @@ def _estimator_factory(model_name: str, seed: int) -> Any:
     )
 
 
+def _parameter_shapes(model_name: str, parameters: list[np.ndarray]) -> tuple[int, int]:
+    """Infer (n_features, n_classes) from a parameter list."""
+    if model_name == "mlp":
+        n_features = parameters[0].shape[0]
+        n_classes = parameters[-1].shape[0]
+        return n_features, n_classes
+
+    coefs = parameters[0]
+    n_features = coefs.shape[1]
+    n_classes = coefs.shape[0] if coefs.shape[0] > 1 else 2
+    return n_features, n_classes
+
+
+def _assign_sklearn_weights(classifier: Any, parameters: list[np.ndarray]) -> None:
+    """Inject weights into a fitted sklearn estimator."""
+    if isinstance(classifier, MLPClassifier):
+        classifier.coefs_ = [
+            np.asarray(parameters[index]) for index in range(0, len(parameters), 2)
+        ]
+        classifier.intercepts_ = [
+            np.asarray(parameters[index]) for index in range(1, len(parameters), 2)
+        ]
+    else:
+        classifier.coef_ = np.asarray(parameters[0])
+        classifier.intercept_ = np.asarray(parameters[1])
+
+
 class TabularClassifier(BaseModel):
     """
     Wrapper around an sklearn classifier for tabular healthcare data.
@@ -269,4 +296,136 @@ class TabularClassifier(BaseModel):
         if len(y) != X.shape[0]:
             raise InvalidModelInputError(
                 f"X has {X.shape[0]} rows but y has {len(y)} labels."
+            )
+
+    def get_parameters(self) -> list[np.ndarray]:
+        """
+        Return trainable weights as a list of NumPy arrays.
+
+        Only continuous-weight estimators (logistic / MLP) support
+        federated exchange; tree ensembles have no coefficients.
+
+        Returns
+        -------
+        list[np.ndarray]
+            ``coefs_`` followed by ``intercepts_``.
+
+        Raises
+        ------
+        UnsupportedModelError
+            If the estimator has no continuous weights.
+        """
+
+        self._require_fitted()
+        self._require_exchangeable()
+        if isinstance(self._classifier, MLPClassifier):
+            return [
+                np.asarray(weight, dtype=np.float64)
+                for pair in zip(
+                    self._classifier.coefs_, self._classifier.intercepts_, strict=True
+                )
+                for weight in pair
+            ]
+        return [
+            np.asarray(self._classifier.coef_, dtype=np.float64),
+            np.asarray(self._classifier.intercept_, dtype=np.float64),
+        ]
+
+    def set_parameters(self, parameters: list[np.ndarray]) -> None:
+        """
+        Load trainable weights from a list of NumPy arrays.
+
+        Parameters
+        ----------
+        parameters : list[np.ndarray]
+            Ordered weight arrays matching ``get_parameters``.
+
+        Raises
+        ------
+        UnsupportedModelError
+            If the estimator has no continuous weights.
+        InvalidModelInputError
+            If the parameter list is empty or misaligned.
+        """
+
+        self._require_exchangeable()
+        self._require_fitted()
+        if not parameters:
+            raise InvalidModelInputError("No parameters provided.")
+
+        if isinstance(self._classifier, MLPClassifier):
+            expected = 2 * len(self._classifier.coefs_)
+        else:
+            expected = 2
+        if len(parameters) != expected:
+            raise InvalidModelInputError(
+                f"Expected {expected} parameter arrays, got {len(parameters)}."
+            )
+
+        n_features, _ = _parameter_shapes(self._model_name, parameters)
+        if n_features != self._classifier.n_features_in_:
+            raise InvalidModelInputError(
+                f"Parameter features ({n_features}) do not match fitted "
+                f"features ({self._classifier.n_features_in_})."
+            )
+
+        _assign_sklearn_weights(self._classifier, parameters)
+        logger.info("Loaded %d federated weight arrays", len(parameters))
+
+    def partial_fit(
+        self, X: np.ndarray | pd.DataFrame, y: np.ndarray
+    ) -> TabularClassifier:
+        """
+        Continue local training from the current weights (one pass).
+
+        Used by federated clients to fine-tune the aggregated global
+        weights on local data.
+
+        Parameters
+        ----------
+        X : np.ndarray | pd.DataFrame
+            Local feature matrix or dataframe.
+        y : np.ndarray
+            Local target labels.
+
+        Returns
+        -------
+        TabularClassifier
+            Self, updated.
+
+        Raises
+        ------
+        UnsupportedModelError
+            If the estimator does not support incremental training.
+        """
+
+        self._require_fitted()
+
+        if not isinstance(self._classifier, MLPClassifier):
+            raise UnsupportedModelError(
+                "Only the 'mlp' estimator supports incremental training; "
+                "use model_name='mlp' for federated local steps."
+            )
+
+        if isinstance(X, pd.DataFrame):
+            self._feature_names = list(X.columns)
+            X = X.to_numpy(dtype=np.float64)
+        else:
+            X = np.asarray(X, dtype=np.float64)
+
+        y = np.asarray(y)
+        self._validate(X, y)
+
+        self._classifier.partial_fit(X, y, classes=self._classes)
+        self._classes = np.asarray(self._classifier.classes_)
+        self._fitted = True
+        logger.info("Ran one partial-fit round on %d samples", X.shape[0])
+        return self
+
+    def _require_exchangeable(self) -> None:
+        """Raise when the estimator cannot be exchanged over federation."""
+        if self._model_name == "gradient_boosting":
+            raise UnsupportedModelError(
+                "Gradient boosting has no continuous weights; federated "
+                "exchange requires 'logistic' or 'mlp'."
             )

@@ -11,6 +11,9 @@ Pillow>=11.0.0
 scikit-learn>=1.6.0
 torch>=2.2.0
 
+# Federated Learning
+flwr>=1.33.0
+
 # Development
 pytest>=8.3.0
 

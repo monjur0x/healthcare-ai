@@ -413,6 +413,65 @@ class ImageClassifier(BaseModel):
                 f"{self.__class__.__name__} must be fitted before use."
             )
 
+    def get_parameters(self) -> list[np.ndarray]:
+        """
+        Return the CNN state dict as NumPy arrays.
+
+        Returns
+        -------
+        list[np.ndarray]
+            Ordered weight arrays matching the state dict.
+
+        Raises
+        ------
+        ModelNotFittedError
+            If the model has not been fitted.
+        """
+
+        self._require_fitted()
+        return [
+            value.detach().cpu().numpy() for value in self._model.state_dict().values()
+        ]
+
+    def set_parameters(self, parameters: list[np.ndarray]) -> None:
+        """
+        Load CNN weights from a list of NumPy arrays.
+
+        Parameters
+        ----------
+        parameters : list[np.ndarray]
+            Ordered weight arrays matching ``get_parameters``.
+
+        Raises
+        ------
+        ModelNotFittedError
+            If the model has not been fitted.
+        InvalidModelInputError
+            If the parameters are empty or misaligned.
+        """
+
+        self._require_fitted()
+        if not parameters:
+            raise InvalidModelInputError("No parameters provided.")
+
+        state = self._model.state_dict()
+        if len(parameters) != len(state):
+            raise InvalidModelInputError(
+                f"Expected {len(state)} parameter arrays, got {len(parameters)}."
+            )
+
+        updates: dict[str, torch.Tensor] = {}
+        for (name, tensor), value in zip(state.items(), parameters, strict=True):
+            value_array = np.asarray(value)
+            if value_array.shape != tuple(tensor.shape):
+                raise InvalidModelInputError(
+                    f"Shape mismatch for '{name}': {value_array.shape} "
+                    f"vs {tuple(tensor.shape)}."
+                )
+            updates[name] = torch.from_numpy(value_array)
+        self._model.load_state_dict(updates)
+        logger.info("Loaded %d federated weight arrays", len(parameters))
+
     @staticmethod
     def _validate(batch: np.ndarray, y: np.ndarray) -> None:
         """Validate image/label input shapes."""

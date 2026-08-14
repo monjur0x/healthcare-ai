@@ -193,5 +193,51 @@ class FusionClassifier(BaseModel):
         self._fused_dim = matrix.shape[1]
         return matrix
 
+    def get_parameters(self) -> list[np.ndarray]:
+        """
+        Return the underlying estimator's weights as NumPy arrays.
+
+        Returns
+        -------
+        list[np.ndarray]
+            Ordered weight arrays (delegated to ``TabularClassifier``).
+        """
+
+        return self._tabular.get_parameters()
+
+    def set_parameters(self, parameters: list[np.ndarray]) -> None:
+        """
+        Load weights from a list of NumPy arrays.
+
+        Parameters
+        ----------
+        parameters : list[np.ndarray]
+            Ordered weight arrays matching ``get_parameters``.
+        """
+
+        self._tabular.set_parameters(parameters)
+
+    def partial_fit(
+        self, X: FusionResult | np.ndarray, y: np.ndarray
+    ) -> FusionClassifier:
+        """
+        Continue local training from the current weights (one pass).
+
+        Parameters
+        ----------
+        X : FusionResult | np.ndarray
+            Local fused output or feature matrix.
+        y : np.ndarray
+            Local target labels.
+
+        Returns
+        -------
+        FusionClassifier
+            Self, updated.
+        """
+
+        self._tabular.partial_fit(self._as_matrix(X), np.asarray(y))
+        return self
+
 
 __all__ = ["FusionClassifier"]

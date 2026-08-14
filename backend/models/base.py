@@ -131,3 +131,46 @@ class BaseModel(ABC):
         bool
             True if the model is ready for prediction.
         """
+
+    def get_parameters(self) -> list[np.ndarray]:
+        """
+        Return trainable weights as a list of NumPy arrays.
+
+        Used by federated learning to exchange model state. Defaults to
+        not being supported.
+
+        Returns
+        -------
+        list[np.ndarray]
+            Ordered weight arrays.
+
+        Raises
+        ------
+        NotImplementedError
+            If the model does not expose exchangeable weights.
+        """
+
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not support get_parameters."
+        )
+
+    def set_parameters(self, parameters: list[np.ndarray]) -> None:
+        """
+        Load trainable weights from a list of NumPy arrays.
+
+        Used by federated learning to apply aggregated global weights.
+
+        Parameters
+        ----------
+        parameters : list[np.ndarray]
+            Ordered weight arrays matching ``get_parameters``.
+
+        Raises
+        ------
+        NotImplementedError
+            If the model does not support weight injection.
+        """
+
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not support set_parameters."
+        )
