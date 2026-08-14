@@ -199,6 +199,27 @@
 - Verified the dashboard client live against a running uvicorn backend
   (`/health`, `/api/v1/analyze`, `/api/v1/retrieve`, and the 503
   response when no model is configured).
+- `backend/api` — `POST /api/v1/train` endpoint (Milestone 8):
+  - `api/schemas.py` — `TrainRequest` (preset or dataset+target,
+    model family, test size, seed, federated flag + clients/rounds) and
+    `TrainResponse` (artifact path, hold-out metrics)
+  - `api/services.py` — `prepare_tabular_data` (CSV → pipeline →
+    features/labels), `TrainResult`, `AnalysisService.train` (central
+    fit or federated FedAvg path; the fitted model replaces the service
+    model so `predict` / `analyze` use it immediately); `PRESETS`
+    registry; `APISettings.ARTIFACTS_DIR` / `DATASET_DIR`
+  - `api/routes.py` — `POST /api/v1/train` (validation + delegation only)
+  - Tests: +14 (API suite now 33 passing; full backend suite 255)
+- `n8n/healthcare-endtoend.json` — single end-to-end workflow:
+  webhook → optional `/api/v1/train` → `/api/v1/analyze` → write report
+  JSON to disk (`/tmp/healthcare_reports/`, override with `output_dir`)
+  → structured `status: success|error` response. Replaces
+  `clinical-pipeline-modality.json`; `clinical-analysis.json` kept as a
+  minimal reference. `n8n/README.md` updated.
+- `scripts/run_system.sh` — one-command `start` / `status` / `stop`:
+  trains a default model via the API, starts the backend and dashboard,
+  and starts n8n in Docker (`N8N_ENABLED=0` skips n8n).
+- Root `README.md` — CPU-only step-by-step run guide (manual + one-command).
 
 ### Removed
 

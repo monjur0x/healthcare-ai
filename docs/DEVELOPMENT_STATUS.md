@@ -56,8 +56,56 @@
 ## Not yet planned
 
 Milestones for `federated/`, `rag/`, `evaluation/`, CrewAI orchestration,
-the FastAPI `api/`, `n8n/`, and the frontend Streamlit dashboard are
-complete.
+the FastAPI `api/`, `n8n/`, the frontend Streamlit dashboard, and the
+functional end-to-end system (Milestone 8) are complete.
+
+---
+
+## Milestone 8 — Functional end-to-end system
+
+### API training path
+
+- [x] `POST /api/v1/train` — train a tabular model through the API and
+      serve it immediately (no manual CLI step):
+  - [x] Presets (`diabetes` / `heart` / `kidney` / `sepsis`) or explicit
+        `dataset` + `target`
+  - [x] Central fit (default) and federated FedAvg path
+        (`federated: true` + `clients` / `rounds`)
+  - [x] Hold-out metrics (accuracy / ROC-AUC / macro F1) returned with
+        the artifact path; federated round metrics when federated
+  - [x] `APISettings` gains `ARTIFACTS_DIR` / `DATASET_DIR`
+  - [x] Tests: +14 (route validation, central + federated training,
+        error mapping) — API suite now 33 passing
+
+### n8n — single end-to-end workflow
+
+- [x] `n8n/healthcare-endtoend.json` — one workflow automates the full
+      lifecycle: webhook → (optional) `train` → `analyze` → write report
+      JSON to disk → structured success/error response
+- [x] Removed `clinical-pipeline-modality.json` (superseded by the
+      end-to-end workflow); `clinical-analysis.json` kept as a minimal
+      reference example
+- [x] `n8n/README.md` updated with the new workflow, payloads, and smoke
+      test
+
+### Runner + documentation
+
+- [x] `scripts/run_system.sh` — one-command `start` / `status` / `stop`
+      (trains default model, starts backend + dashboard, starts n8n via
+      Docker; `N8N_ENABLED=0` to skip n8n)
+- [x] Root `README.md` — full step-by-step run guide for CPU-only
+      machines
+- [ ] Full OAuth / per-user auth (static `API_TOKEN` only; backlog)
+- [ ] File-upload endpoint for CSV / image inference (backlog)
+
+### Verification
+
+- [x] Backend suite 255 passing; frontend suite 9 passing
+- [x] Live end-to-end on diabetes: `/train` central (accuracy ~0.81),
+      `/train` federated (2 clients / 2 rounds, full `federated_metrics`),
+      `/predict`, `/retrieve`, `/analyze` (prediction + risk + 3 evidence
+      items), dashboard running
+- [x] n8n workflow JSON + embedded Code-node JS validated
 
 ---
 

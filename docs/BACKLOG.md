@@ -289,7 +289,24 @@ is a thin view layer; all reasoning stays server-side (ADR-010).
 - [x] `frontend/requirements.txt` — `streamlit`, `httpx`, `pytest`
 - [x] Live end-to-end verified against a running backend
 
-### Milestone 8+ (not yet scoped)
+### Milestone 8 — Functional end-to-end system (complete)
+
+Scope: connect the trained models, API, n8n, and dashboard into one
+automated system that runs on CPU-only hardware.
+
+- [x] `POST /api/v1/train` — train a model through the API (preset or
+      dataset+target; central or federated FedAvg path) and serve it
+      immediately; returns artifact path + hold-out metrics
+- [x] `n8n/healthcare-endtoend.json` — single workflow automating the
+      full lifecycle: webhook → train → analyze → write report to disk →
+      structured response (replaces `clinical-pipeline-modality.json`)
+- [x] `scripts/run_system.sh` — one-command start/status/stop (backend +
+      dashboard + n8n Docker)
+- [x] Root `README.md` — step-by-step run guide
+- [x] Verified live on diabetes: central + federated train, predict,
+      retrieve, analyze (report + risk + evidence)
+
+### Milestone 9+ (not yet scoped)
 
 - [ ] Full OAuth / per-user authentication (currently an optional static
       bearer token via `API_TOKEN`)

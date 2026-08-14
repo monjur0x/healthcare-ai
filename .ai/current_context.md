@@ -2,17 +2,18 @@
 
 ## Current Milestone
 
-Milestone 7 — Streamlit dashboard (complete)
+Milestone 8 — functional end-to-end system (complete)
 
 ## Current Module
 
-frontend/
+api/ · n8n/ · scripts/
 
 ## Current Task
 
-The Streamlit dashboard, its client, and tests are complete and verified
-(end-to-end against a live backend). Not yet committed — awaiting user
-go-ahead. Next: API hardening / flwr deployment path.
+The train endpoint, single end-to-end n8n workflow, one-command runner,
+and README are complete and verified live on diabetes (central +
+federated train, predict, analyze with evidence). Not yet committed —
+awaiting user go-ahead. Next: commit/push, then Milestone 9+ backlog.
 
 ## Completed
 
@@ -104,15 +105,38 @@ go-ahead. Next: API hardening / flwr deployment path.
     503 predict without configured model
 - Full suite **241 backend + 9 frontend passing** — black / isort /
   ruff clean (frontend linted from `frontend/`)
+- Milestone 8 — functional end-to-end system (complete, uncommitted):
+  - `api/` `POST /api/v1/train`: `TrainRequest`/`TrainResponse`
+    schemas, `prepare_tabular_data` + `PRESETS` + `TrainResult` +
+    `AnalysisService.train` in services (central fit default, federated
+    FedAvg path with `federated:true`; fitted model replaces the service
+    model so predict/analyze serve it immediately); `APISettings`
+    gains `ARTIFACTS_DIR` / `DATASET_DIR`; +14 tests (API suite 33;
+    full backend 255). Federated path supports `model_name='mlp'` only.
+  - `n8n/healthcare-endtoend.json` — single workflow: webhook →
+    optional train → analyze → write report JSON to disk
+    (`/tmp/healthcare_reports/`, override `output_dir`) → structured
+    success/error; removed `clinical-pipeline-modality.json`;
+    `clinical-analysis.json` kept as minimal reference; README updated.
+  - `scripts/run_system.sh` — one-command start/status/stop (trains
+    default model via API, starts backend + dashboard, starts n8n docker;
+    `N8N_ENABLED=0` skips n8n)
+  - Root `README.md` — CPU-only step-by-step run guide
+  - Live E2E verified on diabetes: train central (acc ~0.81) +
+    federated (2 clients/2 rounds, full federated_metrics), predict,
+    retrieve, analyze (prediction + high risk + 3 evidence items);
+    dashboard + n8n (docker, editor+healthz 200) running
+- Full suite **255 backend + 9 frontend passing** — black / isort /
+  ruff clean
 
 ## Next Files (backend)
 
-- `federated/` — real flwr `run_simulation` / networked `ServerApp`
-  (blocked: `ray` not installed); privacy budget metrics
+- Real flwr `run_simulation` / networked `ServerApp` (blocked: `ray`
+  not installed); privacy budget metrics
 - Orchestrator LLM path: wire a provider (needs `crewai[google-genai]`
   or similar + API key; never commit secrets)
-- API hardening: full OAuth, file upload endpoint, deployment container,
-  downstream n8n storage/notification branches
+- API hardening: full OAuth, file-upload endpoint for CSV / image,
+  deployment container, downstream n8n storage/notification branches
 
 ## Design Notes
 
@@ -135,6 +159,11 @@ go-ahead. Next: API hardening / flwr deployment path.
 - ADR-010: the frontend is a Streamlit dashboard that is a thin client
   over the FastAPI backend (no reasoning client-side); a future Next.js
   dashboard can reuse the same endpoints.
+- ADR-011: training is an API endpoint (`POST /api/v1/train`) so the
+  system goes dataset → served model without a CLI step; central fit is
+  the default serving path, federated FedAvg available per request; n8n
+  stays orchestration-only and drives the lifecycle in one workflow
+  (`n8n/healthcare-endtoend.json`).
 - The old `CrewAI/app/*` demo was removed (superseded by
   `preprocessing/`, `models/`, `federated/`, `rag/`, and
   `CrewAI/orchestrator/`); the production CrewAI module is
@@ -142,6 +171,7 @@ go-ahead. Next: API hardening / flwr deployment path.
 
 ## Status
 
-Milestone 7 (Streamlit dashboard) complete and verified end-to-end; the
-frontend work is uncommitted, awaiting user go-ahead to commit + push.
-Next milestone is the real flwr deployment path, then API hardening.
+Milestone 8 (functional end-to-end system) complete and verified live;
+the Milestone 8 work is uncommitted, awaiting user go-ahead to commit +
+push. Next milestone is the real flwr deployment path, then API
+hardening (Milestone 9+ backlog).

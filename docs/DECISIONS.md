@@ -170,3 +170,35 @@ Reason
   dashboard can reuse the same endpoints.
 - Client logic is tested hermetically with `httpx.MockTransport`, and
   the UI is smoke-tested with `streamlit.testing.v1.AppTest`.
+
+---
+
+ADR-011
+
+Training is exposed as an API endpoint (`POST /api/v1/train`) so the
+system can go from raw dataset to served predictions without a manual
+CLI step, and n8n drives the whole lifecycle in a single workflow.
+
+Reason
+
+- To make the system functional end-to-end on a CPU-only machine, the
+  gap was the missing "dataset → model" link: the API could only serve,
+  so a model had to be trained by hand before anything worked.
+- Training lives in the service layer (`AnalysisService.train` in
+  `api/services.py`): the route only validates and delegates (ADR-009),
+  preprocessing uses `preprocessing.csv.CSVPipeline`, fitting uses
+  `models.TabularClassifier`, scoring uses `evaluation`, and the
+  optional federated path reuses `federated.FedAvgServer` / `FederatedClient`.
+- The fitted model replaces the service's model in memory, so
+  `predict` / `analyze` use the new artifact immediately — no restart.
+- Central fit is the default serving path (fast, deterministic). The
+  federated FedAvg path is available per request (`federated: true`),
+  but the federated path only supports `model_name='mlp'` (the only
+  estimator with incremental `partial_fit`).
+- n8n remains orchestration-only (`AGENTS.md`): the single
+  `healthcare-endtoend.json` workflow triggers `train` and `analyze`,
+  writes the report file, and formats the response; all reasoning stays
+  in the backend crew.
+- A preset registry (`PRESETS`) maps the shipped datasets
+  (diabetes / heart / kidney / sepsis) to files and target columns;
+  arbitrary CSVs remain supported via `dataset` + `target`.
