@@ -1,0 +1,260 @@
+{
+  "name": "Clinical Analysis Webhook",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "healthcare-analyze",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "7fe72ea6-93ed-4075-8501-4dfefd693607",
+      "name": "Webhook: Clinical Analysis Request",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-340, 300],
+      "webhookId": "cee5ba79-fd81-438b-b7b0-1efa34136533"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:8000/api/v1/analyze",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.body }}",
+        "options": {}
+      },
+      "id": "9f8df659-8b62-4c20-adcc-04960bfaaa39",
+      "name": "HTTP: Call Clinical Analysis API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-100, 300],
+      "onError": "continueErrorOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "PLACEHOLDER_CREDENTIAL_ID",
+          "name": "Healthcare API Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const resp = $json || {};\nconst valid = typeof resp === 'object'\n  && resp.patient && typeof resp.patient === 'object'\n  && typeof resp.patient_summary === 'string'\n  && Array.isArray(resp.evidence);\nconst summary = valid ? {\n  request_id: $execution.id,\n  patient_id: (resp.patient && resp.patient.id) || null,\n  input_type: resp.input_type || null,\n  prediction: resp.prediction ? resp.prediction.predicted_class : null,\n  confidence: resp.prediction ? resp.prediction.confidence : null,\n  risk_level: resp.risk ? resp.risk.risk_level : null,\n  risk_factors: resp.risk ? (resp.risk.risk_factors || []) : [],\n  evidence_count: resp.evidence.length,\n  recommendation_count: Array.isArray(resp.recommendations) ? resp.recommendations.length : 0,\n} : null;\nreturn [{ json: {\n  valid,\n  reason: valid ? '' : 'The API response is not a valid clinical report',\n  summary,\n  report: resp,\n} }];"
+      },
+      "id": "32425fa3-3db9-4aba-bcab-4bb86fcc9d53",
+      "name": "Code: Validate & Summarize",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [140, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "valid",
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "e6286b81-1a93-45cd-a7b1-71743068238c",
+      "name": "IF: Is Response Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [380, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const s = $json.summary || {};\nreturn [{ json: {\n  status: 'success',\n  ...s,\n  report: $json.report,\n} }];"
+      },
+      "id": "75727f44-dc7b-4cf8-b726-e42def1dc95e",
+      "name": "Code: Format Success",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [620, 180]
+    },
+    {
+      "parameters": {
+        "respondWith": "allIncomingItems",
+        "options": {}
+      },
+      "id": "3b5bfce1-bb93-499f-9b3a-b9377eef07af",
+      "name": "Respond to Webhook (Success)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [860, 180]
+    },
+    {
+      "parameters": {
+        "jsCode": "const resp = $json || {};\nconst detail = resp.detail || (resp.body && resp.body.detail) || null;\nconst raw = (detail && (detail.message || detail.code))\n  || resp.message || resp.error\n  || (resp.body && (resp.body.message || resp.body.error))\n  || 'The clinical analysis API request failed';\nconst msg = typeof raw === 'string' ? raw : JSON.stringify(raw);\nreturn [{ json: { status: 'error', stage: 'analysis_call', error_message: msg } }];"
+      },
+      "id": "be5ecd2d-f07c-4aad-a57d-31ea5b5193c9",
+      "name": "Code: Format Call Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [620, 500]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: {\n  status: 'error',\n  stage: 'validation',\n  error_message: $json.reason || 'The API response failed validation',\n} }];"
+      },
+      "id": "17388796-3f7c-408c-8636-f6803ac73cd0",
+      "name": "Code: Format Validation Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [620, 420]
+    },
+    {
+      "parameters": {
+        "mode": "append",
+        "combinationMode": "append",
+        "options": {}
+      },
+      "id": "f03a2a43-83b9-40b7-b8f8-7292a75bd107",
+      "name": "Merge: Merge Error Sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [860, 500]
+    },
+    {
+      "parameters": {
+        "respondWith": "allIncomingItems",
+        "options": {}
+      },
+      "id": "f80c34fe-241e-4828-91ad-01e88bd36342",
+      "name": "Respond to Webhook (Error)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1100, 500]
+    }
+  ],
+  "connections": {
+    "Webhook: Clinical Analysis Request": {
+      "main": [
+        [
+          {
+            "node": "HTTP: Call Clinical Analysis API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP: Call Clinical Analysis API": {
+      "main": [
+        [
+          {
+            "node": "Code: Validate & Summarize",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code: Format Call Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Validate & Summarize": {
+      "main": [
+        [
+          {
+            "node": "IF: Is Response Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF: Is Response Valid?": {
+      "main": [
+        [
+          {
+            "node": "Code: Format Success",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code: Format Validation Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Format Success": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook (Success)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Format Call Error": {
+      "main": [
+        [
+          {
+            "node": "Merge: Merge Error Sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Format Validation Error": {
+      "main": [
+        [
+          {
+            "node": "Merge: Merge Error Sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge: Merge Error Sources": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook (Error)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "instanceId": "n8n-workflow-healthcare-analyze"
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

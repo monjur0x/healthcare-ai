@@ -1,0 +1,309 @@
+{
+  "name": "Modality-Routed Clinical Pipeline",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "healthcare-pipeline",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "bb17f2b4-933a-4ffd-9e97-3961e3b40565",
+      "name": "Webhook: Receive Patient Request",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-340, 300],
+      "webhookId": "e13764d8-6bc6-46e1-8d6f-70cab20d41dd"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = ($json && ($json.body || $json)) || {};\nreturn [{ json: {\n  patient: body.patient || { id: body.patient_id || 'unknown' },\n  features: body.features || {},\n  markers: body.markers || null,\n  recommendations: body.recommendations || null,\n  modality: String(body.modality || 'csv').toLowerCase(),\n} }];"
+      },
+      "id": "ea0906b0-38fa-4800-bb94-27a10e40255b",
+      "name": "Code: Normalize Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-100, 300]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "={{ $json.modality }}",
+                  "type": "string"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.modality }}",
+                    "rightValue": "image",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameExpression": "Image Input"
+            }
+          ]
+        },
+        "fallbackOutput": 1,
+        "options": {}
+      },
+      "id": "79df113d-643e-444d-af64-b0ce4e682c5c",
+      "name": "Switch: Route by Modality",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [140, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:8000/api/v1/analyze",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { patient: $json.patient, features: $json.features, markers: $json.markers, recommendations: $json.recommendations, input_type: 'image' } }}",
+        "options": {}
+      },
+      "id": "a6110bd4-83c7-4f30-8395-c633bd081e79",
+      "name": "HTTP: Analyze Image Case",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [380, 160],
+      "onError": "continueErrorOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "PLACEHOLDER_CREDENTIAL_ID",
+          "name": "Healthcare API Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:8000/api/v1/analyze",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { patient: $json.patient, features: $json.features, markers: $json.markers, recommendations: $json.recommendations, input_type: 'csv' } }}",
+        "options": {}
+      },
+      "id": "50553237-3cc3-41e1-85ac-670bc87734d0",
+      "name": "HTTP: Analyze CSV Case",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [380, 440],
+      "onError": "continueErrorOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "PLACEHOLDER_CREDENTIAL_ID",
+          "name": "Healthcare API Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "append",
+        "combinationMode": "append",
+        "options": {}
+      },
+      "id": "10db9984-b42d-400c-a6b1-30d5a94b2553",
+      "name": "Merge: Append Results",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [640, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst results = items.map((i) => {\n  const r = i.json || {};\n  return {\n    patient_id: (r.patient && r.patient.id) || null,\n    input_type: r.input_type || null,\n    prediction: r.prediction ? r.prediction.predicted_class : null,\n    confidence: r.prediction ? r.prediction.confidence : null,\n    risk_level: r.risk ? r.risk.risk_level : null,\n    evidence_count: Array.isArray(r.evidence) ? r.evidence.length : 0,\n  };\n});\nreturn [{ json: { status: 'success', request_id: $execution.id, result_count: results.length, results } }];"
+      },
+      "id": "0e4b7eb1-25ca-44a2-bb36-9dabe07749e2",
+      "name": "Code: Summarize Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [880, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "allIncomingItems",
+        "options": {}
+      },
+      "id": "9d7abcf8-d3ba-4eec-a3ef-1d94742fe982",
+      "name": "Respond to Webhook (Success)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "mode": "append",
+        "combinationMode": "append",
+        "options": {}
+      },
+      "id": "688cd200-123a-4de2-a848-05ff74df2ab4",
+      "name": "Merge: Append Errors",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [640, 540]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst errors = items.map((i) => {\n  const resp = i.json || {};\n  const detail = resp.detail || (resp.body && resp.body.detail) || null;\n  const raw = (detail && (detail.message || detail.code))\n    || resp.message || resp.error\n    || (resp.body && (resp.body.message || resp.body.error))\n    || 'The clinical analysis API request failed';\n  return { stage: resp.input_type || 'analysis_call', error_message: typeof raw === 'string' ? raw : JSON.stringify(raw) };\n});\nreturn [{ json: { status: 'error', request_id: $execution.id, error_count: errors.length, errors } }];"
+      },
+      "id": "dfaf8de3-7feb-4cf4-8dc8-b563218c7cc9",
+      "name": "Code: Format Errors",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [880, 540]
+    },
+    {
+      "parameters": {
+        "respondWith": "allIncomingItems",
+        "options": {}
+      },
+      "id": "0bcdc452-ce03-490b-91c5-9660e0df3eff",
+      "name": "Respond to Webhook (Error)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1120, 540]
+    }
+  ],
+  "connections": {
+    "Webhook: Receive Patient Request": {
+      "main": [
+        [
+          {
+            "node": "Code: Normalize Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Normalize Input": {
+      "main": [
+        [
+          {
+            "node": "Switch: Route by Modality",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch: Route by Modality": {
+      "main": [
+        [
+          {
+            "node": "HTTP: Analyze Image Case",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "HTTP: Analyze CSV Case",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP: Analyze Image Case": {
+      "main": [
+        [
+          {
+            "node": "Merge: Append Results",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Merge: Append Errors",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP: Analyze CSV Case": {
+      "main": [
+        [
+          {
+            "node": "Merge: Append Results",
+            "type": "main",
+            "index": 1
+          }
+        ],
+        [
+          {
+            "node": "Merge: Append Errors",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge: Append Results": {
+      "main": [
+        [
+          {
+            "node": "Code: Summarize Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Summarize Results": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook (Success)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge: Append Errors": {
+      "main": [
+        [
+          {
+            "node": "Code: Format Errors",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Format Errors": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook (Error)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "instanceId": "n8n-workflow-healthcare-pipeline"
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
