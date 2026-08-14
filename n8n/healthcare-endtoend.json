@@ -1,0 +1,361 @@
+{
+  "name": "Healthcare End-to-End Pipeline",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "healthcare-endtoend",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "e2e00000-0000-4000-8000-000000000001",
+      "name": "Webhook: End-to-End Pipeline",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-760, 260],
+      "webhookId": "e2e00000-0000-4000-8000-000000000002"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "train",
+              "leftValue": "={{ $json.train }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "e2e00000-0000-4000-8000-000000000003",
+      "name": "IF: Train First?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [-520, 260]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:8000/api/v1/train",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { preset: $json.preset, dataset: $json.dataset, target: $json.target, model: $json.model, test_size: $json.test_size, seed: $json.seed, max_rows: $json.max_rows, federated: $json.federated, clients: $json.clients, rounds: $json.rounds } }}",
+        "options": {
+          "timeout": 600000
+        }
+      },
+      "id": "e2e00000-0000-4000-8000-000000000004",
+      "name": "HTTP: Train Model",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-280, 80],
+      "onError": "continueErrorOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "PLACEHOLDER_CREDENTIAL_ID",
+          "name": "Healthcare API Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:8000/api/v1/analyze",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { patient: $('Webhook: End-to-End Pipeline').item.json.patient, features: $('Webhook: End-to-End Pipeline').item.json.features, markers: $('Webhook: End-to-End Pipeline').item.json.markers, recommendations: $('Webhook: End-to-End Pipeline').item.json.recommendations, input_type: $('Webhook: End-to-End Pipeline').item.json.input_type || 'csv' } }}",
+        "options": {
+          "timeout": 600000
+        }
+      },
+      "id": "e2e00000-0000-4000-8000-000000000005",
+      "name": "HTTP: Analyze Patient",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-40, 260],
+      "onError": "continueErrorOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "PLACEHOLDER_CREDENTIAL_ID",
+          "name": "Healthcare API Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const webhook = $('Webhook: End-to-End Pipeline').item.json;\nconst resp = $json || {};\nlet trainMeta = null;\ntry { trainMeta = $('HTTP: Train Model').item.json; } catch (e) { /* train branch not taken */ }\nconst valid = resp && typeof resp === 'object' && typeof resp.patient_summary === 'string' && Array.isArray(resp.evidence);\nif (!valid) {\n  return [{ json: { status: 'error', stage: 'validation', error_message: 'The analyze response is not a valid clinical report' } }];\n}\nconst outDir = webhook.output_dir || '/tmp/healthcare_reports';\nconst filePath = outDir + '/report-' + $execution.id + '.json';\nconst content = JSON.stringify({\n  request_id: $execution.id,\n  generated_at: new Date().toISOString(),\n  dataset: webhook.preset || webhook.dataset || null,\n  train: trainMeta ? { model_path: trainMeta.model_path, accuracy: trainMeta.accuracy, roc_auc: trainMeta.roc_auc, f1: trainMeta.f1, federated: trainMeta.federated } : null,\n  report: resp,\n}, null, 2);\nreturn [{\n  json: {\n    status: 'success',\n    request_id: $execution.id,\n    dataset: webhook.preset || webhook.dataset || null,\n    train_status: trainMeta ? 'trained' : 'not_requested',\n    model_accuracy: trainMeta ? trainMeta.accuracy : null,\n    prediction: resp.prediction ? resp.prediction.predicted_class : null,\n    confidence: resp.prediction ? resp.prediction.confidence : null,\n    risk_level: resp.risk ? resp.risk.risk_level : null,\n    evidence_count: resp.evidence.length,\n    file_path: filePath,\n  },\n  binary: {\n    reportFile: {\n      data: Buffer.from(content).toString('base64'),\n      mimeType: 'application/json',\n      fileName: 'report-' + $execution.id + '.json',\n    },\n  },\n}];"
+      },
+      "id": "e2e00000-0000-4000-8000-000000000006",
+      "name": "Code: Analyze & Build Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [200, 260]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "success",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "success",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "e2e00000-0000-4000-8000-000000000007",
+      "name": "IF: Analysis Succeeded?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [440, 260]
+    },
+    {
+      "parameters": {
+        "operation": "write",
+        "fileName": "={{ $json.file_path }}",
+        "dataPropertyName": "reportFile",
+        "options": {
+          "createFolders": true,
+          "appendNumberedSuffix": false
+        }
+      },
+      "id": "e2e00000-0000-4000-8000-000000000008",
+      "name": "Write: Report to Disk",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [680, 140]
+    },
+    {
+      "parameters": {
+        "respondWith": "allIncomingItems",
+        "options": {}
+      },
+      "id": "e2e00000-0000-4000-8000-000000000009",
+      "name": "Respond to Webhook (Success)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [920, 140]
+    },
+    {
+      "parameters": {
+        "jsCode": "const resp = $json || {};\nconst detail = resp.detail || (resp.body && resp.body.detail) || null;\nconst raw = (detail && (detail.message || detail.code))\n  || resp.message || resp.error\n  || (resp.body && (resp.body.message || resp.body.error))\n  || 'The train request failed';\nconst msg = typeof raw === 'string' ? raw : JSON.stringify(raw);\nreturn [{ json: { status: 'error', stage: 'train_call', error_message: msg } }];"
+      },
+      "id": "e2e00000-0000-4000-8000-00000000000a",
+      "name": "Code: Format Train Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-40, 520]
+    },
+    {
+      "parameters": {
+        "jsCode": "const resp = $json || {};\nconst detail = resp.detail || (resp.body && resp.body.detail) || null;\nconst raw = (detail && (detail.message || detail.code))\n  || resp.message || resp.error\n  || (resp.body && (resp.body.message || resp.body.error))\n  || 'The analysis request failed';\nconst msg = typeof raw === 'string' ? raw : JSON.stringify(raw);\nreturn [{ json: { status: 'error', stage: 'analysis_call', error_message: msg } }];"
+      },
+      "id": "e2e00000-0000-4000-8000-00000000000b",
+      "name": "Code: Format Analyze Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [200, 520]
+    },
+    {
+      "parameters": {
+        "mode": "append",
+        "combinationMode": "append",
+        "options": {}
+      },
+      "id": "e2e00000-0000-4000-8000-00000000000c",
+      "name": "Merge: Merge Errors",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [440, 520]
+    },
+    {
+      "parameters": {
+        "respondWith": "allIncomingItems",
+        "options": {}
+      },
+      "id": "e2e00000-0000-4000-8000-00000000000d",
+      "name": "Respond to Webhook (Error)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [680, 520]
+    }
+  ],
+  "connections": {
+    "Webhook: End-to-End Pipeline": {
+      "main": [
+        [
+          {
+            "node": "IF: Train First?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF: Train First?": {
+      "main": [
+        [
+          {
+            "node": "HTTP: Train Model",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "HTTP: Analyze Patient",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP: Train Model": {
+      "main": [
+        [
+          {
+            "node": "HTTP: Analyze Patient",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code: Format Train Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP: Analyze Patient": {
+      "main": [
+        [
+          {
+            "node": "Code: Analyze & Build Report",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code: Format Analyze Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Analyze & Build Report": {
+      "main": [
+        [
+          {
+            "node": "IF: Analysis Succeeded?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF: Analysis Succeeded?": {
+      "main": [
+        [
+          {
+            "node": "Write: Report to Disk",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Merge: Merge Errors",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write: Report to Disk": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook (Success)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Format Train Error": {
+      "main": [
+        [
+          {
+            "node": "Merge: Merge Errors",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Code: Format Analyze Error": {
+      "main": [
+        [
+          {
+            "node": "Merge: Merge Errors",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Merge: Merge Errors": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook (Error)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "instanceId": "n8n-workflow-healthcare-endtoend"
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

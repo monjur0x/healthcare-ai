@@ -2,8 +2,9 @@
 
 Orchestration only. n8n triggers workflows and calls the FastAPI backend;
 all AI reasoning stays in the CrewAI clinical crew (`backend/CrewAI/orchestrator`),
-and all prediction / retrieval logic stays in the backend modules
-(`models/`, `rag/`). n8n never implements or duplicates ML logic.
+and all training / prediction / retrieval logic stays in the backend
+modules (`models/`, `federated/`, `rag/`). n8n never implements or
+duplicates ML logic.
 
 ## Architecture Fit
 
@@ -15,77 +16,90 @@ External caller (dashboard / automation / cron)
                     │  (route, validate, orchestrate)
                     ▼
        FastAPI backend (backend/api)
-                    │  /api/v1/analyze
+                    │  /api/v1/train, /api/v1/analyze
                     ▼
-    deterministic clinical crew pipeline
-    (prediction → risk → RAG evidence → clinical report)
+       training → deterministic clinical crew pipeline
+       (fit model → prediction → risk → RAG evidence → report)
                     │
                     ▼
-        n8n formats + responds to the caller
+        n8n stores the report + responds to the caller
 ```
 
 ## Workflows
 
-| File                                | Trigger path             | Purpose                                              |
-| ----------------------------------- | ------------------------ | ---------------------------------------------------- |
-| `clinical-analysis.json`            | `POST /webhook/healthcare-analyze` | Run one clinical analysis and return the full report + a compact summary. |
-| `clinical-pipeline-modality.json`   | `POST /webhook/healthcare-pipeline` | Route an incoming request by `modality` (`image` vs CSV default) and run `/api/v1/analyze` with the matching `input_type`. |
+| File                          | Trigger path                 | Purpose                                               |
+| ----------------------------- | ---------------------------- | ----------------------------------------------------- |
+| `healthcare-endtoend.json`    | `POST /webhook/healthcare-endtoend` | **Single end-to-end workflow**: optionally train a model, run a clinical analysis, write the report to disk, and return a structured result. |
+| `clinical-analysis.json`      | `POST /webhook/healthcare-analyze`  | Minimal reference workflow: run one clinical analysis and return the full report + a compact summary. |
 
-Both workflows are webhook-triggered, validate the backend response,
-format a structured `status: success|error` payload, and respond back to
-the caller with `Respond to Webhook`.
+### `healthcare-endtoend.json` (recommended)
+
+The single automation workflow. One webhook drives the full lifecycle so
+nothing needs to be trained or configured manually first.
+
+1. **Webhook** receives the request body.
+2. **IF: Train First?** — when the caller sets `train: true` the workflow
+   calls `POST /api/v1/train` first (see below), otherwise it skips
+   straight to analysis (the API uses whatever model it already has).
+3. **HTTP: Train Model** — trains on the requested `preset` (or
+   `dataset` + `target`); central fit by default, or the federated FedAvg
+   path with `federated: true` + `clients` / `rounds`. The backend saves
+   the artifact and starts serving it immediately.
+4. **HTTP: Analyze Patient** — posts the patient / features / markers to
+   `POST /api/v1/analyze` (payload always read from the original webhook).
+5. **Code: Analyze & Build Report** — validates the report, embeds the
+   train metadata + full report in one JSON file, and attaches it as a
+   binary payload.
+6. **Write: Report to Disk** — writes the JSON to
+   `/tmp/healthcare_reports/` (override with `output_dir` in the request).
+7. **Respond to Webhook** — returns a structured `status: success`
+   payload with the summary + `file_path`.
+8. Errors from training, analysis, or validation are merged and returned
+   as a single `status: error` payload with the failing `stage`.
+
+Example payload:
+
+```json
+{
+  "train": true,
+  "preset": "diabetes",
+  "federated": false,
+  "clients": 3,
+  "rounds": 3,
+  "output_dir": "/tmp/healthcare_reports",
+  "patient": { "id": "p-1001", "name": "Patient A", "age": 54 },
+  "features": { "glucose": 148.0, "bmi": 27.3, "age": 54.0 },
+  "markers": { "glucose": 148.0, "bmi": 27.3, "age": 54.0 }
+}
+```
+
+Success response (summary):
+
+```json
+{
+  "status": "success",
+  "request_id": "…",
+  "dataset": "diabetes",
+  "train_status": "trained",
+  "model_accuracy": 0.75,
+  "prediction": "1",
+  "confidence": 0.72,
+  "risk_level": "moderate",
+  "evidence_count": 3,
+  "file_path": "/tmp/healthcare_reports/report-<id>.json"
+}
+```
 
 ### `clinical-analysis.json`
 
-1. **Webhook** receives the request body.
-2. **HTTP** posts the entire body to `POST http://localhost:8000/api/v1/analyze`.
-3. **Validate & Summarize** checks the response is a clinical report and
-   builds a compact summary (patient id, prediction, confidence, risk,
-   evidence / recommendation counts).
-4. **IF** routes valid reports to **Format Success** → respond, and
-   malformed responses (or HTTP errors from the API) to the error branch
-   → merge → respond with `status: "error"`.
-
-Example payload:
-
-```json
-{
-  "patient": { "id": "p-1001", "name": "Patient A", "age": 54, "notes": "" },
-  "features": { "glucose": 148.0, "bmi": 27.3, "age": 54.0 },
-  "markers": { "glucose": 148.0, "bmi": 27.3 },
-  "recommendations": ["Review with a licensed physician."],
-  "input_type": "csv"
-}
-```
-
-### `clinical-pipeline-modality.json`
-
-1. **Webhook** receives the request body.
-2. **Normalize Input** extracts `patient` / `features` / `markers` /
-   `recommendations` and a lowercased `modality` (defaults to `csv`).
-3. **Switch** routes `modality == "image"` to the image branch and
-   everything else to the CSV branch.
-4. Each branch calls `/api/v1/analyze` with `input_type` set to `image`
-   or `csv`.
-5. Success results are merged and summarized; errors are merged and
-   reported — the caller receives a single structured response either way.
-
-Example payload:
-
-```json
-{
-  "patient": { "id": "p-1002" },
-  "features": { "glucose": 92.0, "bmi": 24.1, "age": 45.0 },
-  "markers": { "glucose": 92.0 },
-  "modality": "csv"
-}
-```
+Minimal reference: webhook → `POST /api/v1/analyze` → validate →
+respond. Kept as the simplest possible example; for a full lifecycle use
+`healthcare-endtoend.json`.
 
 ## Configuration
 
 1. **Import** — n8n → Workflows → ⋮ → Import from file, or drop the JSON
-   into the n8n workflows directory (`~/.n8n/nodes` is not used; use
-   "Import from file").
+   into the n8n workflows directory. Use "Import from file".
 2. **Base URL** — the HTTP nodes target `http://localhost:8000` by
    default. Change the `url` fields if the FastAPI backend is deployed
    elsewhere (edit each `HTTP: ...` node).
@@ -97,8 +111,8 @@ Example payload:
      placeholder credential of that name).
    - If `API_TOKEN` is empty the workflows run without the credential.
 4. **Webhook URLs** — after activating a workflow, n8n prints the full
-   webhook URL: `https://<n8n-host>/webhook/healthcare-analyze` and
-   `/webhook/healthcare-pipeline`.
+   webhook URL, e.g. `https://<n8n-host>/webhook/healthcare-endtoend` and
+   `/webhook/healthcare-analyze`.
 
 ## Security Notes
 
@@ -107,6 +121,9 @@ Example payload:
 - The workflows pass patient data straight through to the backend; keep
   the n8n instance and the webhook endpoints behind your deployment's
   transport security (HTTPS / VPN).
+- Report files are written to a local directory; the path is caller
+  controlled (`output_dir`) — restrict the n8n instance to trusted
+  callers and cap the output location if you expose it.
 
 ## Local Smoke Test
 
@@ -114,10 +131,13 @@ With the FastAPI backend running (`uvicorn api.main:app` from
 `backend/`) and the workflow active:
 
 ```bash
-curl -X POST http://localhost:5678/webhook/healthcare-analyze \
+curl -X POST http://localhost:5678/webhook/healthcare-endtoend \
   -H "Content-Type: application/json" \
   -d '{
+    "train": true,
+    "preset": "diabetes",
     "patient": {"id": "smoke-1"},
-    "features": {"glucose": 148.0, "bmi": 27.3, "age": 54.0}
+    "features": {"glucose": 148.0, "bmi": 27.3, "age": 54.0},
+    "markers": {"glucose": 148.0, "bmi": 27.3, "age": 54.0}
   }'
 ```
