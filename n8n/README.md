@@ -18,18 +18,18 @@ External caller (dashboard / automation / cron)
        FastAPI backend (backend/api)
                     │  /api/v1/train, /api/v1/analyze
                     ▼
-       training → deterministic clinical crew pipeline
-       (fit model → prediction → risk → RAG evidence → report)
+training → deterministic clinical crew pipeline
+        (fit model → prediction → risk → RAG evidence → report)
                     │
                     ▼
-        n8n stores the report + responds to the caller
+        n8n responds to the caller with the full report
 ```
 
 ## Workflows
 
 | File                          | Trigger path                 | Purpose                                               |
 | ----------------------------- | ---------------------------- | ----------------------------------------------------- |
-| `healthcare-endtoend.json`    | `POST /webhook/healthcare-endtoend` | **Single end-to-end workflow**: optionally train a model, run a clinical analysis, write the report to disk, and return a structured result. |
+| `healthcare-endtoend.json`    | `POST /webhook/healthcare-endtoend` | **Single end-to-end workflow**: optionally train a model, run a clinical analysis, and return the full clinical report in the webhook response. |
 | `clinical-analysis.json`      | `POST /webhook/healthcare-analyze`  | Minimal reference workflow: run one clinical analysis and return the full report + a compact summary. |
 
 ### `healthcare-endtoend.json` (recommended)
@@ -37,7 +37,9 @@ External caller (dashboard / automation / cron)
 The single automation workflow. One webhook drives the full lifecycle so
 nothing needs to be trained or configured manually first.
 
-1. **Webhook** receives the request body.
+1. **Webhook** receives the request body. The n8n webhook node nests the
+   payload under `body` (`{headers, params, query, body}`), so every
+   expression in the workflow reads fields via `$json.body.*`.
 2. **IF: Train First?** — when the caller sets `train: true` the workflow
    calls `POST /api/v1/train` first (see below), otherwise it skips
    straight to analysis (the API uses whatever model it already has).
@@ -46,17 +48,15 @@ nothing needs to be trained or configured manually first.
    path with `federated: true` + `clients` / `rounds`. The backend saves
    the artifact and starts serving it immediately.
 4. **HTTP: Analyze Patient** — posts the patient / features / markers to
-   `POST /api/v1/analyze` (payload always read from the original webhook).
-5. **Code: Analyze & Build Report** — validates the report, embeds the
-   train metadata + full report in one JSON file, and attaches it as a
-   binary payload.
-6. **Write: Report to Disk** — writes the JSON to
-   `/tmp/healthcare_reports/` (override with `output_dir` in the request).
-7. **Respond to Webhook** — returns a structured `status: success`
-   payload with the summary, the full clinical `report` (consumed
-   directly by the Streamlit dashboard), and the `file_path`.
-8. Errors from training, analysis, or validation are merged and returned
-   as a single `status: error` payload with the failing `stage`.
+   `POST /api/v1/analyze` (payload always read from the original webhook
+   request body).
+5. **Code: Analyze & Build Report** — validates the clinical report and
+   emits a `status: success` summary alongside the full `report`.
+6. **Respond to Webhook** — returns the summary + full clinical `report`
+   as a single JSON object (consumed directly by the Streamlit
+   dashboard).
+7. Errors from training, analysis, or validation each respond as a
+   single `status: error` payload with the failing `stage`.
 
 Example payload:
 
@@ -67,7 +67,6 @@ Example payload:
   "federated": false,
   "clients": 3,
   "rounds": 3,
-  "output_dir": "/tmp/healthcare_reports",
   "patient": { "id": "p-1001", "name": "Patient A", "age": 54 },
   "features": { "glucose": 148.0, "bmi": 27.3, "age": 54.0 },
   "markers": { "glucose": 148.0, "bmi": 27.3, "age": 54.0 }
@@ -87,7 +86,6 @@ Success response (summary + full report):
   "confidence": 0.72,
   "risk_level": "moderate",
   "evidence_count": 3,
-  "file_path": "/tmp/healthcare_reports/report-<id>.json",
   "report": { "patient_summary": "…", "prediction": "…", "risk": "…", "evidence": [ "…" ], "recommendations": "…" }
 }
 ```
@@ -106,16 +104,23 @@ respond. Kept as the simplest possible example; for a full lifecycle use
 1. **Import** — n8n → Workflows → ⋮ → Import from file, or drop the JSON
    into the n8n workflows directory. Use "Import from file".
 2. **Base URL** — the HTTP nodes target `http://localhost:8000` by
-   default. Change the `url` fields if the FastAPI backend is deployed
-   elsewhere (edit each `HTTP: ...` node).
-3. **Optional bearer token** — the backend accepts an optional static
-   token (`API_TOKEN` env var, see `backend/api`). If it is set:
-   - Create a credential of type **Header Auth** named `Healthcare API
-     Token`, with header name `Authorization` and the token as value.
-   - Associate it with the HTTP nodes (they already reference a
-     placeholder credential of that name).
-   - If `API_TOKEN` is empty the workflows run without the credential.
-4. **Webhook URLs** — after activating a workflow, n8n prints the full
+   default. If n8n runs in a Docker container the backend must be reached
+   through the Docker bridge gateway, e.g. `http://172.17.0.1:8000`
+   (edit each `HTTP: ...` node) — `localhost` inside the container only
+   reaches the container itself.
+3. **Header Auth credential (required)** — the HTTP nodes use an
+   `httpHeaderAuth` credential named **Healthcare API Token**. The
+   credential object must exist on the instance and be associated with
+   the nodes, otherwise every execution fails with *"Credential with ID
+   … does not exist"* (the committed JSON carries a placeholder ID that
+   must be replaced). When the backend `API_TOKEN` is unset the header
+   value is ignored; when it is set, use header name `Authorization` and
+   `Bearer <token>` as the value.
+4. **Activate** — n8n 2.x uses draft/published workflow versions; a
+   workflow only serves its webhook after it is **activated** (UI toggle
+   or `POST /api/v1/workflows/{id}/activate` with an API key). Editing
+   the workflow database alone is not enough.
+5. **Webhook URLs** — after activating a workflow, n8n prints the full
    webhook URL, e.g. `https://<n8n-host>/webhook/healthcare-endtoend` and
    `/webhook/healthcare-analyze`.
 
@@ -126,9 +131,11 @@ respond. Kept as the simplest possible example; for a full lifecycle use
 - The workflows pass patient data straight through to the backend; keep
   the n8n instance and the webhook endpoints behind your deployment's
   transport security (HTTPS / VPN).
-- Report files are written to a local directory; the path is caller
-  controlled (`output_dir`) — restrict the n8n instance to trusted
-  callers and cap the output location if you expose it.
+- n8n 2.34 restricts the Code node sandbox (`fs` is disallowed) and
+  readWriteFile writes to `~/.n8n-files`; the end-to-end workflow
+  therefore returns the report in the webhook response instead of writing
+  it to disk. If you need disk archival, mount a volume under the n8n
+  file sandbox base and use a `readWriteFile` node inside it.
 
 ## Local Smoke Test
 

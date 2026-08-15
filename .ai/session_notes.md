@@ -69,3 +69,37 @@ honest handling of unsupported outputs; update docs at the end.
   commit; ask before committing.
 - Live n8n end-to-end verification from the dashboard needs a running
   n8n instance.
+## Session: live n8n verification + original-instance password reset
+
+- Reset the forgotten owner password on `healthcare-n8n` (:5678):
+  generated a bcryptjs `$2a$10$` hash, wrote it into a copy of the
+  container's `database.sqlite` (SQLite), then docker cp'd it back and
+  removed the stale `-wal`/`-shm` (the container's old WAL was
+  overriding the edited main file). New password: `NewPassw0rd!`
+  (owner `monjurulhaquerajun@gmail.com`); login verified via
+  `POST /rest/login`.
+- Live n8n E2E (n8n 2.34.6, throwaway `n8n-live-test` on :5679):
+  - Public API auth: `N8N_API_KEY` env is ignored; API keys must be
+    created by an owner via `POST /rest/api-keys` (private API) and sent
+    as `X-N8N-API-KEY`. Owner setup is `POST /rest/owner/setup`; login
+    field is `emailOrLdapLoginId`.
+  - CLI `import:workflow` deactivates workflows and needs a uuid `id`;
+    DB `active=1` alone does NOT register webhooks (draft/published
+    model). Activate via UI or `POST /api/v1/workflows/{id}/activate`.
+  - Webhook node nests the payload under `body` — the committed workflow
+    read `$json.*`/`item.json.*` at top level, so `train`, `patient`,
+    `features` were undefined (train never ran; patient "Unknown").
+    Fixed to `$json.body.*` / `item.json.body.*`.
+  - readWriteFile write fails on missing dirs (no folder creation) and
+    is restricted to `~/.n8n-files`; Code-node `fs` is disallowed; the
+    public API `PUT` rejects `n8n-nodes-base.executeCommand`. → Removed
+    the Write-to-disk + binary from the workflow; the respond node now
+    returns the full report (dashboard contract).
+  - `respondWith: allIncomingItems` returns an array; the dashboard's
+    `analyze_via_n8n()` expects a dict → both respond nodes now use
+    `firstIncomingItem`.
+  - Docker networking: HTTP nodes must target `http://172.17.0.1:8000`
+    (bridge gateway) from inside the n8n container, not `localhost:8000`.
+  - Verified live: `analyze_via_n8n()` (report + real patient) and
+    `train: true` (diabetes logistic 0.66 → prediction + risk + evidence
+    in one response).

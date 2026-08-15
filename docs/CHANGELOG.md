@@ -2,6 +2,33 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **Live n8n end-to-end verification fixes** (`n8n/`):
+  - `healthcare-endtoend.json` read the webhook payload at the top level,
+    but the n8n webhook node nests it under `body` — so `train`
+    (train gate), `patient`, and `features` were silently undefined (the
+    train branch never ran and the patient came back as "Unknown").
+    All expressions now read `$json.body.*` / `item.json.body.*`.
+  - The `Write: Report to Disk` node sat on the response critical path
+    and failed (missing dirs / n8n 2.34 file sandbox restricted to
+    `~/.n8n-files`), producing HTTP 200 with an empty body. Removed the
+    Write node + binary attachment; the Code node returns the full
+    clinical `report` in the webhook response (the dashboard contract).
+  - `respondWith` switched from `allIncomingItems` (JSON array) to
+    `firstIncomingItem` (single object) on both Respond nodes, matching
+    the dashboard's `analyze_via_n8n()`.
+  - `clinical-analysis.json` — Respond nodes also use
+    `firstIncomingItem` for consistency (it already read `$json.body`).
+  - `n8n/README.md` — corrected workflow description; documented the
+    required Header Auth credential, Docker bridge networking
+    (`172.17.0.1:8000` vs `localhost:8000`), and n8n 2.x draft/published
+    activation.
+  - Live-verified end-to-end (n8n 2.34.6 → FastAPI): `analyze_via_n8n()`
+    returns the report with the real patient; `train: true` trains a
+    diabetes logistic model (accuracy 0.66) and returns prediction +
+    risk + evidence in one webhook response.
+
 ### Added
 
 - **Milestone 11 — Doctor-facing Clinical Decision Support dashboard**

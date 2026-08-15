@@ -344,8 +344,24 @@ automated system that runs on CPU-only hardware.
 - [x] `frontend/pyproject.toml` mirrors backend tooling config
 - [x] Tests: frontend 35 (+22), backend 326 (unchanged); lint clean;
       live-verified analyze + analyze_image against a running backend
+- [x] Live n8n end-to-end verification (follow-up session): drove the
+      dashboard's n8n route against a real n8n 2.34.6 instance and the
+      real backend. Fixed `healthcare-endtoend.json` bugs the hermetic
+      tests could not catch:
+  - webhook payload is nested under `body` → expressions now read
+    `$json.body.*` (previously `train`, `patient`, `features` were
+    undefined)
+  - removed the Write-to-disk node (n8n 2.34 file sandbox: `~/.n8n-files`
+    only, no parent-dir creation) from the response critical path →
+    empty HTTP 200
+  - Respond nodes use `firstIncomingItem` so the response is a single
+    object (dashboard contract)
+  - `clinical-analysis.json` Respond nodes aligned
+  - Verified: `analyze_via_n8n()` (real patient) + `train: true`
+    (diabetes logistic 0.66 → prediction + risk + evidence in one
+    response)
 
-New deferred items from Milestone 11:
+New deferred items from Milestone 11 / n8n verification:
 
 - [ ] Persistent patient records + history in the dashboard (each
       assessment is currently entered fresh)
@@ -355,9 +371,10 @@ New deferred items from Milestone 11:
 - [ ] Backend feature-importance / SHAP-style explainability so the
       "Explainable Decision Report" can be model-derived rather than
       derived from prediction / risk outputs
-- [ ] Live n8n end-to-end verification from the dashboard (no local n8n
-      instance during the Milestone 11 session; covered by hermetic
-      tests + workflow JSON validation)
+- [ ] Disk-archive of clinical reports from n8n (the readWriteFile node
+      is sandboxed to `~/.n8n-files` and cannot create parent dirs) —
+      mount a volume under the sandbox base and write inside it, or
+      return the report to a caller that persists it
 
 ### Milestone 9+ (not yet scoped)
 

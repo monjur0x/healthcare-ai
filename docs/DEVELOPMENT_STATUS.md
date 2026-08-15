@@ -342,9 +342,31 @@ Treatment Agent → Explainability → n8n → Doctor Dashboard).
 
 ### n8n integration
 
-- [x] `healthcare-endtoend.json` Code node now returns the full
-      `report` in the webhook response so the dashboard consumes the
-      real report through the n8n path (workflow JSON validated)
+- [x] `healthcare-endtoend.json` Code node returns the full `report` in
+      the webhook response so the dashboard consumes the real report
+      through the n8n path (workflow JSON validated)
+
+### Live n8n end-to-end verification (follow-up)
+
+- [x] Verified live against a real n8n 2.34.6 instance + the real
+      backend (previously only hermetic tests + JSON validation):
+- [x] Fixed `healthcare-endtoend.json` field references: the n8n webhook
+      node nests the payload under `body`, so expressions now read
+      `$json.body.*` / `item.json.body.*` (previously `train`, `patient`,
+      `features` were silently undefined → train never ran, patient
+      "Unknown")
+- [x] Removed the `Write: Report to Disk` node from the response
+      critical path — n8n 2.34 readWriteFile is sandboxed to
+      `~/.n8n-files`, cannot create parent dirs, and its failure produced
+      an empty HTTP 200; the full report is returned directly by the
+      Respond node
+- [x] Respond nodes use `firstIncomingItem` (single JSON object) so the
+      dashboard's `analyze_via_n8n()` contract holds
+- [x] `clinical-analysis.json` Respond nodes aligned
+- [x] Live results: `analyze_via_n8n()` returns the report with the real
+      patient; `train: true` through the webhook trains a diabetes
+      logistic model (accuracy 0.66) and returns prediction + risk +
+      evidence in one response
 
 ### Verification
 
@@ -360,8 +382,9 @@ Treatment Agent → Explainability → n8n → Doctor Dashboard).
       returns evidence-without-prediction gracefully, and a real glioma
       scan via `analyze_image` returns prediction (meningioma @ 69%) +
       risk + evidence through the dashboard client
-- [x] Not live-tested: the n8n webhook path (no local n8n instance) —
-      covered by hermetic unit tests and workflow JSON validation
+- [x] Live n8n path verified (follow-up): the end-to-end webhook runs
+      against a real n8n instance + backend — see "Live n8n end-to-end
+      verification" above (was "not live-tested" previously)
 
 ---
 
