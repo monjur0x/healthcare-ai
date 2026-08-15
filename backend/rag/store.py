@@ -117,4 +117,36 @@ class VectorStore:
         return [(self._ids[index], float(scores[index])) for index in order]
 
 
-__all__ = ["VectorStore"]
+def build_vector_store(backend: str | None = None) -> VectorStore | ChromaVectorStore:
+    """
+    Build the configured vector store by name.
+
+    Parameters
+    ----------
+    backend : str | None
+        Store backend name (``"memory"`` or ``"chroma"``). Defaults to
+        ``settings.VECTOR_STORE``.
+
+    Returns
+    -------
+    VectorStore | ChromaVectorStore
+        A configured store instance implementing the same ``add`` /
+        ``search`` / ``__len__`` interface.
+
+    Raises
+    ------
+    ValueError
+        If the backend name is unknown.
+    """
+
+    name = settings.VECTOR_STORE if backend is None else backend
+    if name == "memory":
+        return VectorStore()
+    if name == "chroma":
+        from .store_chroma import ChromaVectorStore
+
+        return ChromaVectorStore()
+    raise ValueError(f"Unknown vector store backend '{name}'.")
+
+
+__all__ = ["VectorStore", "build_vector_store"]

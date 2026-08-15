@@ -46,6 +46,22 @@ class RAGSettings(BaseSettings):
 
     SIMILARITY_METRIC: str = "cosine"
 
+    ##########################################
+    # Vector store
+    ##########################################
+
+    #: Vector store backend: ``"memory"`` (in-process NumPy) or
+    #: ``"chroma"`` (persistent ChromaDB).
+    VECTOR_STORE: str = "memory"
+
+    #: Directory for the persistent ChromaDB collection when
+    #: ``VECTOR_STORE == "chroma"``. Empty means a fresh ephemeral
+    #: collection per process.
+    CHROMA_PERSIST_DIR: str = ""
+
+    #: ChromaDB collection name for the persistent store.
+    CHROMA_COLLECTION: str = "healthcare_rag"
+
 
 settings = RAGSettings()
 

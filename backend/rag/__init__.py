@@ -14,9 +14,11 @@ from .embedder import Embedder, HashingEmbedder, TfidfEmbedder, build_embedder
 from .metrics import RetrievalMetrics, retrieval_metrics
 from .pipeline import RAGPipeline
 from .retriever import Retriever
-from .store import VectorStore
+from .store import VectorStore, build_vector_store
+from .store_chroma import ChromaVectorStore
 
 __all__ = [
+    "ChromaVectorStore",
     "Chunk",
     "Document",
     "Embedder",
@@ -30,6 +32,7 @@ __all__ = [
     "TfidfEmbedder",
     "VectorStore",
     "build_embedder",
+    "build_vector_store",
     "retrieval_metrics",
     "settings",
 ]

@@ -181,6 +181,17 @@ Optional bearer auth: set `API_TOKEN` and send
 - `API_TOKEN` — optional bearer token
 - `DATASET_DIR` — used by the demos and as the dataset-dir fallback
 
+RAG settings (prefix `RAG_`, see `backend/rag/config.py`):
+
+- `RAG_EMBEDDING_MODEL` — `tfidf` (default), `hashing`, or
+  `sentence-transformer` (dense, opt-in, requires `sentence-transformers`)
+- `RAG_VECTOR_STORE` — `memory` (default, in-process NumPy) or `chroma`
+  (persistent ChromaDB collection)
+- `RAG_CHROMA_PERSIST_DIR` — directory for the ChromaDB collection when
+  `RAG_VECTOR_STORE=chroma` (empty = ephemeral per process)
+- `RAG_CHROMA_COLLECTION` — ChromaDB collection name (default
+  `healthcare_rag`)
+
 ### Enabling the CrewAI LLM agents (Gemini)
 
 By default the crew runs a fully offline, deterministic pipeline
