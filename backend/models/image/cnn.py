@@ -234,8 +234,8 @@ class ImageClassifier(BaseModel):
             self._device
         )
 
-        label_map = {int(label): index for index, label in enumerate(classes)}
-        targets = np.array([label_map[int(value)] for value in y], dtype=np.int64)
+        label_map = {label: index for index, label in enumerate(classes)}
+        targets = np.array([label_map[value] for value in y], dtype=np.int64)
         dataset = _TensorDataset(batch, targets)
 
         torch.manual_seed(self._seed)
@@ -511,12 +511,12 @@ class ImageClassifier(BaseModel):
                 f"X has {batch.shape[0]} rows but y has {len(y)} labels."
             )
 
-        label_map = {int(label): index for index, label in enumerate(self._classes)}
-        if not {int(value) for value in y}.issubset(label_map):
+        label_map = {label: index for index, label in enumerate(self._classes)}
+        if not {value for value in y}.issubset(label_map):
             raise InvalidModelInputError(
                 "partial_fit received labels not present at fit time."
             )
-        targets = np.array([label_map[int(value)] for value in y], dtype=np.int64)
+        targets = np.array([label_map[value] for value in y], dtype=np.int64)
 
         torch.manual_seed(self._seed)
         generator = torch.Generator().manual_seed(self._seed)

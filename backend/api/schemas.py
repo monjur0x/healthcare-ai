@@ -8,9 +8,12 @@ orchestrator schemas (``ClinicalReport``, ``PredictionResult``,
 
 from __future__ import annotations
 
+import base64
+import binascii
+
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from CrewAI.orchestrator.schemas import (
     ClinicalReport,
@@ -172,6 +175,87 @@ class AnalyzeRequest(BaseModel):
     input_type: str = "csv"
 
 
+class AnalyzeImageRequest(BaseModel):
+    """
+    An image-based clinical analysis request.
+
+    Parameters
+    ----------
+    patient : PatientInfo
+        Patient context (name, study id, age, notes).
+    image : bytes
+        Raw image file bytes (PNG / JPEG) for the image model.
+    markers : dict[str, float] | None
+        Optional raw clinical markers feeding the risk assessment.
+    recommendations : list[str] | None
+        Optional recommendation strings for the report.
+    """
+
+    patient: PatientInfo = Field(default_factory=PatientInfo)
+    image: bytes
+    markers: dict[str, float] | None = None
+    recommendations: list[str] | None = None
+
+    @field_validator("image", mode="before")
+    @classmethod
+    def decode_base64_image(cls, value: Any) -> bytes:
+        """
+        Decode a base64-encoded JSON string into raw image bytes.
+
+        Parameters
+        ----------
+        value : Any
+            Raw JSON value (a base64 string or already bytes).
+
+        Returns
+        -------
+        bytes
+            Decoded image bytes.
+
+        Raises
+        ------
+        ValueError
+            If the value is not a base64 string or decodes to nothing.
+        """
+
+        if isinstance(value, bytes):
+            return value
+        if not isinstance(value, str):
+            raise ValueError("image must be a base64-encoded string.")
+        try:
+            decoded = base64.b64decode(value, validate=True)
+        except binascii.Error as error:
+            raise ValueError(f"Invalid base64 image: {error}") from error
+        if not decoded:
+            raise ValueError("image base64 payload is empty.")
+        return decoded
+
+
+class ModelInfo(BaseModel):
+    """
+    Metadata about the configured prediction models.
+
+    Parameters
+    ----------
+    available : bool
+        Whether any model (tabular or image) is configured.
+    model_type : str | None
+        ``"tabular"`` / ``"image"`` / ``"tabular_and_image"`` or None.
+    model_name : str | None
+        Name of the primary model (tabular when present, else image).
+    classes : list[str] | None
+        Class labels of the primary model.
+    feature_names : list[str] | None
+        Expected feature columns (tabular model only).
+    """
+
+    available: bool = False
+    model_type: str | None = None
+    model_name: str | None = None
+    classes: list[str] | None = None
+    feature_names: list[str] | None = None
+
+
 class HealthResponse(BaseModel):
     """
     Server metadata response.
@@ -192,11 +276,13 @@ class HealthResponse(BaseModel):
 
 
 __all__ = [
+    "AnalyzeImageRequest",
     "AnalyzeRequest",
     "ClinicalReport",
     "DatasetPreset",
     "EvidenceItem",
     "HealthResponse",
+    "ModelInfo",
     "PatientInfo",
     "PredictRequest",
     "PredictionResult",

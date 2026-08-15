@@ -91,6 +91,36 @@ curl -X POST localhost:8000/api/v1/analyze \
 Also available: `POST /api/v1/predict` (single row) and
 `POST /api/v1/retrieve` (RAG evidence).
 
+**3b. Image analysis (MRI upload)** — the backend ships with a trained
+brain-tumor CNN (`glioma` / `meningioma` / `notumor` / `pituitary`)
+loaded from `API_IMAGE_MODEL_PATH`. Send a base64-encoded image to
+`POST /api/v1/analyze/image`, or use the dashboard's **Image (MRI
+upload)** tab:
+
+```bash
+python - <<'EOF'
+import base64, json, urllib.request
+image = open("scan.png", "rb").read()
+body = json.dumps({
+    "patient": {"id": "p-img", "name": "Patient A", "age": 30},
+    "image": base64.b64encode(image).decode(),
+}).encode()
+req = urllib.request.Request(
+    "http://localhost:8000/api/v1/analyze/image", body,
+    {"Content-Type": "application/json"})
+print(urllib.request.urlopen(req).read().decode())
+EOF
+```
+
+To retrain the CNN (the brain-tumor dataset must be extracted with
+class folders like `glioma/`, `notumor/`):
+
+```bash
+cd /home/monjur0x0/Healthcare-AI
+python scripts/train_image_model.py --dataset /path/to/dataset \
+  --max-per-class 300 --epochs 6 --image-size 64
+```
+
 **4. Start the dashboard:**
 
 ```bash
@@ -131,22 +161,43 @@ structured success/error payload.
 | Method | Path | Description |
 | ------ | ---- | ----------- |
 | GET | `/health` | Liveness |
+| GET | `/api/v1/model` | Model metadata (features / classes) |
 | POST | `/api/v1/train` | Train a model (central or federated) and serve it |
 | POST | `/api/v1/predict` | Classify one feature row |
 | POST | `/api/v1/retrieve` | RAG evidence retrieval |
 | POST | `/api/v1/analyze` | Full clinical report (prediction, risk, evidence, recommendations) |
+| POST | `/api/v1/analyze/image` | Image-based clinical report (base64 image body) |
 
 Optional bearer auth: set `API_TOKEN` and send
 `Authorization: Bearer <token>` (all `/api/v1` routes).
 
 ## Configuration (environment variables)
 
-- `API_MODEL_PATH` — path to a persisted model (else empty; train via the API)
+- `API_MODEL_PATH` — path to a persisted tabular model (else empty; train via the API)
+- `API_IMAGE_MODEL_PATH` — path to a persisted image CNN (else empty; train via `scripts/train_image_model.py`)
 - `API_CORPUS_DIR` — RAG knowledge directory of `.txt`/`.md` (else built-in corpus)
 - `API_DATASET_DIR` — base dir for preset datasets (else `DATASET_DIR`, else cwd)
 - `API_ARTIFACTS_DIR` — where trained models are written (default `backend/artifacts`)
 - `API_TOKEN` — optional bearer token
 - `DATASET_DIR` — used by the demos and as the dataset-dir fallback
+
+### Enabling the CrewAI LLM agents (Gemini)
+
+By default the crew runs a fully offline, deterministic pipeline
+(prediction → risk → evidence → report) with no model calls. To enable
+the agentic path (`ClinicalCrew.run_llm`, CrewAI agents that enrich the
+report with reasoning):
+
+1. Get a Gemini API key from <https://aistudio.google.com/apikey>.
+2. From `backend/`: `cp .env.example .env` and set `CREW_LLM_API_KEY=`.
+   (Default provider/model: `google` / `gemini-3.7-flash`.)
+3. Install the Google extra for CrewAI in the venv:
+   `pip install crewai[google-genai]`.
+4. Restart the backend. The crew now uses agents with Gemini; if the
+   LLM call fails, it falls back to the deterministic report.
+
+`backend/.env.example` documents every variable (API_ / CREW_ / MODEL_ /
+RAG_). Never commit `.env` — it is gitignored.
 
 ## Datasets
 

@@ -9,8 +9,9 @@ import pandas as pd
 import pytest
 
 from CrewAI.orchestrator.crew import ClinicalCrew
+from CrewAI.orchestrator.exceptions import OrchestrationError
 from CrewAI.orchestrator.schemas import ClinicalReport, PatientInfo
-from models import TabularClassifier
+from models import ImageClassifier, TabularClassifier
 from rag import HashingEmbedder, RAGPipeline
 
 CORPUS = [
@@ -79,4 +80,41 @@ def test_run_analysis_requires_features_with_model(model) -> None:
 
     crew = ClinicalCrew(patient=PatientInfo(id="p4"), model=model)
     with pytest.raises(OrchestrationError):
+        crew.run_analysis()
+
+
+@pytest.fixture
+def image_model() -> ImageClassifier:
+    images = np.zeros((16, 8, 8, 3), dtype=np.float32)
+    images[:8, :, :, 0] = 1.0
+    images[8:, :, :, 2] = 1.0
+    labels = np.array(["tumor"] * 8 + ["normal"] * 8)
+    return ImageClassifier(in_channels=3, epochs=2, batch_size=8, base_channels=2).fit(
+        images, labels
+    )
+
+
+def test_run_analysis_image_path(image_model, pipeline) -> None:
+    image = np.zeros((8, 8, 3), dtype=np.float32)
+    image[:, :, 2] = 1.0
+    crew = ClinicalCrew(
+        patient=PatientInfo(name="P", id="p-img", age=60),
+        input_type="image",
+        image_model=image_model,
+        image=image,
+        rag_pipeline=pipeline,
+        markers={"glucose": 140.0, "age": 60.0},
+    )
+    report = crew.run_analysis()
+    assert isinstance(report, ClinicalReport)
+    assert report.input_type == "image"
+    assert report.prediction is not None
+    assert report.prediction.model_name == "image-cnn"
+    assert report.risk is not None
+    assert report.evidence
+
+
+def test_run_analysis_image_requires_image_array(image_model) -> None:
+    crew = ClinicalCrew(patient=PatientInfo(id="p-img2"), image_model=image_model)
+    with pytest.raises(OrchestrationError, match="image array"):
         crew.run_analysis()

@@ -18,11 +18,12 @@ from api.exceptions import InvalidInputError, ServiceUnavailableError
 from api.services import (
     AnalysisService,
     build_rag_pipeline,
+    load_image_model,
     load_predictive_model,
     prepare_tabular_data,
 )
 from CrewAI.orchestrator.schemas import PatientInfo
-from models import TabularClassifier
+from models import ImageClassifier, TabularClassifier
 
 
 def _trained_model(tmp_path) -> TabularClassifier:
@@ -276,3 +277,84 @@ def test_train_federated_with_secure_aggregation_only(tmp_path):
     )
     assert result.federated_metrics["secure_aggregation"] is True
     assert "privacy" not in result.federated_metrics
+
+
+def _trained_image_model(tmp_path) -> ImageClassifier:
+    images = np.zeros((16, 8, 8, 3), dtype=np.float32)
+    images[:8, :, :, 0] = 1.0
+    images[8:, :, :, 2] = 1.0
+    labels = np.array([0] * 8 + [1] * 8)
+    model = ImageClassifier(in_channels=3, epochs=2, batch_size=8, base_channels=2).fit(
+        images, labels
+    )
+    model.save(tmp_path / "image_model.pt")
+    return model
+
+
+def _png_bytes() -> bytes:
+    from io import BytesIO
+
+    from PIL import Image
+
+    buffer = BytesIO()
+    Image.fromarray(np.zeros((8, 8, 3), dtype=np.uint8)).save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+def test_load_image_model_roundtrip(tmp_path):
+    _trained_image_model(tmp_path)
+    loaded = load_image_model(tmp_path / "image_model.pt")
+    assert loaded.is_fitted
+    assert list(loaded.classes_) == [0, 1]
+
+
+def test_model_info_reflects_configured_models(tmp_path):
+    _trained_image_model(tmp_path)
+    service = AnalysisService(
+        model=None,
+        image_model=load_image_model(tmp_path / "image_model.pt"),
+    )
+    info = service.model_info()
+    assert info["available"] is True
+    assert info["model_type"] == "image"
+    assert info["classes"] == ["0", "1"]
+    assert info["feature_names"] is None
+
+
+def test_model_info_unavailable_when_empty():
+    info = AnalysisService().model_info()
+    assert info["available"] is False
+    assert info["model_type"] is None
+
+
+def test_analyze_image_without_image_model_raises():
+    service = AnalysisService()
+    with pytest.raises(ServiceUnavailableError, match="image model"):
+        service.analyze_image(patient=PatientInfo(id="p1"), image=_png_bytes())
+
+
+def test_analyze_image_returns_report(tmp_path):
+    _trained_image_model(tmp_path)
+    service = AnalysisService(
+        image_model=load_image_model(tmp_path / "image_model.pt"),
+    )
+    report = service.analyze_image(
+        patient=PatientInfo(name="P", id="p-img", age=60),
+        image=_png_bytes(),
+        markers={"glucose": 140.0},
+    )
+    assert report.input_type == "image"
+    assert report.prediction is not None
+    assert report.prediction.model_name == "image-cnn"
+    assert report.risk is not None
+
+
+def test_analyze_image_invalid_bytes_raises(tmp_path):
+    _trained_image_model(tmp_path)
+    service = AnalysisService(
+        image_model=load_image_model(tmp_path / "image_model.pt"),
+    )
+    with pytest.raises(InvalidInputError, match="preprocessing"):
+        service.analyze_image(
+            patient=PatientInfo(id="p1"), image=b"not-an-image-at-all"
+        )

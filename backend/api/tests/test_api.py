@@ -7,6 +7,8 @@ verify validation, serialization, auth, and error mapping.
 
 from __future__ import annotations
 
+import base64
+
 import pytest
 
 from fastapi.testclient import TestClient
@@ -20,6 +22,8 @@ from CrewAI.orchestrator.schemas import (
     EvidenceItem,
     PredictionResult,
 )
+
+FAKE_IMAGE = base64.b64encode(b"\x89PNG\r\n\x1a\nfakedata").decode("ascii")
 
 
 class FakeService(AnalysisService):
@@ -75,6 +79,33 @@ class FakeService(AnalysisService):
             federated=bool(kwargs.get("federated", False)),
             federated_metrics=None,
         )
+
+    def analyze_image(
+        self, patient, image, markers=None, recommendations=None, **kwargs
+    ):
+        return ClinicalReport(
+            patient=patient,
+            input_type="image",
+            patient_summary="Image analysis completed.",
+            prediction=PredictionResult(
+                predicted_class="1",
+                probabilities={"0": 0.2, "1": 0.8},
+                confidence=0.8,
+                model_name="image-cnn",
+            ),
+            risk=None,
+            evidence=[],
+            recommendations=list(recommendations or []),
+        )
+
+    def model_info(self):
+        return {
+            "available": True,
+            "model_type": "tabular_and_image",
+            "model_name": "mlp",
+            "classes": ["0", "1"],
+            "feature_names": ["glucose", "bmi", "age"],
+        }
 
 
 @pytest.fixture()
@@ -192,6 +223,67 @@ def test_service_error_maps_to_503():
     response = TestClient(app).post("/api/v1/retrieve", json={"query": "diabetes"})
     assert response.status_code == 503
     assert response.json()["detail"]["code"] == "service_unavailable"
+
+
+def test_analyze_image_returns_report(client):
+    response = client.post(
+        "/api/v1/analyze/image",
+        json={
+            "patient": {"id": "p-img", "name": "P", "age": 60},
+            "image": FAKE_IMAGE,
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["input_type"] == "image"
+    assert payload["prediction"]["model_name"] == "image-cnn"
+
+
+def test_analyze_image_missing_image_is_422(client):
+    response = client.post("/api/v1/analyze/image", json={"patient": {"id": "p-img"}})
+    assert response.status_code == 422
+
+
+def test_analyze_image_error_maps_to_503():
+    class UnavailableService(FakeService):
+        def analyze_image(
+            self, patient, image, markers=None, recommendations=None, **kwargs
+        ):
+            raise ServiceUnavailableError("No image model is configured.")
+
+    app = create_app(cfg=APISettings(_env_file=None), service=UnavailableService())
+    response = TestClient(app).post(
+        "/api/v1/analyze/image",
+        json={"patient": {"id": "p-img"}, "image": FAKE_IMAGE},
+    )
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "service_unavailable"
+
+
+def test_model_info_returns_metadata(client):
+    response = client.get("/api/v1/model")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["available"] is True
+    assert payload["model_type"] == "tabular_and_image"
+    assert payload["feature_names"] == ["glucose", "bmi", "age"]
+
+
+def test_model_info_returns_unavailable_when_no_model():
+    class EmptyService(FakeService):
+        def model_info(self):
+            return {
+                "available": False,
+                "model_type": None,
+                "model_name": None,
+                "classes": None,
+                "feature_names": None,
+            }
+
+    app = create_app(cfg=APISettings(_env_file=None), service=EmptyService())
+    response = TestClient(app).get("/api/v1/model")
+    assert response.status_code == 200
+    assert response.json()["available"] is False
 
 
 def test_token_required_when_configured():

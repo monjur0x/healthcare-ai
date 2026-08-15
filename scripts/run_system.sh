@@ -25,6 +25,10 @@ PID_DIR="${PID_DIR:-/tmp/healthcare-ai}"
 API_URL="http://localhost:${API_PORT}"
 mkdir -p "$LOG_DIR" "$PID_DIR"
 
+#: Path to a trained ImageClassifier artifact (torch). When empty, the
+#: script looks for the default brain-tumor artifact under ARTIFACTS_DIR.
+IMAGE_MODEL_PATH="${IMAGE_MODEL_PATH:-$ARTIFACTS_DIR/brain/global_model.pt}"
+
 log() { printf '[healthcare] %s\n' "$*"; }
 
 require_venv() {
@@ -43,6 +47,7 @@ start_backend() {
   (cd "$ROOT/backend" && \
    API_DATASET_DIR="$DATASET_DIR" \
    API_ARTIFACTS_DIR="$ARTIFACTS_DIR" \
+   API_IMAGE_MODEL_PATH="$IMAGE_MODEL_PATH" \
    setsid "$VENV_PY" -m uvicorn api.main:app --host 0.0.0.0 --port "$API_PORT" \
      > "$LOG_DIR/api.log" 2>&1 &
    echo $! > "$PID_DIR/backend.pid")
@@ -58,12 +63,15 @@ train_default_model() {
   log "training default model (preset='$PRESET') via /api/v1/train ..."
   curl -s -X POST "$API_URL/api/v1/train" \
     -H "Content-Type: application/json" \
-    -d "{\"preset\": \"$PRESET\", \"model\": \"mlp\"}" | "$VENV_PY" -c \
-    'import json,sys; d=json.load(sys.stdin);
-     if "model_path" in d:
-       print("trained:", d["model_path"], "| accuracy: %.3f" % d["accuracy"], "| federated:", d["federated"])
-     else:
-       print("train failed:", json.dumps(d)); sys.exit(1)'
+    -d "{\"preset\": \"$PRESET\", \"model\": \"mlp\"}" | "$VENV_PY" -c '
+import json, sys
+d = json.load(sys.stdin)
+if "model_path" in d:
+    print("trained:", d["model_path"], "| accuracy: %.3f" % d["accuracy"], "| federated:", d["federated"])
+else:
+    print("train failed:", json.dumps(d))
+    sys.exit(1)
+'
 }
 
 start_dashboard() {

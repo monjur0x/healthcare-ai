@@ -20,7 +20,9 @@ from CrewAI.orchestrator.schemas import (
 
 from .exceptions import AuthenticationError, ServiceUnavailableError
 from .schemas import (
+    AnalyzeImageRequest,
     AnalyzeRequest,
+    ModelInfo,
     PredictRequest,
     RetrieveRequest,
     TrainRequest,
@@ -195,6 +197,53 @@ def analyze(request: AnalyzeRequest, service: ServiceDependency) -> ClinicalRepo
         recommendations=request.recommendations,
         input_type=request.input_type,
     )
+
+
+@router.post("/analyze/image", response_model=ClinicalReport)
+def analyze_image(
+    request: AnalyzeImageRequest, service: ServiceDependency
+) -> ClinicalReport:
+    """
+    Analyze an uploaded image with the image model and return a report.
+
+    Parameters
+    ----------
+    request : AnalyzeImageRequest
+        Analysis payload (patient, image bytes, markers).
+    service : AnalysisService
+        Injected analysis service.
+
+    Returns
+    -------
+    ClinicalReport
+        The assembled structured report.
+    """
+
+    return service.analyze_image(
+        patient=request.patient,
+        image=request.image,
+        markers=request.markers,
+        recommendations=request.recommendations,
+    )
+
+
+@router.get("/model", response_model=ModelInfo)
+def model_info(service: ServiceDependency) -> ModelInfo:
+    """
+    Describe the configured prediction models.
+
+    Parameters
+    ----------
+    service : AnalysisService
+        Injected analysis service.
+
+    Returns
+    -------
+    ModelInfo
+        Available models, types, classes, and expected features.
+    """
+
+    return ModelInfo(**service.model_info())
 
 
 __all__ = ["router"]

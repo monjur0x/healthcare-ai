@@ -9,6 +9,7 @@ CrewAI clinical crew.
 
 from __future__ import annotations
 
+import base64
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
@@ -101,6 +102,18 @@ class HealthcareAPIClient:
         """
         return self._get_json("/health")
 
+    def model_info(self) -> dict[str, Any]:
+        """
+        Describe the configured prediction models.
+
+        Returns
+        -------
+        dict[str, Any]
+            ``ModelInfo`` payload with ``available``, ``model_type``,
+            ``model_name``, ``classes``, and ``feature_names``.
+        """
+        return self._get_json("/api/v1/model")
+
     def predict(self, features: Mapping[str, float]) -> dict[str, Any]:
         """
         Classify a single feature row.
@@ -174,6 +187,42 @@ class HealthcareAPIClient:
         if recommendations is not None:
             payload["recommendations"] = list(recommendations)
         return self._post_json("/api/v1/analyze", payload)
+
+    def analyze_image(
+        self,
+        patient: Mapping[str, Any],
+        image: bytes,
+        markers: Mapping[str, float] | None = None,
+        recommendations: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """
+        Run the clinical analysis on an uploaded image and return the report.
+
+        Parameters
+        ----------
+        patient : Mapping[str, Any]
+            Patient context (``name``, ``id``, ``age``, ``notes``).
+        image : bytes
+            Raw image file bytes (PNG / JPEG).
+        markers : Mapping[str, float] | None
+            Optional raw clinical markers for the risk assessment.
+        recommendations : list[str] | None
+            Recommendation strings for the report.
+
+        Returns
+        -------
+        dict[str, Any]
+            ``ClinicalReport`` payload.
+        """
+        payload: dict[str, Any] = {
+            "patient": dict(patient),
+            "image": base64.b64encode(image).decode("ascii"),
+        }
+        if markers is not None:
+            payload["markers"] = dict(markers)
+        if recommendations is not None:
+            payload["recommendations"] = list(recommendations)
+        return self._post_json("/api/v1/analyze/image", payload)
 
     def _get_json(self, path: str) -> dict[str, Any]:
         response = self._client.get(path)

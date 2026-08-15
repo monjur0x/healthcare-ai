@@ -41,6 +41,10 @@ class APISettings(BaseSettings):
     #: Empty disables the prediction step until configured.
     MODEL_PATH: str = ""
 
+    #: Path to a persisted ``ImageClassifier`` artifact (torch).
+    #: Empty disables image-based analysis until configured.
+    IMAGE_MODEL_PATH: str = ""
+
     #: Path to a directory of ``.txt`` / ``.md`` knowledge documents for
     #: RAG. Empty uses a small built-in medical corpus.
     CORPUS_DIR: str = ""

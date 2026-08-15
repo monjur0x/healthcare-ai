@@ -81,3 +81,26 @@ def test_analysis_form_submission_renders_report(monkeypatch):
     )
     assert "p-1" in text
     assert "Analysis completed" in text
+
+
+def test_analysis_tab_renders_image_upload(monkeypatch):
+    def fake_model_info(self):
+        return {
+            "available": True,
+            "model_type": "image",
+            "model_name": "image-cnn",
+            "classes": ["glioma", "meningioma", "notumor", "pituitary"],
+            "feature_names": None,
+        }
+
+    import dashboard.client as client_module
+
+    monkeypatch.setattr(
+        client_module.HealthcareAPIClient, "model_info", fake_model_info
+    )
+
+    app = AppTest.from_file(APP_PATH, default_timeout=30)
+    app.run()
+    app.radio[0].set_value("Image (MRI upload)").run()
+    assert len(app.exception) == 0
+    assert len(app.get("file_uploader")) >= 1

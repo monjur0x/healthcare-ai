@@ -17,8 +17,11 @@ deterministic pipeline.
 from __future__ import annotations
 
 import json
+import os
 
 from collections.abc import Mapping
+
+import numpy as np
 
 from preprocessing.logger import get_logger
 
@@ -34,6 +37,7 @@ from .services import (
     assemble_clinical_report,
     assess_risk,
     retrieve_evidence,
+    run_image_prediction,
     run_prediction,
 )
 
@@ -56,6 +60,11 @@ class ClinicalCrew:
     features : Mapping[str, float] | None
         Full feature row (preprocessed) for the prediction step. Required
         when ``model`` is provided.
+    image_model : object | None
+        A fitted ``ImageClassifier`` for image-based prediction.
+    image : np.ndarray | None
+        Preprocessed image array ``(H, W, C)`` for the prediction step.
+        Required when ``image_model`` is provided.
     rag_pipeline : object | None
         An ingested ``RAGPipeline`` for the evidence step.
     markers : Mapping[str, float] | None
@@ -70,6 +79,8 @@ class ClinicalCrew:
         input_type: str = "csv",
         model: object | None = None,
         features: Mapping[str, float] | None = None,
+        image_model: object | None = None,
+        image: np.ndarray | None = None,
         rag_pipeline: object | None = None,
         markers: Mapping[str, float] | None = None,
         recommendations: list[str] | None = None,
@@ -78,6 +89,8 @@ class ClinicalCrew:
         self.input_type = input_type
         self._model = model
         self._features = dict(features or {})
+        self._image_model = image_model
+        self._image = image
         self._rag_pipeline = rag_pipeline
         self._markers = dict(markers or {})
         self._recommendations = list(recommendations or [])
@@ -93,7 +106,15 @@ class ClinicalCrew:
         """
 
         prediction = risk = None
-        if self._model is not None:
+        if self._image_model is not None:
+            if self._image is None:
+                raise OrchestrationError(
+                    "The image prediction step requires a preprocessed "
+                    "image array; pass image to ClinicalCrew."
+                )
+            prediction = run_image_prediction(self._image_model, self._image)
+            risk = assess_risk(prediction, self._markers)
+        elif self._model is not None:
             if not self._features:
                 raise OrchestrationError(
                     "The prediction step requires a full feature row; "

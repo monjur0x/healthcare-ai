@@ -14,6 +14,7 @@ from collections.abc import Mapping
 
 import numpy as np
 
+from models import ImageClassifier
 from models.csv.tabular import TabularClassifier
 from preprocessing.logger import get_logger
 from rag import RAGPipeline
@@ -104,6 +105,59 @@ def run_prediction(
         model_name=model.model_name,
     )
     logger.info("Predicted %s with confidence %.4f", predicted, result.confidence)
+    return result
+
+
+def run_image_prediction(
+    image_model: ImageClassifier, image: np.ndarray
+) -> PredictionResult:
+    """
+    Predict the class and probabilities for a single preprocessed image.
+
+    Parameters
+    ----------
+    image_model : ImageClassifier
+        A fitted CNN image classifier.
+    image : np.ndarray
+        Preprocessed image array (``(H, W, C)`` channels-last float32).
+
+    Returns
+    -------
+    PredictionResult
+        Predicted class, per-class probabilities, and confidence.
+
+    Raises
+    ------
+    PredictionToolError
+        If the model is unfitted or the image array is malformed.
+    """
+
+    array = np.asarray(image)
+    if array.ndim != 3:
+        raise PredictionToolError(
+            f"Expected a preprocessed image with 3 dimensions (H, W, C), "
+            f"got {array.ndim}."
+        )
+    if not image_model.is_fitted:
+        raise PredictionToolError("The image model must be fitted before use.")
+    try:
+        probabilities = image_model.predict_proba(array[np.newaxis, ...])[0]
+    except Exception as error:
+        raise PredictionToolError(f"Image prediction failed: {error}") from error
+
+    classes = [str(label) for label in image_model.classes_]
+    probability_map = {
+        label: float(probability)
+        for label, probability in zip(classes, probabilities, strict=True)
+    }
+    predicted = classes[int(np.argmax(probabilities))]
+    result = PredictionResult(
+        predicted_class=predicted,
+        probabilities=probability_map,
+        confidence=float(np.max(probabilities)),
+        model_name="image-cnn",
+    )
+    logger.info("Image predicted %s with confidence %.4f", predicted, result.confidence)
     return result
 
 
@@ -284,5 +338,6 @@ __all__ = [
     "assemble_clinical_report",
     "assess_risk",
     "retrieve_evidence",
+    "run_image_prediction",
     "run_prediction",
 ]

@@ -213,6 +213,36 @@ def load_predictive_model(path: str | Path) -> TabularClassifier:
     return model
 
 
+def load_image_model(path: str | Path) -> ImageClassifier:
+    """
+    Load a persisted ``ImageClassifier`` artifact.
+
+    Parameters
+    ----------
+    path : str | Path
+        Path to the torch artifact.
+
+    Returns
+    -------
+    ImageClassifier
+        The loaded model.
+
+    Raises
+    ------
+    ServiceUnavailableError
+        If the artifact cannot be loaded.
+    """
+
+    try:
+        model = ImageClassifier.load(path)
+    except ModelLoadError as error:
+        raise ServiceUnavailableError(
+            f"Could not load image model from {path}: {error}"
+        ) from error
+    logger.info("Loaded image model from %s", path)
+    return model
+
+
 def build_rag_pipeline(corpus_dir: str | Path | None = None) -> RAGPipeline:
     """
     Build an ingested RAG pipeline from a corpus directory or a default corpus.
@@ -313,6 +343,8 @@ class AnalysisService:
     ----------
     model : TabularClassifier | None
         Fitted model for the prediction step, or None to skip prediction.
+    image_model : ImageClassifier | None
+        Fitted CNN for image-based analysis, or None to skip it.
     rag_pipeline : RAGPipeline | None
         Ingested retrieval pipeline, or None to skip evidence retrieval.
     artifacts_dir : Path
@@ -322,6 +354,7 @@ class AnalysisService:
     """
 
     model: TabularClassifier | None = None
+    image_model: ImageClassifier | None = None
     rag_pipeline: RAGPipeline | None = None
     artifacts_dir: Path = field(default_factory=lambda: Path("artifacts"))
     dataset_dir: Path = field(
@@ -346,10 +379,14 @@ class AnalysisService:
 
         cfg = cfg or default_settings
         model = load_predictive_model(cfg.MODEL_PATH) if cfg.MODEL_PATH else None
+        image_model = (
+            load_image_model(cfg.IMAGE_MODEL_PATH) if cfg.IMAGE_MODEL_PATH else None
+        )
         rag_pipeline = build_rag_pipeline(cfg.CORPUS_DIR or None)
         dataset_dir = Path(cfg.DATASET_DIR or os.environ.get("DATASET_DIR", "."))
         return cls(
             model=model,
+            image_model=image_model,
             rag_pipeline=rag_pipeline,
             artifacts_dir=Path(cfg.ARTIFACTS_DIR),
             dataset_dir=dataset_dir,
@@ -709,6 +746,106 @@ class AnalysisService:
         except CrewError as error:
             raise InvalidInputError(str(error)) from error
 
+    def model_info(self) -> dict[str, Any]:
+        """
+        Describe the configured prediction models.
+
+        Returns
+        -------
+        dict[str, Any]
+            ``{available, model_type, model_name, classes, feature_names}``
+            keyed for the ``ModelInfo`` schema.
+        """
+
+        tabular = self.model
+        image = self.image_model
+        model_type = None
+        if tabular is not None and image is not None:
+            model_type = "tabular_and_image"
+        elif tabular is not None:
+            model_type = "tabular"
+        elif image is not None:
+            model_type = "image"
+
+        primary = tabular if tabular is not None else image
+        classes = None
+        feature_names = None
+        if primary is not None:
+            classes = [str(label) for label in primary.classes_]
+            if tabular is not None:
+                feature_names = list(tabular.feature_names or [])
+        model_name = (
+            tabular.model_name
+            if tabular is not None
+            else ("image-cnn" if image is not None else None)
+        )
+        return {
+            "available": primary is not None,
+            "model_type": model_type,
+            "model_name": model_name,
+            "classes": classes,
+            "feature_names": feature_names,
+        }
+
+    def analyze_image(
+        self,
+        patient: PatientInfo,
+        image: bytes,
+        markers: Mapping[str, float] | None = None,
+        recommendations: list[str] | None = None,
+    ) -> ClinicalReport:
+        """
+        Preprocess an uploaded image and run the clinical crew on it.
+
+        Parameters
+        ----------
+        patient : PatientInfo
+            Patient context.
+        image : bytes
+            Raw image file bytes (PNG / JPEG).
+        markers : Mapping[str, float] | None
+            Optional raw clinical markers for the risk assessment.
+        recommendations : list[str] | None
+            Optional recommendation strings.
+
+        Returns
+        -------
+        ClinicalReport
+            The assembled structured report.
+
+        Raises
+        ------
+        ServiceUnavailableError
+            If no image model is configured.
+        InvalidInputError
+            If the image cannot be preprocessed.
+        """
+
+        if self.image_model is None:
+            raise ServiceUnavailableError(
+                "No image model is configured (set API_IMAGE_MODEL_PATH)."
+            )
+        try:
+            result = ImagePipeline().transform(image)
+        except Exception as error:
+            raise InvalidInputError(f"Image preprocessing failed: {error}") from error
+
+        crew = ClinicalCrew(
+            patient=patient,
+            input_type="image",
+            image_model=self.image_model,
+            image=result.image,
+            rag_pipeline=self.rag_pipeline,
+            markers=markers,
+            recommendations=recommendations,
+        )
+        try:
+            report = crew.run_analysis()
+        except CrewError as error:
+            raise InvalidInputError(str(error)) from error
+        logger.info("API image analysis complete for patient %s", patient.id)
+        return report
+
     def analyze(
         self,
         patient: PatientInfo,
@@ -767,6 +904,7 @@ __all__ = [
     "AnalysisService",
     "TrainResult",
     "build_rag_pipeline",
+    "load_image_model",
     "load_predictive_model",
     "prepare_tabular_data",
 ]

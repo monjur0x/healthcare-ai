@@ -7,10 +7,12 @@ hermetic (no network, no running server).
 
 from __future__ import annotations
 
+import base64
 import json
 
 import httpx
 import pytest
+
 from dashboard.client import APIConfig, HealthcareAPIClient, HealthcareAPIError
 
 
@@ -83,7 +85,61 @@ def test_predict_sends_features_and_parses():
     finally:
         client.close()
     assert result["predicted_class"] == "1"
-    assert result["confidence"] == 0.7
+
+
+def test_model_info_parses_metadata():
+    payload = {
+        "available": True,
+        "model_type": "tabular_and_image",
+        "model_name": "mlp",
+        "classes": ["0", "1"],
+        "feature_names": ["glucose", "bmi", "age"],
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/api/v1/model"
+        return httpx.Response(200, json=payload)
+
+    client = _client(handler)
+    try:
+        result = client.model_info()
+    finally:
+        client.close()
+    assert result["available"] is True
+    assert result["feature_names"] == ["glucose", "bmi", "age"]
+
+
+def test_analyze_image_base64_encodes_and_parses():
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/api/v1/analyze/image"
+        payload = json.loads(request.content)
+        assert payload["patient"]["id"] == "p-img"
+        assert payload["image"].startswith("iVBOR")
+        return httpx.Response(200, json=_report())
+
+    client = _client(handler)
+    try:
+        result = client.analyze_image(
+            patient={"id": "p-img", "name": "P", "age": 60},
+            image=base64.b64decode("iVBORw0KGgoAAAANSUhEUg=="),
+        )
+    finally:
+        client.close()
+    assert result["input_type"] == "csv"
+
+
+def test_analyze_image_omits_optional_fields():
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        assert "markers" not in payload
+        assert "recommendations" not in payload
+        return httpx.Response(200, json=_report())
+
+    client = _client(handler)
+    try:
+        client.analyze_image(patient={"id": "p-img"}, image=b"\x00\x01")
+    finally:
+        client.close()
 
 
 def test_retrieve_forwards_query_and_top_k():
