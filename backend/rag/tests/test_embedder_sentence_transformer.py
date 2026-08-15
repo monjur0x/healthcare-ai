@@ -26,7 +26,7 @@ def _model_available() -> bool:
     try:
         embedder = SentenceTransformerEmbedder()
         embedder.embed(["availability probe"])
-    except Exception:
+    except Exception:  # noqa: BLE001 - network probe; any failure = unavailable
         return False
     return True
 

@@ -55,7 +55,9 @@ class ChromaVectorStore:
                 "only 'cosine' is supported."
             )
         directory = settings.CHROMA_PERSIST_DIR if persist_dir is None else persist_dir
-        name = settings.CHROMA_COLLECTION if collection_name is None else collection_name
+        name = (
+            settings.CHROMA_COLLECTION if collection_name is None else collection_name
+        )
         if directory:
             self._client = chromadb.PersistentClient(path=directory)
         else:

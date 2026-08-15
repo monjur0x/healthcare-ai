@@ -9,10 +9,14 @@ answers score low).
 
 from __future__ import annotations
 
-import numpy as np
 import pytest
 
-from rag import HashingEmbedder, RAGQualityMetrics, TfidfEmbedder, rag_quality_metrics
+from rag import (
+    HashingEmbedder,
+    RAGQualityMetrics,
+    TfidfEmbedder,
+    rag_quality_metrics,
+)
 from rag.metrics import (
     answer_relevancy,
     context_precision,
@@ -62,7 +66,8 @@ def test_faithfulness_verbatim_answer_scores_high() -> None:
 
 
 def test_faithfulness_unrelated_answer_scores_low() -> None:
-    embedder = TfidfEmbedder(max_features=100).fit(CHUNK_TEXTS + ["the moon is made of cheese"])
+    corpus = [*CHUNK_TEXTS, "the moon is made of cheese"]
+    embedder = TfidfEmbedder(max_features=100).fit(corpus)
     score = faithfulness("the moon is made of cheese", CHUNK_TEXTS, embedder)
     assert score <= 0.4
 
@@ -103,10 +108,11 @@ def test_answer_relevancy_clamped_to_non_negative() -> None:
 
 def test_rag_quality_metrics_aggregate() -> None:
     embedder = TfidfEmbedder(max_features=100).fit(CHUNK_TEXTS)
+    chunks = [(id_, text) for id_, text in zip(CHUNK_IDS, CHUNK_TEXTS, strict=True)]
     metrics = rag_quality_metrics(
         query="diabetes management",
         answer=CHUNK_TEXTS[0],
-        retrieved_chunks=[(id_, text) for id_, text in zip(CHUNK_IDS, CHUNK_TEXTS, strict=True)],
+        retrieved_chunks=chunks,
         relevant_chunk_ids={"c1", "c3"},
         embedder=embedder,
     )

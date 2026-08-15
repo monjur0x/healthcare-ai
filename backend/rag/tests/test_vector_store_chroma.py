@@ -57,9 +57,7 @@ def test_search_empty_store_raises(tmp_path) -> None:
 
 def test_add_mismatched_ids_vectors(tmp_path) -> None:
     with pytest.raises(ValueError):
-        ChromaVectorStore(persist_dir=str(tmp_path)).add(
-            ["only-one"], np.zeros((2, 3))
-        )
+        ChromaVectorStore(persist_dir=str(tmp_path)).add(["only-one"], np.zeros((2, 3)))
 
 
 def test_invalid_metric(tmp_path) -> None:

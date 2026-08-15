@@ -10,11 +10,15 @@ backend (e.g. Qdrant) can replace it behind the same interface.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 from .config import settings
 from .exceptions import EmptyCorpusError
+
+if TYPE_CHECKING:
+    from .store_chroma import ChromaVectorStore
 
 
 class VectorStore:

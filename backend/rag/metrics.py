@@ -149,7 +149,9 @@ def context_precision(
     """
 
     relevant = set(relevant_chunk_ids)
-    ids = [chunk[0] if isinstance(chunk, tuple) else chunk for chunk in retrieved_chunks]
+    ids = [
+        chunk[0] if isinstance(chunk, tuple) else chunk for chunk in retrieved_chunks
+    ]
     if not ids:
         return 0.0
     return float(sum(1 for id_ in ids if id_ in relevant) / len(ids))
@@ -177,13 +179,17 @@ def context_recall(
     """
 
     relevant = set(relevant_chunk_ids)
-    ids = [chunk[0] if isinstance(chunk, tuple) else chunk for chunk in retrieved_chunks]
+    ids = [
+        chunk[0] if isinstance(chunk, tuple) else chunk for chunk in retrieved_chunks
+    ]
     if not relevant:
         return 0.0
     return float(len(relevant & set(ids)) / len(relevant))
 
 
-def faithfulness(answer: str, retrieved_chunks: Sequence[str], embedder: Embedder) -> float:
+def faithfulness(
+    answer: str, retrieved_chunks: Sequence[str], embedder: Embedder
+) -> float:
     """
     Fraction of the answer's sentences grounded in the retrieved context.
 
@@ -211,7 +217,9 @@ def faithfulness(answer: str, retrieved_chunks: Sequence[str], embedder: Embedde
         Faithfulness in ``[0, 1]``; ``0.0`` for an empty answer.
     """
 
-    texts = [chunk[-1] if isinstance(chunk, tuple) else chunk for chunk in retrieved_chunks]
+    texts = [
+        chunk[-1] if isinstance(chunk, tuple) else chunk for chunk in retrieved_chunks
+    ]
     sentences = _split_sentences(answer)
     if not sentences or not texts:
         return 0.0

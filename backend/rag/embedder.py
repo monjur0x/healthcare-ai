@@ -221,9 +221,7 @@ class SentenceTransformerEmbedder(Embedder):
     ) -> None:
         del seed  # pretrained transformers are deterministic
         self._model_name = (
-            settings.SENTENCE_TRANSFORMER_MODEL
-            if model_name is None
-            else model_name
+            settings.SENTENCE_TRANSFORMER_MODEL if model_name is None else model_name
         )
         self._query_instruction = query_instruction
         self._model: object | None = None
@@ -241,8 +239,7 @@ class SentenceTransformerEmbedder(Embedder):
         model = self._load_model()
         if self._query_instruction:
             prefixed = [
-                "Represent this sentence for searching relevant passages: "
-                f"{text}"
+                "Represent this sentence for searching relevant passages: " f"{text}"
                 for text in texts
             ]
             texts = prefixed

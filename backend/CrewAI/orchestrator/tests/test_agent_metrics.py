@@ -17,8 +17,8 @@ from CrewAI.orchestrator.metrics import (
     decision_consistency,
     task_completion_rate,
 )
-from CrewAI.orchestrator.services import assemble_clinical_report
 from CrewAI.orchestrator.schemas import PatientInfo
+from CrewAI.orchestrator.services import assemble_clinical_report
 
 
 def test_task_completion_rate_all_complete() -> None:
