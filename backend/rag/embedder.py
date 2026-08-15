@@ -2,14 +2,13 @@
 Embedding generation for retrieval.
 
 An :class:`Embedder` maps a list of texts to a dense ``(N, D)`` matrix.
-Two dependency-light implementations ship with the module:
+Three implementations ship with the module:
 
 - :class:`TfidfEmbedder` — corpus-fitted TF-IDF vectors (default).
 - :class:`HashingEmbedder` — fit-free, fixed-dimension hashing vectors
   for fully offline or test usage.
-
-Swap in a transformer embedder (e.g. sentence-transformers) later
-without changing the retriever, which only depends on this interface.
+- :class:`SentenceTransformerEmbedder` — dense transformer embeddings
+  (opt-in; downloads a small model from Hugging Face on first use).
 """
 
 from __future__ import annotations
@@ -188,6 +187,100 @@ class HashingEmbedder(Embedder):
         return self._dims
 
 
+class SentenceTransformerEmbedder(Embedder):
+    """
+    Dense embeddings from a sentence-transformer model.
+
+    Wraps a pretrained ``sentence_transformers.SentenceTransformer``
+    (e.g. BAAI BGE or all-MiniLM). The model is loaded lazily on first
+    use and cached, so the class constructs cheaply even before the
+    dependency or a network connection is available.
+
+    For BGE models the official retrieval usage prepends a query
+    instruction to queries (not to documents); the flag
+    ``query_instruction`` defaults to the BGE English prompt for exactly
+    that behaviour.
+
+    Parameters
+    ----------
+    model_name : str | None
+        Sentence-transformer model name; defaults to
+        ``settings.SENTENCE_TRANSFORMER_MODEL``.
+    seed : int | None
+        Unused, kept for interface consistency (these models are
+        deterministic).
+    query_instruction : bool
+        Prepend the BGE query instruction to embedded queries.
+    """
+
+    def __init__(
+        self,
+        model_name: str | None = None,
+        seed: int | None = None,
+        query_instruction: bool = True,
+    ) -> None:
+        del seed  # pretrained transformers are deterministic
+        self._model_name = (
+            settings.SENTENCE_TRANSFORMER_MODEL
+            if model_name is None
+            else model_name
+        )
+        self._query_instruction = query_instruction
+        self._model: object | None = None
+        self._dims: int | None = None
+
+    def fit(self, texts: list[str]) -> SentenceTransformerEmbedder:
+        """Pretrained transformers need no corpus fit."""
+        del texts
+        return self
+
+    def embed(self, texts: list[str]) -> np.ndarray:
+        """Embed texts with the loaded sentence-transformer model."""
+        if not texts:
+            raise EmbeddingError("Cannot embed an empty list of texts.")
+        model = self._load_model()
+        if self._query_instruction:
+            prefixed = [
+                "Represent this sentence for searching relevant passages: "
+                f"{text}"
+                for text in texts
+            ]
+            texts = prefixed
+        embeddings = np.asarray(model.encode(texts, convert_to_numpy=True))
+        if self._dims is None:
+            self._dims = embeddings.shape[1]
+        return embeddings.astype(np.float32)
+
+    @property
+    def dims(self) -> int:
+        """Embedding width of the loaded model."""
+        if self._dims is None:
+            self._load_model()
+        return int(self._dims or 0)
+
+    def _load_model(self) -> object:
+        """Load (and cache) the sentence-transformer model."""
+        if self._model is None:
+            try:
+                from sentence_transformers import SentenceTransformer
+            except ImportError as error:
+                raise EmbeddingError(
+                    "SentenceTransformerEmbedder requires "
+                    "'sentence-transformers>=3.0.0'; add it to requirements "
+                    "or use EMBEDDING_MODEL=tfidf."
+                ) from error
+            logger.info(
+                "Loading sentence-transformer model %s (first use may download)",
+                self._model_name,
+            )
+            self._model = SentenceTransformer(self._model_name)
+            dimension = getattr(self._model, "get_embedding_dimension", None)
+            if dimension is None:
+                dimension = self._model.get_sentence_embedding_dimension
+            self._dims = int(dimension())
+        return self._model
+
+
 def build_embedder(model: str | None = None) -> Embedder:
     """
     Build the configured embedder by name.
@@ -195,7 +288,8 @@ def build_embedder(model: str | None = None) -> Embedder:
     Parameters
     ----------
     model : str | None
-        Embedder name (``"tfidf"`` or ``"hashing"``). Defaults to
+        Embedder name (``"tfidf"``, ``"hashing"``, or
+        ``"sentence-transformer"``). Defaults to
         ``settings.EMBEDDING_MODEL``.
 
     Returns
@@ -214,7 +308,15 @@ def build_embedder(model: str | None = None) -> Embedder:
         return TfidfEmbedder()
     if name == "hashing":
         return HashingEmbedder()
+    if name == "sentence-transformer":
+        return SentenceTransformerEmbedder()
     raise ValueError(f"Unknown embedding model '{name}'.")
 
 
-__all__ = ["Embedder", "HashingEmbedder", "TfidfEmbedder", "build_embedder"]
+__all__ = [
+    "Embedder",
+    "HashingEmbedder",
+    "SentenceTransformerEmbedder",
+    "TfidfEmbedder",
+    "build_embedder",
+]

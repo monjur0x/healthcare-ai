@@ -10,7 +10,13 @@ storage backends are swappable behind narrow interfaces.
 from .chunker import TextChunker
 from .config import RAGSettings, settings
 from .documents import Chunk, Document, RetrievalResult
-from .embedder import Embedder, HashingEmbedder, TfidfEmbedder, build_embedder
+from .embedder import (
+    Embedder,
+    HashingEmbedder,
+    SentenceTransformerEmbedder,
+    TfidfEmbedder,
+    build_embedder,
+)
 from .metrics import RetrievalMetrics, retrieval_metrics
 from .pipeline import RAGPipeline
 from .retriever import Retriever
@@ -28,6 +34,7 @@ __all__ = [
     "RetrievalMetrics",
     "RetrievalResult",
     "Retriever",
+    "SentenceTransformerEmbedder",
     "TextChunker",
     "TfidfEmbedder",
     "VectorStore",

@@ -38,6 +38,10 @@ class RAGSettings(BaseSettings):
 
     MAX_FEATURES: int = 5000
 
+    #: Sentence-transformer model name used when ``EMBEDDING_MODEL ==
+    #: "sentence-transformer"``. Keep it small and CPU-friendly.
+    SENTENCE_TRANSFORMER_MODEL: str = "BAAI/bge-small-en-v1.5"
+
     ##########################################
     # Retrieval
     ##########################################

@@ -184,7 +184,10 @@ Optional bearer auth: set `API_TOKEN` and send
 RAG settings (prefix `RAG_`, see `backend/rag/config.py`):
 
 - `RAG_EMBEDDING_MODEL` — `tfidf` (default), `hashing`, or
-  `sentence-transformer` (dense, opt-in, requires `sentence-transformers`)
+  `sentence-transformer` (dense, opt-in, downloads a small model from
+  Hugging Face on first use)
+- `RAG_SENTENCE_TRANSFORMER_MODEL` — the sentence-transformer model name
+  (default `BAAI/bge-small-en-v1.5`)
 - `RAG_VECTOR_STORE` — `memory` (default, in-process NumPy) or `chroma`
   (persistent ChromaDB collection)
 - `RAG_CHROMA_PERSIST_DIR` — directory for the ChromaDB collection when
