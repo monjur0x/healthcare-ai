@@ -28,7 +28,7 @@
           "conditions": [
             {
               "id": "train",
-              "leftValue": "={{ $json.train }}",
+              "leftValue": "={{ $json.body.train }}",
               "rightValue": true,
               "operator": {
                 "type": "boolean",
@@ -54,7 +54,7 @@
         "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ { preset: $json.preset, dataset: $json.dataset, target: $json.target, model: $json.model, test_size: $json.test_size, seed: $json.seed, max_rows: $json.max_rows, federated: $json.federated, clients: $json.clients, rounds: $json.rounds } }}",
+        "jsonBody": "={{ { preset: $json.body.preset, dataset: $json.body.dataset, target: $json.body.target, model: $json.body.model, test_size: $json.body.test_size, seed: $json.body.seed, max_rows: $json.body.max_rows, federated: $json.body.federated, clients: $json.body.clients, rounds: $json.body.rounds } }}",
         "options": {
           "timeout": 600000
         }
@@ -80,7 +80,7 @@
         "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ { patient: $('Webhook: End-to-End Pipeline').item.json.patient, features: $('Webhook: End-to-End Pipeline').item.json.features, markers: $('Webhook: End-to-End Pipeline').item.json.markers, recommendations: $('Webhook: End-to-End Pipeline').item.json.recommendations, input_type: $('Webhook: End-to-End Pipeline').item.json.input_type || 'csv' } }}",
+        "jsonBody": "={{ { patient: $('Webhook: End-to-End Pipeline').item.json.body.patient, features: $('Webhook: End-to-End Pipeline').item.json.body.features, markers: $('Webhook: End-to-End Pipeline').item.json.body.markers, recommendations: $('Webhook: End-to-End Pipeline').item.json.body.recommendations, input_type: $('Webhook: End-to-End Pipeline').item.json.body.input_type || 'csv' } }}",
         "options": {
           "timeout": 600000
         }
@@ -100,7 +100,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const webhook = $('Webhook: End-to-End Pipeline').item.json;\nconst resp = $json || {};\nlet trainMeta = null;\ntry { trainMeta = $('HTTP: Train Model').item.json; } catch (e) { /* train branch not taken */ }\nconst valid = resp && typeof resp === 'object' && typeof resp.patient_summary === 'string' && Array.isArray(resp.evidence);\nif (!valid) {\n  return [{ json: { status: 'error', stage: 'validation', error_message: 'The analyze response is not a valid clinical report' } }];\n}\nconst outDir = webhook.output_dir || '/tmp/healthcare_reports';\nconst filePath = outDir + '/report-' + $execution.id + '.json';\nconst content = JSON.stringify({\n  request_id: $execution.id,\n  generated_at: new Date().toISOString(),\n  dataset: webhook.preset || webhook.dataset || null,\n  train: trainMeta ? { model_path: trainMeta.model_path, accuracy: trainMeta.accuracy, roc_auc: trainMeta.roc_auc, f1: trainMeta.f1, federated: trainMeta.federated } : null,\n  report: resp,\n}, null, 2);\nreturn [{\n  json: {\n    status: 'success',\n    request_id: $execution.id,\n    dataset: webhook.preset || webhook.dataset || null,\n    train_status: trainMeta ? 'trained' : 'not_requested',\n    model_accuracy: trainMeta ? trainMeta.accuracy : null,\n    prediction: resp.prediction ? resp.prediction.predicted_class : null,\n    confidence: resp.prediction ? resp.prediction.confidence : null,\n    risk_level: resp.risk ? resp.risk.risk_level : null,\n    evidence_count: resp.evidence.length,\n    file_path: filePath,\n    report: resp,\n  },\n  binary: {\n    reportFile: {\n      data: Buffer.from(content).toString('base64'),\n      mimeType: 'application/json',\n      fileName: 'report-' + $execution.id + '.json',\n    },\n  },\n}];"
+        "jsCode": "const webhook = $('Webhook: End-to-End Pipeline').item.json.body;\nconst resp = $json || {};\nlet trainMeta = null;\ntry { trainMeta = $('HTTP: Train Model').item.json; } catch (e) { /* train branch not taken */ }\nconst valid = resp && typeof resp === 'object' && typeof resp.patient_summary === 'string' && Array.isArray(resp.evidence);\nif (!valid) {\n  return [{ json: { status: 'error', stage: 'validation', error_message: 'The analyze response is not a valid clinical report' } }];\n}\nreturn [{\n  json: {\n    status: 'success',\n    request_id: $execution.id,\n    dataset: webhook.preset || webhook.dataset || null,\n    train_status: trainMeta ? 'trained' : 'not_requested',\n    model_accuracy: trainMeta ? trainMeta.accuracy : null,\n    prediction: resp.prediction ? resp.prediction.predicted_class : null,\n    confidence: resp.prediction ? resp.prediction.confidence : null,\n    risk_level: resp.risk ? resp.risk.risk_level : null,\n    evidence_count: resp.evidence.length,\n    report: resp,\n  },\n}];"
       },
       "id": "e2e00000-0000-4000-8000-000000000006",
       "name": "Code: Analyze & Build Report",
@@ -141,23 +141,7 @@
     },
     {
       "parameters": {
-        "operation": "write",
-        "fileName": "={{ $json.file_path }}",
-        "dataPropertyName": "reportFile",
-        "options": {
-          "createFolders": true,
-          "appendNumberedSuffix": false
-        }
-      },
-      "id": "e2e00000-0000-4000-8000-000000000008",
-      "name": "Write: Report to Disk",
-      "type": "n8n-nodes-base.readWriteFile",
-      "typeVersion": 1,
-      "position": [680, 140]
-    },
-    {
-      "parameters": {
-        "respondWith": "allIncomingItems",
+        "respondWith": "firstIncomingItem",
         "options": {}
       },
       "id": "e2e00000-0000-4000-8000-000000000009",
@@ -188,19 +172,7 @@
     },
     {
       "parameters": {
-        "mode": "append",
-        "combinationMode": "append",
-        "options": {}
-      },
-      "id": "e2e00000-0000-4000-8000-00000000000c",
-      "name": "Merge: Merge Errors",
-      "type": "n8n-nodes-base.merge",
-      "typeVersion": 3,
-      "position": [440, 520]
-    },
-    {
-      "parameters": {
-        "respondWith": "allIncomingItems",
+        "respondWith": "firstIncomingItem",
         "options": {}
       },
       "id": "e2e00000-0000-4000-8000-00000000000d",
@@ -291,25 +263,14 @@
       "main": [
         [
           {
-            "node": "Write: Report to Disk",
+            "node": "Respond to Webhook (Success)",
             "type": "main",
             "index": 0
           }
         ],
         [
           {
-            "node": "Merge: Merge Errors",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Write: Report to Disk": {
-      "main": [
-        [
-          {
-            "node": "Respond to Webhook (Success)",
+            "node": "Respond to Webhook (Error)",
             "type": "main",
             "index": 0
           }
@@ -320,25 +281,14 @@
       "main": [
         [
           {
-            "node": "Merge: Merge Errors",
+            "node": "Respond to Webhook (Error)",
             "type": "main",
-            "index": 1
+            "index": 0
           }
         ]
       ]
     },
     "Code: Format Analyze Error": {
-      "main": [
-        [
-          {
-            "node": "Merge: Merge Errors",
-            "type": "main",
-            "index": 2
-          }
-        ]
-      ]
-    },
-    "Merge: Merge Errors": {
       "main": [
         [
           {
