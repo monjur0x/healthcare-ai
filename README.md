@@ -12,6 +12,9 @@ the CPU (Intel Iris Xe integrated graphics is fine).
 | Component | Entry point | Purpose |
 | --------- | ----------- | ------- |
 | FastAPI backend | `backend/api/main.py` | Train / predict / retrieve / analyze |
+| RAG (retrieval) | `backend/rag/` | TF-IDF (default) or dense embedding + in-memory / ChromaDB store, RAGAS-style quality metrics |
+| Multi-agent crew | `backend/CrewAI/orchestrator/` | Deterministic tool pipeline + optional Gemini agents; agent-level metrics |
+| Federated learning | `backend/federated/` | Flower FedAvg with opt-in DP (Opacus) + secure aggregation |
 | Streamlit dashboard | `frontend/streamlit_app.py` | Clinical UI over the API |
 | n8n automation | `n8n/healthcare-endtoend.json` | One workflow: train → analyze → store → respond |
 | Datasets | `~/dataset/` | `diabetes.csv`, `heart_disease_uci.csv`, `kidney_disease.csv`, `sepsis_icu_synthetic.csv`, brain-tumor MRI |
@@ -248,11 +251,11 @@ full end-to-end system.
 ## Tests
 
 ```bash
-# Backend (from backend/): 255 tests
+# Backend (from backend/): 326 tests
 CrewAI/.venv-opencode/bin/python -m pytest \
   preprocessing/tests models/tests evaluation/tests federated/tests \
   rag/tests examples/tests CrewAI/orchestrator/tests api/tests -q
 
-# Frontend (from frontend/): 9 tests
+# Frontend (from frontend/): 13 tests
 ../backend/CrewAI/.venv-opencode/bin/python -m pytest dashboard/tests -q
 ```

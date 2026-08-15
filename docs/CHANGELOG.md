@@ -284,6 +284,40 @@
   - Live: diabetes preset, federated DP + SecAgg → ε ≈ 2.14 (53.5% of
     budget), MIA-AUROC ≈ 0.50, attack-resistance ≈ 1.0, leakage 0.0
   - Tests: backend 289 (+18), frontend 13
+- **Evaluation-gap closure (Milestone 10, paper §12):**
+  - `federated/requirements.txt` — `opacus>=1.5.0` declared under a
+    `# Differential privacy` section (was installed but undeclared)
+  - `rag/store_chroma.py` — `ChromaVectorStore` (persistent ChromaDB,
+    cosine-only) behind the same `add` / `search` / `__len__` interface
+    as the in-memory `VectorStore`; `rag/store.py::build_vector_store()`
+    factory selects the backend from `RAG_VECTOR_STORE` (`memory` default,
+    `chroma` opt-in; `CHROMA_PERSIST_DIR`, `CHROMA_COLLECTION` tune it)
+  - `rag/embedder.py` — `SentenceTransformerEmbedder` (dense, default
+    `BAAI/bge-small-en-v1.5`, BGE query-instruction prefix, lazy model
+    load, graceful `EmbeddingError` when the dependency is missing);
+    `build_embedder("sentence-transformer")` opt-in via
+    `RAG_EMBEDDING_MODEL` (TF-IDF stays the default)
+  - `rag/metrics.py` — RAGAS-style generation metrics (paper §12):
+    `context_precision`, `context_recall`, `faithfulness`,
+    `answer_relevancy`, aggregated by `rag_quality_metrics()` into a
+    frozen `RAGQualityMetrics` dataclass with `to_dict()`; all LLM-free
+    and embedder-agnostic
+  - `CrewAI/orchestrator/metrics.py` — agent metrics (paper §12):
+    `task_completion_rate`, `decision_consistency`,
+    `agent_collaboration_score`, aggregated by `compute_agent_metrics()`
+    into `AgentMetrics`; `ClinicalReport` gains an optional
+    `agent_metrics` block wired through `assemble_clinical_report`
+  - Dependencies: `chromadb>=0.5.0`, `sentence-transformers>=3.0.0`
+    (RAG section); README Configuration + `backend/.env.example` document
+    `RAG_VECTOR_STORE`, `RAG_CHROMA_PERSIST_DIR`, `RAG_CHROMA_COLLECTION`,
+    `RAG_EMBEDDING_MODEL`, `RAG_SENTENCE_TRANSFORMER_MODEL`
+  - ADR-014 + README "Privacy & Security" section — encrypted
+    communication is a deployment-layer concern (TLS/mTLS at a reverse
+    proxy for all inter-service traffic); in-process protections
+    (DP-SGD / SecAgg / PHI-never-leaves) stay as the paper's threat model
+  - Tests: backend 326 (+37 across the Chroma store, sentence-transformer
+    embedder, RAGAS metrics, agent metrics), frontend 13; lint clean
+    (black / ruff / isort)
 
 ### Removed
 

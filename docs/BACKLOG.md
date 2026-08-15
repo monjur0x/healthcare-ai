@@ -171,11 +171,14 @@ from PubMed / WHO / CDC / NICE / hospital-protocol knowledge sources.
 
 ## Deferred
 
-- [ ] Dense / transformer embeddings (sentence-transformers, Qdrant,
-      GPU) — deferred; TF-IDF + in-memory store keep the module
-      dependency-light and offline-friendly (ADR-007)
-- [ ] Streaming ingestion from PubMed / WHO / CDC / NICE APIs
+- [x] Dense / transformer embeddings (sentence-transformers) — done in
+      Milestone 10 via `SentenceTransformerEmbedder` (opt-in
+      `RAG_EMBEDDING_MODEL=sentence-transformer`); TF-IDF stays the
+      default. Persistent backend done via ChromaDB (`RAG_VECTOR_STORE`)
 - [ ] Hybrid retrieval (BM25 + dense) and re-ranking
+- [ ] Vector-store backends beyond ChromaDB (e.g. Qdrant) behind
+      `build_vector_store()`
+- [ ] Streaming ingestion from PubMed / WHO / CDC / NICE APIs
 
 ---
 
@@ -343,3 +346,27 @@ automated system that runs on CPU-only hardware.
 - [ ] Opacus `secure_mode=True` for the production DP re-training pass
       (currently `secure_mode=False` for experimentation speed, with a
       UserWarning asking for one final secure retrain before release)
+
+### Milestone 10 — Evaluation-gap closure (complete)
+
+- [x] `opacus>=1.5.0` declared in `backend/requirements.txt`
+- [x] ChromaDB persistent vector store (`RAG_VECTOR_STORE=chroma`) via
+      `ChromaVectorStore` + `build_vector_store()` factory
+- [x] Dense embeddings (`RAG_EMBEDDING_MODEL=sentence-transformer`,
+      `SentenceTransformerEmbedder`, default `BAAI/bge-small-en-v1.5`)
+- [x] RAGAS-style metrics: `context_precision`, `context_recall`,
+      `faithfulness`, `answer_relevancy` + `RAGQualityMetrics`
+- [x] Agent metrics: `task_completion_rate`, `decision_consistency`,
+      `agent_collaboration_score` + `AgentMetrics` wired into
+      `ClinicalReport.agent_metrics`
+- [x] ADR-014 (transport-layer TLS/mTLS) + README "Privacy & Security"
+- [x] Tests: backend 326 (+37), frontend 13; lint clean
+
+New deferred items from Milestone 10:
+
+- [ ] Wire RAGAS / agent metrics into the API response or a standalone
+      evaluation endpoint (currently library functions + tests only)
+- [ ] RAGAS-vs-heuristic calibration: compare the LLM-free faithful/\
+      relevancy proxies against a judge-LLM baseline on a labeled set
+- [ ] Baseline comparison study (paper §13): centralized vs federated vs
+      federated+RAG vs federated+multi-agent on the shipped datasets

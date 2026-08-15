@@ -217,6 +217,71 @@ functional end-to-end system (Milestone 8) are complete.
 
 ---
 
+## Milestone 10 — Evaluation-gap closure (paper §12)
+
+### Differential privacy dependency
+
+- [x] `opacus>=1.5.0` declared in `backend/requirements.txt` under a
+      `# Differential privacy` section (was installed but undeclared)
+- [x] DP test path exercised against the real Opacus API (green)
+
+### Persistent vector store (`backend/rag`)
+
+- [x] `store_chroma.py` — `ChromaVectorStore` (persistent ChromaDB,
+      cosine-only, `EmptyCorpusError` on empty search) with the same
+      `add` / `search` / `__len__` interface as the in-memory `VectorStore`
+- [x] `store.py::build_vector_store()` factory selects `memory` (default)
+      / `chroma` via `RAG_VECTOR_STORE`; `CHROMA_PERSIST_DIR` /
+      `CHROMA_COLLECTION` configure persistence
+- [x] Tests (`rag/tests/test_vector_store_chroma.py`) — temp-dir
+      isolation, persist-across-reopen, cosine-only rejection
+
+### Dense embedding (`backend/rag`)
+
+- [x] `embedder.py::SentenceTransformerEmbedder` — dense embeddings
+      (default `BAAI/bge-small-en-v1.5`), lazy model load, BGE query
+      instruction, `EmbeddingError` when the dependency is missing
+- [x] `build_embedder("sentence-transformer")` opt-in via
+      `RAG_EMBEDDING_MODEL`; TF-IDF stays the default
+- [x] Tests (`rag/tests/test_embedder_sentence_transformer.py`) —
+      graceful skip when the model is unavailable offline
+
+### RAGAS-style generation metrics (`backend/rag`)
+
+- [x] `context_precision`, `context_recall`, `faithfulness`,
+      `answer_relevancy` (LLM-free, embedder-agnostic)
+- [x] `RAGQualityMetrics` dataclass + `rag_quality_metrics()` aggregator
+      with `to_dict()`
+- [x] Tests (`rag/tests/test_rag_metrics.py`, 13 passing)
+
+### Agent metrics (`backend/CrewAI/orchestrator`)
+
+- [x] `metrics.py` — `task_completion_rate`, `decision_consistency`,
+      `agent_collaboration_score`; `compute_agent_metrics()` →
+      `AgentMetrics` with `to_dict()`
+- [x] `ClinicalReport` optional `agent_metrics` block wired through
+      `assemble_clinical_report`
+- [x] Tests (`tests/test_agent_metrics.py`, 14 passing)
+
+### Transport-security decision (docs only)
+
+- [x] ADR-014 — encrypted communication is a deployment-layer concern
+      (TLS/mTLS at a reverse proxy); no application code change
+- [x] README "Privacy & Security" section (data protection / access
+      control / transport security + secrets policy)
+
+### Verification
+
+- [x] Backend suite 326 passing (+37), frontend 13 (unchanged)
+- [x] Lint clean (black / ruff / isort) — run from `backend/` so
+      `backend/pyproject.toml` covers the frontend too
+- [x] Committed as: `fix(federated)` opacus dep, `feat(rag)` ChromaDB
+      store, `feat(rag)` sentence-transformer embedder, `feat(rag)` RAGAS
+      metrics, `feat(crew)` agent metrics, `docs(security)` ADR-014,
+      `style(rag)` lint pass
+
+---
+
 ## Milestone 6 — n8n orchestration (`n8n/`)
 
 ### Principles
@@ -524,9 +589,14 @@ prediction, and retrieval modules, per `docs/SOFTWARE_ARCHITECTURE.md`
 - [x] Preprocessing: 70 tests passing
 - [x] Models: 36 tests passing (tabular 10 / CNN 16 / fusion 10)
 - [x] Evaluation: 11 tests passing
-- [x] Federated: 35 tests passing
-- [x] RAG: 38 tests passing
-- [x] Orchestration (CrewAI): 25 tests passing
+- [x] Federated: 51 tests passing
+- [x] RAG: 61 tests passing (incl. Chroma store, sentence-transformer
+      embedder, RAGAS metrics)
+- [x] Orchestration (CrewAI): 44 tests passing (incl. agent metrics)
 - [x] Examples: 7 tests passing
-- [x] Full suite: 222 tests passing (`pytest preprocessing/tests models/tests evaluation/tests federated/tests rag/tests examples/tests CrewAI/orchestrator/tests`)
+- [x] API: 46 tests passing
+- [x] Full suite: 326 backend tests passing (`pytest preprocessing/tests
+      models/tests evaluation/tests federated/tests rag/tests
+      examples/tests CrewAI/orchestrator/tests api/tests`)
+- [x] Frontend: 13 tests passing (from `frontend/`)
 - [ ] Full test command documented in README/AGENTS (see `AGENTS.md` tooling note)
