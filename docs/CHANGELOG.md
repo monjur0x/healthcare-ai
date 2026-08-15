@@ -4,6 +4,10 @@
 
 ### Added
 
+- Draft project guide in `README1.md` covering architecture, quick
+  start, backend/dashboard/n8n startup, dataset assumptions, and
+  end-to-end execution steps for the complete healthcare AI system.
+
 - `backend/preprocessing/csv/` module: `validator.py`, `cleaner.py`,
   `imputer.py`, `encoder.py`, `feature_engineering.py`, `scaler.py`,
   `transformer.py`, `pipeline.py`, and package `__init__.py`.
@@ -220,6 +224,66 @@
   trains a default model via the API, starts the backend and dashboard,
   and starts n8n in Docker (`N8N_ENABLED=0` skips n8n).
 - Root `README.md` — CPU-only step-by-step run guide (manual + one-command).
+- **Image analysis + friendly dashboard input (Milestone 8.1):**
+  - `models/image/cnn.py` — `ImageClassifier` accepts string class
+    labels (class order from `np.unique` instead of `int(label)`)
+  - `CrewAI/orchestrator/services.py` — `run_image_prediction` for
+    preprocessed `(H, W, C)` images; `crew.py` gains the
+    `image_model` / `image` analysis path
+  - `api/` — `APISettings.IMAGE_MODEL_PATH`; `GET /api/v1/model`
+    (`ModelInfo`); `POST /api/v1/analyze/image` (`AnalyzeImageRequest`
+    with base64 validator); `AnalysisService.image_model` /
+    `model_info()` / `analyze_image()`
+  - `scripts/train_image_model.py` — trains the brain-tumor CNN and
+    writes `backend/artifacts/brain/global_model.pt`; `run_system.sh`
+    passes `API_IMAGE_MODEL_PATH`
+  - `frontend/` — friendly per-feature numeric inputs (driven by
+    `/api/v1/model`), image upload mode with preview, `model_info()` +
+    `analyze_image()` client methods, model metadata in Info tab
+  - Tests: backend 271 (+16), frontend 13 (+4)
+- Default CrewAI LLM model bumped to `gemini-3.7-flash` (latest
+  workhorse release) and `backend/.env.example` added documenting all
+  API_ / CREW_ / MODEL_ / RAG_ variables incl. `CREW_LLM_API_KEY`;
+  README gains a "Enabling the CrewAI LLM agents (Gemini)" section.
+- All five settings classes now use `extra="ignore"` so a shared
+  `backend/.env` with mixed prefixes (`API_` / `CREW_` / `MODEL_` /
+  `RAG_` / `PREPROCESS_`) no longer breaks other configs.
+- `ClinicalCrew.run_llm` exports `CREW_LLM_API_KEY` as `GEMINI_API_KEY`
+  before kickoff (crewai 1.15's Gemini provider reads that env var);
+  `crewai[google-genai]` installed. `test_run_prefers_deterministic_when_no_llm`
+  is now hermetic (patches `LLM_API_KEY` to "").
+- Verified: 7 agents / 7 tasks / crew construct; Gemini `gemini-3.6-flash`
+  accepts calls and the crew returns the fallback report when the LLM
+  output doesn't match the strict schema; `gemini-3.7-flash` was
+  returning transient 503 "high demand" (model launched 2026-08-13).
+- **Privacy-preserving federated learning (Milestone 9, paper §8):**
+  - `federated/privacy.py` — `PrivacyConfig`, `anonymize_frame`
+    (`PII_PATTERNS`), `pseudonymize`, `train_with_differential_privacy`
+    (Opacus DP-SGD + epsilon audit), `SecureAggregator` (pairwise
+    one-time-pad, adapted to `list[np.ndarray]`), `membership_inference_auroc`,
+    `data_leakage_rate`, `privacy_metrics_summary`
+    (epsilon / budget-used % / MIA-AUROC / attack-resistance score /
+    leakage / mechanism); ported from the removed old demo's
+    `CrewAI/app/federated/privacy.py`
+  - `models/csv/TorchMLPClassifier` — torch MLP on the same
+    `get_parameters` / `set_parameters` contract as `TabularClassifier`
+    (Opacus needs a `torch.nn.Module`); saved as joblib payload
+    `kind="torch_mlp"`
+  - `federated/client.py` — `FederatedClient` accepts a `PrivacyConfig`;
+    DP-SGD local training reports per-round epsilon
+  - `federated/server.py` — `FedAvgServer(secure_aggregation=True)` uses
+    the `SecureAggregator`; `FederatedMetrics` gains `secure_aggregation`,
+    `differential_privacy`, `epsilon`
+  - `api/` — `TrainRequest` gains `differential_privacy`,
+    `noise_multiplier`, `max_grad_norm`, `privacy_delta`,
+    `secure_aggregation`; `AnalysisService._train_federated` builds torch
+    MLPs for DP, collects epsilons, runs the MIA audit (members = client
+    shards, non-members = hold-out), and returns the
+    `federated_metrics.privacy` block
+  - Dependency: `opacus` (1.6.0) added to the backend venv
+  - Live: diabetes preset, federated DP + SecAgg → ε ≈ 2.14 (53.5% of
+    budget), MIA-AUROC ≈ 0.50, attack-resistance ≈ 1.0, leakage 0.0
+  - Tests: backend 289 (+18), frontend 13
 
 ### Removed
 

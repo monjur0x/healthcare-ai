@@ -100,12 +100,22 @@ trained locally per hospital, and are aggregated by Flower (FedAvg).
       per-round + total bytes), convergence (`round_accuracy_deltas`,
       `convergence_round`), training time (per-round + total) via
       `federated/metrics.py` and the `server.metrics` property
-- [ ] Privacy budget metrics — deferred (no privacy mechanism yet)
-- [ ] Differential privacy — the removed old demo
-      (`backend/CrewAI/app/federated/privacy.py`) contained a DP module
-      (noise-multiplier approach, epsilon/delta targets) that was never
-      ported to the new `federated/` module; port it when a privacy
-      mechanism is scoped
+- [x] Privacy budget metrics — `FederatedMetrics` now carries
+      `secure_aggregation`, `differential_privacy`, and `epsilon`
+      (worst-case per-client epsilon) alongside the cost/convergence
+      fields
+- [x] Differential privacy + secure aggregation + anonymization —
+      ported the removed old demo (`backend/CrewAI/app/federated/
+      privacy.py`) into `backend/federated/privacy.py` (paper Section 8):
+      `anonymize_frame`, `pseudonymize`, `train_with_differential_privacy`
+      (Opacus DP-SGD + epsilon audit), `SecureAggregator` (pairwise
+      one-time-pad, adapted to the repo's `list[np.ndarray]` param
+      format), `membership_inference_auroc`, `data_leakage_rate`, and
+      `privacy_metrics_summary` (epsilon, budget-used %, MIA-AUROC,
+      attack-resistance score, leakage rate, mechanisms). Wired into
+      `FederatedClient` (local DP-SGD via `TorchMLPClassifier`),
+      `FedAvgServer` (optional secure aggregation), and the API
+      (`POST /api/v1/train` → `federated_metrics.privacy`)
 
 ## Federated
 
@@ -306,6 +316,15 @@ automated system that runs on CPU-only hardware.
 - [x] Verified live on diabetes: central + federated train, predict,
       retrieve, analyze (report + risk + evidence)
 
+### Milestone 8.1 — Image analysis + friendly dashboard input (complete)
+
+- [x] `POST /api/v1/analyze/image` (base64 image → brain-tumor CNN →
+      report) and `GET /api/v1/model` (feature columns for forms)
+- [x] `scripts/train_image_model.py` + brain-tumor artifact trained
+      (4 classes, ~0.71 accuracy / ~0.92 ROC-AUC)
+- [x] Friendly per-feature inputs + MRI upload mode in the dashboard
+- [x] Verified live on a real glioma scan
+
 ### Milestone 9+ (not yet scoped)
 
 - [ ] Full OAuth / per-user authentication (currently an optional static
@@ -321,5 +340,6 @@ automated system that runs on CPU-only hardware.
       fills the frontend role)
 - [ ] Real flwr `run_simulation` / networked `ServerApp` (blocked:
       `ray` not installed)
-- [ ] Differential privacy port from the removed old demo into
-      `federated/`
+- [ ] Opacus `secure_mode=True` for the production DP re-training pass
+      (currently `secure_mode=False` for experimentation speed, with a
+      UserWarning asking for one final secure retrain before release)

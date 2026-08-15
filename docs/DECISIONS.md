@@ -202,3 +202,76 @@ Reason
 - A preset registry (`PRESETS`) maps the shipped datasets
   (diabetes / heart / kidney / sepsis) to files and target columns;
   arbitrary CSVs remain supported via `dataset` + `target`.
+
+---
+
+ADR-012
+
+Image analysis is exposed through the same service-boundary pattern as
+tabular analysis, and the dashboard renders friendly per-feature inputs
+instead of raw JSON.
+
+Reason
+
+- To make the dashboard usable for clinicians, JSON text areas are
+  replaced with one numeric input per model feature. The feature list
+  comes from the new `GET /api/v1/model` endpoint, so the form adapts
+  to whatever model is served; raw JSON remains as a fallback when no
+  model (and thus no feature list) is configured.
+- Image uploads reuse the existing pipeline: `preprocessing.image`
+  (`ImagePipeline`) → `models.image.ImageClassifier` → the crew. The
+  crew (`ClinicalCrew`) gains an `image_model` / `image` branch that
+  mirrors the tabular branch (prediction → risk → evidence → report),
+  so image reports share the same `ClinicalReport` schema and rendering.
+- `ImageClassifier` was changed to map labels by `np.unique` order
+  instead of `int(label)`, so string classes (e.g. the brain-tumor MRI
+  folder names) work without a manual label encoder.
+- `POST /api/v1/analyze/image` takes a base64-encoded image in a JSON
+  body (decoded by a Pydantic field validator) rather than a multipart
+  upload, keeping the client, route, and tests uniform with the rest of
+  the API. The image model is loaded lazily from `API_IMAGE_MODEL_PATH`
+  like the tabular model from `API_MODEL_PATH`.
+- Training the image CNN is an offline script
+  (`scripts/train_image_model.py`) rather than an API endpoint, because
+  CNN training is slow enough that a long-running HTTP request would be
+  a poor UX; the trained artifact is then served by the API.
+
+---
+
+ADR-013
+
+Privacy-preserving federated learning (paper Section 8) uses Opacus
+DP-SGD for local training, a pairwise one-time-pad secure aggregator on
+the server, and anonymization/pseudonymization of raw frames, with a
+privacy-metrics block returned by the training API.
+
+Reason
+
+- The old demo's `CrewAI/app/federated/privacy.py` was the reference
+  for the mechanisms (noise-multiplier DP, epsilon/delta targets,
+  pairwise OTP secure aggregation, MIA-AUROC + leakage-rate metrics) and
+  is ported, not rewritten, into `backend/federated/privacy.py`.
+- Opacus DP-SGD requires a `torch.nn.Module`, so the federated DP path
+  uses a new torch MLP (`models/csv/TorchMLPClassifier`) instead of the
+  sklearn `TabularClassifier`. Its parameter exchange reuses the same
+  `get_parameters` / `set_parameters` contract, so `FederatedClient`,
+  `FedAvgServer`, and `average_weights` stay model-agnostic. Without
+  DP (the default), the federated path keeps the sklearn `TabularClassifier`.
+- Secure aggregation is a client-side additive mask that only cancels
+  under equal per-client weights, so `SecureAggregator.aggregate`
+  requires equal weights (matching `FedAvgServer`, which weights every
+  client once). This is stricter than `average_weights` but keeps the
+  masking algebra exact.
+- Privacy is opt-in per training request: `POST /api/v1/train` accepts
+  `differential_privacy`, `noise_multiplier`, `max_grad_norm`,
+  `privacy_delta`, and `secure_aggregation`. When DP is enabled the
+  response's `federated_metrics.privacy` block reports epsilon,
+  budget-used %, MIA-AUROC (members = client shard rows, non-members =
+  hold-out), attack-resistance score (clamped to `[0, 1]`), data
+  leakage rate, and the mechanism string.
+- Opacus runs with `secure_mode=False` (faster experimentation); a
+  production pass must re-run with `secure_mode=True` (BACKLOG).
+- Anonymization/pseudonymization helpers live in the federated privacy
+  module (not preprocessing) because they exist to protect federated
+  exchange payloads; raw frames never leave a client, so the API's
+  leakage rate is structurally zero unless a payload path is added.

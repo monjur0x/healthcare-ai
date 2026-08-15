@@ -109,6 +109,114 @@ functional end-to-end system (Milestone 8) are complete.
 
 ---
 
+## Milestone 8.1 — Image analysis + friendly dashboard input
+
+### Image path (backend)
+
+- [x] `ImageClassifier` now accepts string class labels (mapped by
+      `np.unique` order instead of `int(label)`) so the brain-tumor
+      classes (`glioma` / `meningioma` / `notumor` / `pituitary`) work
+      out of the box
+- [x] `run_image_prediction` — orchestrator service that predicts from a
+      preprocessed `(H, W, C)` image array and builds a `PredictionResult`
+- [x] `ClinicalCrew` gains an `image_model` / `image` path (prediction →
+      risk → evidence → report) alongside the tabular path
+- [x] API: `GET /api/v1/model` (available models, type, classes,
+      feature names) and `POST /api/v1/analyze/image` (base64 image →
+      image model → report)
+- [x] `AnalysisService` gains `image_model` (loaded from
+      `API_IMAGE_MODEL_PATH`) + `model_info()` + `analyze_image()`
+- [x] `APISettings.IMAGE_MODEL_PATH` configuration
+- [x] `scripts/train_image_model.py` — trains the brain-tumor CNN
+      (folder-per-class dataset, hold-out metrics, artifact written to
+      `backend/artifacts/brain/global_model.pt`)
+- [x] `scripts/run_system.sh` wires `API_IMAGE_MODEL_PATH` from the
+      trained artifact
+
+### Dashboard UX
+
+- [x] Clinical Analysis: per-feature numeric inputs when the backend
+      reports `feature_names` (no more JSON typing); raw JSON kept as a
+      fallback when no model is configured
+- [x] Clinical Analysis: **Image (MRI upload)** mode — `file_uploader`
+      with live preview → `analyze_image` → shared report layout
+- [x] Prediction tab: same friendly per-feature form
+- [x] Info tab: shows model metadata + new endpoints
+- [x] Client: `model_info()` + `analyze_image()` (base64)
+
+### Verification
+
+- [x] Backend suite 271 passing (+16: image prediction, crew image path,
+      model info, analyze image, CNN string labels)
+- [x] Frontend suite 13 passing (+4: client model info, analyze image
+      x2, image-upload smoke)
+- [x] Live: trained brain-tumor CNN (4 classes, hold-out accuracy ~0.71,
+      ROC-AUC ~0.92); real glioma scan → predicted `glioma` at ~78%
+      confidence with risk + 3 evidence items; tabular analyze unchanged
+- [x] Lint clean (black / ruff / isort) across api, orchestrator, models,
+      frontend, scripts
+
+---
+
+## Milestone 9 — Privacy-preserving federated learning (paper §8)
+
+### Privacy layer (`backend/federated/privacy.py`)
+
+- [x] `PrivacyConfig` — DP hyperparameters (noise multiplier, grad-norm
+      clipping, delta, local epochs, batch, lr)
+- [x] `anonymize_frame` — removes PII-like columns (`PII_PATTERNS`):
+      name / patient / dob / ssn / phone / email / address / zip / ...
+- [x] `pseudonymize` — deterministic truncated SHA-256 pseudonyms
+- [x] `train_with_differential_privacy` — Opacus DP-SGD over a torch
+      module + epsilon audit via `PrivacyEngine.get_epsilon`
+- [x] `SecureAggregator` — pairwise one-time-pad SecAgg adapted to the
+      repo's `list[np.ndarray]` param format; masks cancel to the exact
+      mean (equal weights required)
+- [x] `membership_inference_auroc` — confidence-based MIA simulator
+      (members vs hold-out), sorting fixed so AUROC is orientation-correct
+- [x] `data_leakage_rate` + `privacy_metrics_summary` — epsilon,
+      budget-used %, MIA-AUROC, attack-resistance score (clamped [0, 1]),
+      leakage rate, mechanism string
+- [x] Unit tests (`federated/tests/test_privacy.py`, 12 passing)
+
+### Federated wiring
+
+- [x] `models/csv/TorchMLPClassifier` — torch MLP with
+      `get_parameters` / `set_parameters` / `partial_fit` on the same
+      contract as `TabularClassifier` (required because Opacus needs a
+      `torch.nn.Module`); saved/loaded via the existing joblib payload
+      format (`kind="torch_mlp"`)
+- [x] `FederatedClient` accepts a `PrivacyConfig`; local training uses
+      DP-SGD and reports the per-round epsilon in fit metrics
+- [x] `FedAvgServer` accepts `secure_aggregation=True` (uses
+      `SecureAggregator` instead of `average_weights`) and surfaces
+      `differential_privacy` / `secure_aggregation` / `epsilon`
+      (worst-case per-client epsilon) on `server.metrics`
+- [x] `FederatedMetrics` extended with `secure_aggregation`,
+      `differential_privacy`, `epsilon`
+
+### API
+
+- [x] `TrainRequest` gains `differential_privacy`, `noise_multiplier`,
+      `max_grad_norm`, `privacy_delta`, `secure_aggregation`
+- [x] `AnalysisService.train` / `_train_federated` build a torch MLP per
+      client when DP is on, collect epsilons, run the MIA audit
+      (members = client shards, non-members = hold-out), and append the
+      `federated_metrics.privacy` block
+- [x] `POST /api/v1/train` wired end-to-end; live-verified on the
+      diabetes preset (ε ≈ 2.14, 53.5% of the ε=4 budget,
+      MIA-AUROC ≈ 0.50, attack-resistance ≈ 1.0, leakage 0.0, DP +
+      SecAgg both reported)
+
+### Verification
+
+- [x] Backend suite 289 passing (+18: privacy module, DP client, SecAgg
+      server, DP+SweCgg federated train, torch MLP roundtrip)
+- [x] Frontend suite 13 passing (unchanged)
+- [x] Lint clean (black / ruff / isort)
+
+---
+
 ## Milestone 6 — n8n orchestration (`n8n/`)
 
 ### Principles
