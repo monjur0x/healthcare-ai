@@ -1,18 +1,36 @@
 """
-Healthcare AI Dashboard (Streamlit).
+Healthcare AI — Clinical Decision Support Dashboard (Streamlit).
 
-A thin view layer over the FastAPI backend. All reasoning happens
-server-side (``backend/api`` -> CrewAI clinical crew); this app only
-sends requests and renders responses.
+A thin view layer over the FastAPI backend and the n8n end-to-end
+workflow. All reasoning happens server-side (``backend/api`` -> CrewAI
+clinical crew); this app only collects doctor-facing inputs, sends
+requests, and renders the structured report.
+
+The dashboard is organised around the research workflow:
+
+    Patient Data -> Federated Prediction -> Disease Prediction Agent ->
+    RAG Retrieval -> Treatment Agent -> Explainability -> n8n Workflow
+    -> Doctor Dashboard
+
+Pages
+-----
+- Overview — what the system does, what is supported, workflow recap.
+- Clinical Assessment — research-defined clinical inputs grouped
+  logically (Patient Information / Vital Signs / Clinical Measurements /
+  Medical History), one clear **Analyze Patient** action, and inline
+  results.
+- Imaging — upload -> preview -> analyze -> prediction -> confidence ->
+  explanation, when an image model is configured.
+- Results — the six research outputs rendered doctor-friendly.
+- System Status — live checks of FastAPI, the ML model, RAG, the CrewAI
+  crew, and n8n.
 
 Run from the repository root (or from ``frontend/``):
 
     streamlit run frontend/streamlit_app.py
 
-Configure the backend origin and optional bearer token in the sidebar.
-The Clinical Analysis tab supports tabular (CSV) analysis via friendly
-per-feature inputs or raw JSON, and image uploads analyzed by the
-backend image model.
+Configure the backend origin, n8n origin, optional bearer token, and the
+analysis route (n8n workflow / direct to FastAPI) in the sidebar.
 """
 
 from __future__ import annotations
@@ -25,10 +43,22 @@ import httpx
 import streamlit as st
 
 from dashboard.client import APIConfig, HealthcareAPIClient, HealthcareAPIError
+from dashboard.clinical import (
+    analysis_stages,
+    explanation_sections,
+    feature_bounds,
+    feature_label,
+    group_features,
+    is_flag_feature,
+)
 
-DEFAULT_FEATURES = '{"glucose": 148.0, "bmi": 27.3, "age": 54.0}'
-DEFAULT_MARKERS = '{"glucose": 148.0, "bmi": 27.3}'
+DEFAULT_BACKEND_URL = "http://localhost:8000"
+DEFAULT_N8N_URL = "http://localhost:5678"
 IMAGE_TYPES = ["png", "jpg", "jpeg"]
+
+ROUTE_AUTOMATIC = "Automatic (recommended)"
+ROUTE_N8N = "Via n8n workflow"
+ROUTE_DIRECT = "Direct to FastAPI"
 
 
 def build_client(base_url: str, api_token: str) -> HealthcareAPIClient:
@@ -55,431 +85,846 @@ def build_client(base_url: str, api_token: str) -> HealthcareAPIClient:
     return _cached(base_url, api_token)
 
 
-def parse_json_field(raw: str, field_name: str) -> dict:
+def fetch_model_info(client: HealthcareAPIClient) -> dict[str, Any]:
     """
-    Parse a JSON text-area value into a dict, showing errors inline.
+    Fetch model metadata, returning an empty dict when unreachable.
 
     Parameters
     ----------
-    raw : str
-        Raw textarea content.
-    field_name : str
-        Human-readable field name for the error message.
+    client : HealthcareAPIClient
+        Backend client.
 
     Returns
     -------
-    dict
-        Parsed mapping (empty on invalid input).
+    dict[str, Any]
+        ``ModelInfo`` payload or ``{}`` on error.
     """
-
-    raw = raw.strip()
-    if not raw:
-        return {}
     try:
-        value = json.loads(raw)
-    except json.JSONDecodeError as error:
-        st.error(f"Invalid JSON for {field_name}: {error}")
+        return client.model_info()
+    except (HealthcareAPIError, httpx.HTTPError):
         return {}
-    if not isinstance(value, dict):
-        st.error(f"{field_name} must be a JSON object.")
-        return {}
-    return {str(key): value for key, value in value.items()}
 
 
-def parse_lines(raw: str) -> list[str]:
-    """Split a text area into non-empty stripped lines."""
-    return [line.strip() for line in raw.splitlines() if line.strip()]
+def resolve_route(
+    client: HealthcareAPIClient, n8n_base_url: str, requested: str
+) -> str:
+    """
+    Resolve the effective analysis route.
+
+    Parameters
+    ----------
+    client : HealthcareAPIClient
+        Backend client (used for the n8n health probe).
+    n8n_base_url : str
+        n8n origin.
+    requested : str
+        Sidebar selection (automatic / via n8n / direct).
+
+    Returns
+    -------
+    str
+        ``"n8n"`` or ``"direct"``.
+    """
+    if requested == ROUTE_N8N:
+        return "n8n"
+    if requested == ROUTE_DIRECT:
+        return "direct"
+    if client.n8n_health(n8n_base_url):
+        return "n8n"
+    return "direct"
 
 
-def render_prediction(prediction: dict) -> None:
-    """Render a ``PredictionResult`` payload."""
-    st.subheader("Prediction")
-    left, middle, right = st.columns(3)
-    left.metric("Predicted class", prediction.get("predicted_class"))
-    middle.metric("Confidence", f"{prediction.get('confidence', 0.0):.1%}")
-    right.metric("Model", prediction.get("model_name"))
-    probabilities = prediction.get("probabilities", {})
-    if probabilities:
-        st.bar_chart(
-            {str(label): float(value) for label, value in probabilities.items()}
+# ---------------------------------------------------------------------------
+# Rendering helpers
+# ---------------------------------------------------------------------------
+
+
+def risk_badge_html(level: str | None) -> str:
+    """
+    Render a colored risk-level badge (HTML snippet).
+
+    Parameters
+    ----------
+    level : str | None
+        Risk level from the backend (``low`` / ``medium`` / ``high``).
+
+    Returns
+    -------
+    str
+        HTML badge.
+    """
+    colors = {
+        "low": "#1b5e20",
+        "medium": "#b26a00",
+        "high": "#b71c1c",
+        "unknown": "#37474f",
+    }
+    color = colors.get(str(level), colors["unknown"])
+    label = str(level).upper() if level else "UNKNOWN"
+    return (
+        f'<span style="background:{color};color:white;padding:2px 12px;'
+        f'border-radius:12px;font-weight:600;font-size:0.95em;">{label}</span>'
+    )
+
+
+def render_evidence(evidence: list[dict[str, Any]]) -> None:
+    """
+    Render retrieved clinical evidence readably.
+
+    Raw vector ids, similarity scores, and API internals are deliberately
+    hidden; only the knowledge-source label and text are shown.
+
+    Parameters
+    ----------
+    evidence : list[dict[str, Any]]
+        ``EvidenceItem`` payloads.
+    """
+    for index, item in enumerate(evidence, start=1):
+        source = item.get("source") or "Retrieved clinical knowledge"
+        st.markdown(f"**{index}. {source}**")
+        st.write(item.get("text") or "")
+        st.divider()
+
+
+def render_stages(report: dict[str, Any]) -> None:
+    """
+    Render the pipeline stages that actually completed for a report.
+
+    Stages are only marked complete when the corresponding output is
+    present in the report — nothing is assumed.
+
+    Parameters
+    ----------
+    report : dict[str, Any]
+        ``ClinicalReport`` payload.
+    """
+    st.markdown("#### Analysis pipeline")
+    for stage in analysis_stages(report):
+        icon = "✅" if stage["done"] else "⭕"
+        detail = stage["detail"]
+        suffix = f" — {detail}" if detail else ""
+        st.markdown(f"{icon} **{stage['label']}**{suffix}")
+
+
+def render_explanation(report: dict[str, Any]) -> None:
+    """
+    Render the explainable decision report from actual model outputs.
+
+    Parameters
+    ----------
+    report : dict[str, Any]
+        ``ClinicalReport`` payload.
+    """
+    st.markdown("### Explainable Decision Report")
+    st.caption(
+        "Concise explanation derived from model outputs (prediction, "
+        "confidence, risk). It is not a diagnosis and does not expose "
+        "internal model reasoning."
+    )
+    for section in explanation_sections(report):
+        st.markdown(f"**{section['title']}**")
+        st.write(section["body"])
+
+
+def render_clinical_results(
+    report: dict[str, Any],
+    route: str,
+    subtitle: str | None = None,
+    download_key: str = "download_report",
+) -> None:
+    """
+    Render the six research-defined clinical outputs for a report.
+
+    Sections that the current backend does not support are shown
+    explicitly as unavailable rather than fabricated.
+
+    Parameters
+    ----------
+    report : dict[str, Any]
+        ``ClinicalReport`` payload.
+    route : str
+        ``"n8n"`` or ``"direct"`` (how the analysis was routed).
+    subtitle : str | None
+        Optional context line above the results.
+    download_key : str
+        Unique widget key for the report download button (the results may
+        be rendered on more than one page in the same run).
+    """
+    st.divider()
+    st.subheader("Clinical Results")
+    if subtitle:
+        st.caption(subtitle)
+    route_label = (
+        "Orchestrated through the n8n end-to-end workflow"
+        if route == "n8n"
+        else "Routed directly to the FastAPI backend"
+    )
+    st.caption(route_label)
+    st.warning(report.get("doctor_notice") or "")
+
+    render_stages(report)
+
+    prediction = report.get("prediction")
+    risk = report.get("risk")
+
+    st.markdown("### Disease Risk Score")
+    if risk:
+        score = float(risk.get("risk_score", 0.0))
+        level = risk.get("risk_level")
+        confidence = (
+            float(prediction.get("confidence", 0.0))
+            if isinstance(prediction, dict)
+            else None
+        )
+        left, middle, right = st.columns(3)
+        left.metric("Model-estimated risk score", f"{score:.2f}")
+        middle.markdown("**Risk level**")
+        middle.markdown(risk_badge_html(level), unsafe_allow_html=True)
+        if confidence is not None:
+            right.metric("Model confidence", f"{confidence:.1%}")
+        factors = risk.get("risk_factors") or []
+        if factors:
+            st.markdown("**Contributing factors**")
+            for factor in factors:
+                st.markdown(f"- {factor}")
+        schedule = risk.get("monitoring_schedule") or []
+        if schedule:
+            st.markdown("**Suggested monitoring**")
+            for item in schedule:
+                if isinstance(item, dict):
+                    st.markdown(
+                        f"- {item.get('test', '')} — {item.get('frequency', '')}"
+                    )
+    else:
+        st.info(
+            "Risk score not available — no prediction model was configured "
+            "for this analysis."
+        )
+    if isinstance(prediction, dict):
+        st.caption(
+            "Model-estimated primary condition: "
+            f"**{prediction.get('predicted_class')}** "
+            f"(confidence {prediction.get('confidence', 0.0):.0%})."
         )
 
+    st.markdown("### Mortality Risk")
+    st.info(
+        "Not estimated — the current model does not predict mortality risk. "
+        "This is documented as future work."
+    )
 
-def render_risk(risk: dict | None) -> None:
-    """Render a ``RiskResult`` payload."""
-    if risk is None:
-        return
-    level = risk.get("risk_level", "unknown")
-    if level == "high":
-        st.error(f"Risk level: {level.upper()} (score {risk.get('risk_score')})")
-    elif level == "medium":
-        st.warning(f"Risk level: {level.upper()} (score {risk.get('risk_score')})")
+    st.markdown("### Readmission Risk")
+    st.info(
+        "Not estimated — the current model does not predict readmission risk. "
+        "This is documented as future work."
+    )
+
+    st.markdown("### Treatment Recommendation")
+    recommendations = report.get("recommendations") or []
+    if recommendations:
+        for recommendation in recommendations:
+            st.markdown(f"- {recommendation}")
+        st.caption(
+            "AI-assisted decision support. Recommendations must be reviewed "
+            "by a qualified clinician before any action is taken."
+        )
     else:
-        st.success(f"Risk level: {level.upper()} (score {risk.get('risk_score')})")
-    if risk.get("risk_factors"):
-        st.markdown("**Risk factors**")
-        for factor in risk["risk_factors"]:
-            st.write(f"- {factor}")
-    schedule = risk.get("monitoring_schedule") or []
-    if schedule:
-        st.markdown("**Monitoring schedule**")
-        st.dataframe(schedule, width="stretch")
+        st.info(
+            "No AI treatment recommendation was generated for this analysis. "
+            "The Treatment Agent did not produce output in the current "
+            "deterministic mode."
+        )
 
+    st.markdown("### Clinical Evidence")
+    evidence = report.get("evidence") or []
+    if evidence:
+        st.caption(
+            "Retrieved from the clinical knowledge base. Distinguish this "
+            "from the AI-generated recommendation above."
+        )
+        render_evidence(evidence)
+    else:
+        st.info("No clinical evidence was retrieved from the knowledge base.")
 
-def render_evidence(evidence: list[dict]) -> None:
-    """Render retrieved evidence items."""
-    for item in evidence:
-        with st.expander(
-            f"[{item.get('document_id')}] {item.get('source')} "
-            f"(score {item.get('score', 0.0):.3f})"
-        ):
-            st.progress(min(max(float(item.get("score", 0.0)), 0.0), 1.0))
-            st.write(item.get("text") or "")
+    render_explanation(report)
 
-
-def render_report(report: dict, patient_id: str) -> None:
-    """Render a shared clinical report layout."""
-    st.divider()
-    st.subheader(f"Report — {patient_id}")
-    st.write(report.get("patient_summary") or "")
-    render_prediction(report.get("prediction") or {})
-    render_risk(report.get("risk"))
-    if report.get("evidence"):
-        st.subheader("Evidence")
-        render_evidence(report["evidence"])
-    if report.get("recommendations"):
-        st.subheader("Recommendations")
-        for recommendation in report["recommendations"]:
-            st.write(f"- {recommendation}")
     st.caption(report.get("limitations") or "")
+    patient_id = str(report.get("patient", {}).get("id", "patient"))
     st.download_button(
         "Download report (JSON)",
         data=json.dumps(report, indent=2),
         file_name=f"clinical_report_{patient_id}.json",
         mime="application/json",
+        key=f"{download_key}_{patient_id}",
     )
 
 
-def feature_inputs(feature_names: list[str]) -> dict[str, float]:
+# ---------------------------------------------------------------------------
+# Form widgets
+# ---------------------------------------------------------------------------
+
+
+def feature_widget(name: str) -> float:
     """
-    Render one numeric input per model feature column.
+    Render the appropriate input widget for a model feature.
+
+    Binary flag features become checkboxes, ``sex`` / ``gender`` become a
+    two-option selector, bounded features get sensible ranges, and the
+    rest are plain numeric inputs.
+
+    Parameters
+    ----------
+    name : str
+        Model feature column name.
+
+    Returns
+    -------
+    float
+        The entered value.
+    """
+    label = feature_label(name)
+    key = f"feature_{name}"
+    if is_flag_feature(name):
+        return float(st.checkbox(label, value=False, key=key))
+    if name in {"sex", "gender"}:
+        return float(
+            st.selectbox(
+                label,
+                ["0", "1"],
+                key=key,
+                help="Encoded by the model as 0 / 1.",
+            )
+        )
+    bounds = feature_bounds(name)
+    if bounds:
+        low, high = bounds
+        return st.number_input(
+            label,
+            min_value=low,
+            max_value=high,
+            value=low,
+            step=1.0,
+            format="%.1f",
+            key=key,
+        )
+    return st.number_input(
+        label,
+        min_value=0.0,
+        value=0.0,
+        step=1.0,
+        format="%.2f",
+        key=key,
+    )
+
+
+def render_feature_groups(feature_names: list[str]) -> dict[str, float]:
+    """
+    Render the clinical inputs grouped per the research specification.
 
     Parameters
     ----------
     feature_names : list[str]
-        Expected feature column names from ``/api/v1/model``.
+        Model feature columns reported by ``/api/v1/model``.
 
     Returns
     -------
     dict[str, float]
         Feature name to entered value.
     """
-
-    columns = st.columns(min(len(feature_names), 3))
     values: dict[str, float] = {}
-    for index, name in enumerate(feature_names):
-        with columns[index % len(columns)]:
-            values[name] = st.number_input(
-                name,
-                value=0.0,
-                min_value=0.0,
-                step=1.0,
-                format="%.2f",
-            )
+    for group, names in group_features(feature_names):
+        if group == "Additional Model Features":
+            with st.expander("Additional model features"):
+                _render_group_inputs(group, names, values)
+        else:
+            st.markdown(f"**{group}**")
+            _render_group_inputs(group, names, values)
     return values
 
 
-def render_patient_form() -> dict[str, Any]:
-    """Render shared patient fields and return the patient dict."""
-    patient_name = st.text_input("Patient name", value="Patient")
-    patient_id = st.text_input("Patient ID", value="patient-1")
-    patient_age = st.number_input("Age", min_value=0, max_value=120, value=45, step=1)
-    notes = st.text_area("Clinical notes", value="", height=80)
-    return {
-        "name": patient_name,
-        "id": patient_id,
-        "age": int(patient_age) if patient_age else None,
-        "notes": notes,
-    }
+def _render_group_inputs(
+    group: str, names: list[str], values: dict[str, float]
+) -> None:
+    """
+    Render the inputs of one feature group in a multi-column grid.
 
-
-def render_marker_inputs(feature_names: list[str]) -> dict[str, float]:
-    """Render a reusable clinical-markers form."""
-    columns = st.columns(min(len(feature_names), 3))
-    values: dict[str, float] = {}
-    for index, name in enumerate(feature_names):
+    Parameters
+    ----------
+    group : str
+        Group label (unused, kept for clarity).
+    names : list[str]
+        Feature names in the group.
+    values : dict[str, float]
+        Output mapping to fill.
+    """
+    columns = st.columns(min(len(names), 3))
+    for index, name in enumerate(names):
         with columns[index % len(columns)]:
-            values[name] = st.number_input(
-                name,
-                value=0.0,
-                min_value=0.0,
-                step=1.0,
-                format="%.2f",
-                key=f"marker_{name}",
-            )
-    return values
+            values[name] = feature_widget(name)
 
 
-def run_analysis_tab(client: HealthcareAPIClient) -> None:
-    """Render the clinical analysis form and report."""
-    st.header("Clinical Analysis")
+# ---------------------------------------------------------------------------
+# Pages
+# ---------------------------------------------------------------------------
+
+
+def run_overview_tab(client: HealthcareAPIClient, n8n_base_url: str) -> None:
+    """Render the Overview page."""
+    st.header("Clinical Decision Support — Overview")
     st.caption(
-        "Runs the backend clinical crew: prediction -> risk -> RAG evidence -> report."
+        "Research prototype. Model outputs are estimates and must be "
+        "reviewed by a licensed clinician."
     )
 
-    try:
-        model = client.model_info()
-    except (HealthcareAPIError, httpx.HTTPError):
-        model = {}
-
-    feature_names = model.get("feature_names") or []
-    has_tabular = bool(feature_names)
-
-    input_modality = st.radio(
-        "Input type",
-        options=["Tabular (CSV)", "Image (MRI upload)"],
-        horizontal=True,
+    st.markdown(
+        "This dashboard is the **Clinical Decision Support interface for "
+        "doctors** in the federated multi-agent healthcare framework."
+    )
+    st.markdown(
+        "### Research workflow\n\n"
+        "Patient Data → Federated Prediction → Disease Prediction Agent → "
+        "RAG Retrieval → Treatment Agent → Explainability → "
+        "**n8n Workflow** → Doctor Dashboard"
     )
 
-    with st.form("analysis_form"):
-        patient_col, input_col = st.columns(2)
-        with patient_col:
-            patient = render_patient_form()
-        with input_col:
-            if input_modality.startswith("Tabular"):
-                if has_tabular:
-                    st.markdown("**Features**")
-                    feature_map = feature_inputs(feature_names)
-                    with st.expander("Advanced: clinical markers"):
-                        st.caption("Leave all zero to auto-fill markers from features.")
-                        marker_map = render_marker_inputs(feature_names)
-                else:
-                    st.info(
-                        "No tabular model with known features is configured. "
-                        "Use raw JSON input."
-                    )
-                    feature_map = parse_json_field(
-                        st.text_area(
-                            "Features (JSON)", value=DEFAULT_FEATURES, height=110
-                        ),
-                        "features",
-                    )
-                    marker_map = parse_json_field(
-                        st.text_area(
-                            "Clinical markers (JSON)",
-                            value=DEFAULT_MARKERS,
-                            height=110,
-                        ),
-                        "markers",
-                    )
-                uploaded = None
-            else:
-                uploaded = st.file_uploader(
-                    "Brain MRI image",
-                    type=IMAGE_TYPES,
-                    help="Analyzed by the backend image model.",
-                )
-                if uploaded is not None:
-                    st.image(uploaded, caption=uploaded.name, width=240)
-                with st.expander("Advanced: clinical markers"):
-                    marker_map = parse_json_field(
-                        st.text_area(
-                            "Clinical markers (JSON)",
-                            value=DEFAULT_MARKERS,
-                            height=110,
-                            key="image_markers",
-                        ),
-                        "markers",
-                    )
-                feature_map = {}
+    st.markdown("### What you can do here")
+    st.markdown(
+        "- **Clinical Assessment** — enter the supported clinical data and "
+        "press **Analyze Patient** to run the workflow.\n"
+        "- **Imaging** — analyze a medical image (when an image model is "
+        "configured).\n"
+        "- **Results** — review disease risk, mortality / readmission risk "
+        "(where supported), treatment recommendations, clinical evidence, "
+        "and the explainable decision report.\n"
+        "- **System Status** — check that FastAPI, the ML model, RAG, the "
+        "CrewAI crew, and n8n are operational."
+    )
 
-        recommendations = st.text_area(
-            "Recommendations (one per line)",
-            value="Review the report with a licensed physician before acting.",
-            height=80,
-        )
-        submitted = st.form_submit_button("Run analysis")
-
-    if submitted:
-        if not has_tabular and feature_map == {} and uploaded is None:
-            st.error("No input provided. Select an input type and enter data.")
-            return
-
-        if input_modality.startswith("Tabular"):
-            if has_tabular:
-                markers = dict(marker_map)
-                if not any(markers.values()):
-                    markers = dict(feature_map)
-            else:
-                markers = marker_map or None
-            try:
-                report = client.analyze(
-                    patient=patient,
-                    features=feature_map,
-                    markers=markers,
-                    recommendations=parse_lines(recommendations),
-                    input_type="csv",
-                )
-            except (HealthcareAPIError, httpx.HTTPError) as error:
-                st.error(str(error))
-                return
-        else:
-            if uploaded is None:
-                st.error("Upload an MRI image to analyze.")
-                return
-            markers = marker_map or None
-            try:
-                report = client.analyze_image(
-                    patient=patient,
-                    image=uploaded.getvalue(),
-                    markers=markers,
-                    recommendations=parse_lines(recommendations),
-                )
-            except (HealthcareAPIError, httpx.HTTPError) as error:
-                st.error(str(error))
-                return
-
-        render_report(report, patient.get("id", "patient"))
-
-
-def run_prediction_tab(client: HealthcareAPIClient) -> None:
-    """Render the single-row prediction form."""
-    st.header("Prediction")
-    st.caption("Classify one feature row with the backend model.")
-
-    try:
-        model = client.model_info()
-    except (HealthcareAPIError, httpx.HTTPError):
-        model = {}
-
-    feature_names = model.get("feature_names") or []
-
-    with st.form("predict_form"):
-        if feature_names:
-            st.markdown("**Features**")
-            feature_map = feature_inputs(feature_names)
-        else:
-            st.info(
-                "No tabular model with known features is configured. "
-                "Use raw JSON input."
-            )
-            feature_map = parse_json_field(
-                st.text_area("Features (JSON)", value=DEFAULT_FEATURES, height=160),
-                "features",
-            )
-        submitted = st.form_submit_button("Predict")
-
-    if submitted:
-        try:
-            prediction = client.predict(feature_map)
-        except (HealthcareAPIError, httpx.HTTPError) as error:
-            st.error(str(error))
-            return
-        render_prediction(prediction)
-
-
-def run_retrieval_tab(client: HealthcareAPIClient) -> None:
-    """Render the evidence retrieval form."""
-    st.header("Evidence Retrieval")
-    st.caption("Query the RAG knowledge base for supporting evidence.")
-    with st.form("retrieval_form"):
-        query = st.text_input(
-            "Query",
-            value="clinical evidence and management for diabetes",
-        )
-        top_k = st.slider("Top-k", min_value=1, max_value=10, value=3)
-        submitted = st.form_submit_button("Retrieve")
-    if submitted:
-        try:
-            evidence = client.retrieve(query, top_k=top_k)
-        except (HealthcareAPIError, httpx.HTTPError) as error:
-            st.error(str(error))
-            return
-        if not evidence:
-            st.info("No evidence retrieved for this query.")
-        else:
-            st.subheader(f"{len(evidence)} item(s) retrieved")
-            render_evidence(evidence)
-
-
-def run_info_tab(client: HealthcareAPIClient) -> None:
-    """Render backend metadata and endpoint reference."""
-    st.header("Backend status")
+    st.markdown("### Current configuration")
     try:
         health = client.health()
-        st.success("Backend reachable")
-        st.json(health)
-    except (HealthcareAPIError, httpx.HTTPError) as error:
-        st.error(f"Backend unreachable: {error}")
+        st.markdown(
+            f"- FastAPI backend: **reachable** "
+            f"({health.get('name')} v{health.get('version')})"
+        )
+    except (HealthcareAPIError, httpx.HTTPError):
+        st.markdown("- FastAPI backend: **not reachable**")
+    model = fetch_model_info(client)
+    if model.get("available"):
+        st.markdown(
+            f"- ML model: **configured** "
+            f"({model.get('model_type')} / {model.get('model_name')})"
+        )
+    else:
+        st.markdown("- ML model: **not configured**")
+    if client.n8n_health(n8n_base_url):
+        st.markdown(f"- n8n: **reachable** ({n8n_base_url})")
+    else:
+        st.markdown("- n8n: **not reachable** (direct FastAPI routing will be used)")
 
-    st.subheader("Models")
-    try:
-        model = client.model_info()
-        st.json(model)
-    except (HealthcareAPIError, httpx.HTTPError) as error:
-        st.error(f"Could not fetch model info: {error}")
-
-    st.subheader("Endpoints")
-    st.dataframe(
-        [
-            {"method": "GET", "path": "/health", "description": "Liveness check"},
-            {"method": "GET", "path": "/api/v1/model", "description": "Model metadata"},
-            {
-                "method": "POST",
-                "path": "/api/v1/predict",
-                "description": "Classify a feature row",
-            },
-            {
-                "method": "POST",
-                "path": "/api/v1/retrieve",
-                "description": "Retrieve evidence",
-            },
-            {
-                "method": "POST",
-                "path": "/api/v1/analyze",
-                "description": "Full clinical analysis",
-            },
-            {
-                "method": "POST",
-                "path": "/api/v1/analyze/image",
-                "description": "Image-based clinical analysis",
-            },
-            {
-                "method": "POST",
-                "path": "/api/v1/train",
-                "description": "Train a tabular model",
-            },
-        ],
-        width="stretch",
+    st.caption(
+        "Persistent patient records are not implemented — each assessment "
+        "is entered fresh. Storing patients and previous assessments is "
+        "recorded as future work."
     )
+
+
+def run_assessment_tab(client: HealthcareAPIClient) -> None:
+    """Render the Clinical Assessment page and run the analysis."""
+    st.header("Clinical Assessment")
+    st.caption(
+        "Enter the available clinical information. Only fields used by the "
+        "current model are shown. The analysis runs through the "
+        "FastAPI / n8n workflow and returns a structured clinical report."
+    )
+
+    model = fetch_model_info(client)
+    feature_names = model.get("feature_names") or []
+
+    if not feature_names:
+        st.info(
+            "No tabular model with known features is configured. You can "
+            "still run an analysis — the report will contain clinical "
+            "evidence without a prediction. (Train a model via the API or "
+            "set API_MODEL_PATH.)"
+        )
+
+    with st.form("assessment_form"):
+        st.markdown("**Patient context**")
+        context_left, context_right = st.columns(2)
+        patient_name = context_left.text_input(
+            "Patient name", value="Patient", key="patient_name"
+        )
+        patient_id = context_right.text_input(
+            "Patient ID", value="patient-1", key="patient_id"
+        )
+        notes = st.text_area(
+            "Clinical notes (optional)", value="", height=70, key="patient_notes"
+        )
+        feature_values = render_feature_groups(feature_names)
+        submitted = st.form_submit_button("Analyze Patient", type="primary")
+
+    if not submitted:
+        return
+
+    patient = {
+        "name": patient_name,
+        "id": patient_id,
+        "age": int(feature_values.get("age", 0)),
+        "notes": notes,
+    }
+    st.session_state["assessment_patient"] = patient
+    features = dict(feature_values)
+    markers = dict(features) if features else None
+    route = resolve_route(
+        client,
+        st.session_state.get("n8n_base_url", DEFAULT_N8N_URL),
+        st.session_state.get("analysis_route", ROUTE_AUTOMATIC),
+    )
+
+    try:
+        with st.spinner("Running the clinical analysis pipeline…"):
+            if route == "n8n":
+                report = client.analyze_via_n8n(
+                    st.session_state.get("n8n_base_url", DEFAULT_N8N_URL),
+                    patient=patient,
+                    features=features,
+                    markers=markers,
+                    input_type="csv",
+                )
+            else:
+                report = client.analyze(
+                    patient=patient,
+                    features=features,
+                    markers=markers,
+                    input_type="csv",
+                )
+    except HealthcareAPIError as error:
+        st.error(str(error))
+        if route == "n8n":
+            st.caption(
+                "The n8n workflow did not complete. Check that n8n is "
+                "running and the workflow is active, or switch the analysis "
+                "route to 'Direct to FastAPI' in the sidebar."
+            )
+        return
+    except httpx.HTTPError as error:
+        st.error(f"Could not reach the analysis workflow: {error}")
+        return
+
+    st.session_state["clinical_report"] = report
+    st.session_state["report_route"] = route
+    render_clinical_results(
+        report,
+        route,
+        subtitle=f"Patient {patient_id}",
+        download_key="download_assessment",
+    )
+
+
+def run_imaging_tab(client: HealthcareAPIClient) -> None:
+    """Render the Imaging page (upload -> preview -> analyze)."""
+    st.header("Imaging")
+    model = fetch_model_info(client)
+    image_available = bool(
+        model.get("available")
+        and model.get("model_type") in {"image", "tabular_and_image"}
+    )
+
+    if not image_available:
+        st.info(
+            "Medical image analysis is **not currently available**: the "
+            "backend has no image model configured. To enable it, train the "
+            "image model with `scripts/train_image_model.py` and set "
+            "`API_IMAGE_MODEL_PATH` (the runner wires this automatically)."
+        )
+        return
+
+    classes = model.get("classes") or []
+    st.caption(
+        "Upload a medical image to run the image-based clinical analysis: "
+        "upload → preview → analyze → prediction → confidence → explanation."
+    )
+    if classes:
+        st.caption(f"Supported classes: {', '.join(classes)}")
+
+    context_left, context_right = st.columns(2)
+    patient_name = context_left.text_input(
+        "Patient name", value="Patient", key="image_patient_name"
+    )
+    patient_id = context_right.text_input(
+        "Patient ID", value="patient-image", key="image_patient_id"
+    )
+    patient_age = st.number_input(
+        "Age", min_value=0, max_value=120, value=45, step=1, key="image_patient_age"
+    )
+
+    uploaded = st.file_uploader(
+        "Medical image (PNG / JPG / JPEG)",
+        type=IMAGE_TYPES,
+        help="Analyzed by the backend image model.",
+    )
+    if uploaded is not None:
+        st.image(uploaded, caption=uploaded.name, width=280)
+
+    analyze = st.button("Analyze Image", type="primary", disabled=uploaded is None)
+    if not (analyze and uploaded is not None):
+        return
+
+    patient = {
+        "name": patient_name,
+        "id": patient_id,
+        "age": int(patient_age),
+        "notes": "",
+    }
+    try:
+        with st.spinner("Running the image analysis pipeline…"):
+            report = client.analyze_image(patient=patient, image=uploaded.getvalue())
+    except (HealthcareAPIError, httpx.HTTPError) as error:
+        st.error(str(error))
+        return
+
+    st.session_state["clinical_report"] = report
+    st.session_state["report_route"] = "direct"
+    render_clinical_results(
+        report,
+        "direct",
+        subtitle=f"Image analysis — {uploaded.name} (patient {patient_id})",
+        download_key="download_imaging",
+    )
+
+
+def run_results_tab() -> None:
+    """Render the most recent analysis results."""
+    st.header("Results")
+    report = st.session_state.get("clinical_report")
+    if report is None:
+        st.info(
+            "No analysis has been run yet. Enter patient data on the "
+            "**Clinical Assessment** page and press **Analyze Patient**."
+        )
+        return
+    route = st.session_state.get("report_route", "direct")
+    patient_id = str(report.get("patient", {}).get("id", "patient"))
+    render_clinical_results(
+        report,
+        route,
+        subtitle=f"Patient {patient_id} — most recent analysis",
+        download_key="download_results",
+    )
+
+
+def run_system_status_tab(client: HealthcareAPIClient, n8n_base_url: str) -> None:
+    """Render live system-health checks."""
+    st.header("System Status")
+    st.caption(
+        "Live checks against the running services. Only statuses that can "
+        "actually be probed are reported."
+    )
+
+    rows: list[tuple[str, str, str, str]] = []
+
+    try:
+        health = client.health()
+        rows.append(
+            (
+                "FastAPI",
+                "ok",
+                "Operational",
+                (
+                    f"{health.get('name')} v{health.get('version')} — "
+                    f"{health.get('status')}"
+                ),
+            )
+        )
+    except (HealthcareAPIError, httpx.HTTPError) as error:
+        rows.append(("FastAPI", "bad", "Unreachable", str(error)))
+
+    model = fetch_model_info(client)
+    if model.get("available"):
+        classes = ", ".join(model.get("classes") or []) or "—"
+        rows.append(
+            (
+                "ML model",
+                "ok",
+                "Configured",
+                (
+                    f"{model.get('model_type')} · {model.get('model_name')} · "
+                    f"classes: {classes}"
+                ),
+            )
+        )
+    else:
+        rows.append(
+            (
+                "ML model",
+                "warn",
+                "Not configured",
+                "Train a model via /api/v1/train or set API_MODEL_PATH.",
+            )
+        )
+
+    try:
+        evidence = client.retrieve("clinical evidence and management", top_k=3)
+        rows.append(
+            (
+                "RAG",
+                "ok" if evidence else "warn",
+                "Operational" if evidence else "No evidence",
+                (
+                    f"{len(evidence)} evidence item(s) returned for a probe query"
+                    if evidence
+                    else "Knowledge base returned no evidence"
+                ),
+            )
+        )
+    except (HealthcareAPIError, httpx.HTTPError) as error:
+        rows.append(("RAG", "bad", "Unavailable", str(error)))
+
+    fastapi_ok = any(row[0] == "FastAPI" and row[1] == "ok" for row in rows)
+    rows.append(
+        (
+            "CrewAI",
+            "ok" if fastapi_ok else "unknown",
+            "Operational" if fastapi_ok else "Unknown",
+            (
+                "Deterministic clinical crew embedded in the backend; exercised "
+                "on every analysis."
+                if fastapi_ok
+                else "Cannot be probed while the backend is down."
+            ),
+        )
+    )
+
+    if client.n8n_health(n8n_base_url):
+        rows.append(
+            (
+                "n8n",
+                "ok",
+                "Operational",
+                f"{n8n_base_url} — webhook /webhook/healthcare-endtoend",
+            )
+        )
+    else:
+        rows.append(
+            (
+                "n8n",
+                "warn",
+                "Unavailable",
+                (
+                    f"{n8n_base_url} not reachable. Analyses fall back to the "
+                    "direct FastAPI route (N8N_ENABLED=0 dev mode)."
+                ),
+            )
+        )
+
+    tone = {"ok": "🟢", "warn": "🟡", "bad": "🔴", "unknown": "⚪"}
+    for component, verdict, status, detail in rows:
+        st.markdown(
+            f"{tone.get(verdict, '⚪')} **{component}** — {status} "
+            f"<span style='color:#6b7280'>{detail}</span>",
+            unsafe_allow_html=True,
+        )
+
+    st.markdown("---")
+    st.markdown("**Current analysis route**")
+    requested = st.session_state.get("analysis_route", ROUTE_AUTOMATIC)
+    effective = resolve_route(client, n8n_base_url, requested)
+    if effective == "n8n":
+        st.success(
+            f"Analyses are routed through the n8n workflow (selection: {requested})."
+        )
+    else:
+        st.warning(
+            f"Analyses are routed directly to FastAPI (selection: {requested}). "
+            "n8n is part of the architecture; start it to route through the workflow."
+        )
+
+
+# ---------------------------------------------------------------------------
+# App
+# ---------------------------------------------------------------------------
+
+
+def render_sidebar() -> tuple[HealthcareAPIClient, str, str]:
+    """
+    Render the sidebar configuration and return (client, n8n URL, route).
+
+    Returns
+    -------
+    tuple[HealthcareAPIClient, str, str]
+        The configured client, the n8n base URL, and the selected route.
+    """
+    with st.sidebar:
+        st.title("Healthcare AI")
+        st.caption("Clinical Decision Support")
+
+        base_url = st.text_input(
+            "Backend URL", value=DEFAULT_BACKEND_URL, key="backend_url"
+        )
+        api_token = st.text_input(
+            "API token (optional)", value="", type="password", key="api_token"
+        )
+        n8n_base_url = st.text_input(
+            "n8n URL",
+            value=DEFAULT_N8N_URL,
+            key="n8n_base_url",
+            help="n8n orchestrates the end-to-end workflow.",
+        )
+        with st.expander("Advanced"):
+            route = st.radio(
+                "Analysis route",
+                options=[ROUTE_AUTOMATIC, ROUTE_N8N, ROUTE_DIRECT],
+                key="analysis_route",
+                help=(
+                    "Automatic uses the n8n workflow when it is reachable "
+                    "and falls back to the FastAPI backend. N8N_ENABLED=0 "
+                    "may be used for development/testing."
+                ),
+            )
+
+        st.divider()
+        client = build_client(base_url, api_token)
+        try:
+            health = client.health()
+            st.success(
+                f"Backend connected — {health.get('name')} v{health.get('version')}"
+            )
+        except (HealthcareAPIError, httpx.HTTPError):
+            st.warning("Backend not reachable")
+
+    return client, n8n_base_url, route
 
 
 def main() -> None:
     """Render the dashboard."""
-    st.set_page_config(page_title="Healthcare AI Dashboard", layout="wide")
-
-    with st.sidebar:
-        st.title("Healthcare AI")
-        base_url = st.text_input("Backend URL", value="http://localhost:8000")
-        api_token = st.text_input("API token (optional)", value="", type="password")
-        client = build_client(base_url, api_token)
-        try:
-            health = client.health()
-            st.success(f"Connected — {health.get('name')} v{health.get('version')}")
-        except (HealthcareAPIError, httpx.HTTPError):
-            st.warning("Backend not reachable")
-
-    tab_analyze, tab_predict, tab_retrieve, tab_info = st.tabs(
-        ["Clinical Analysis", "Prediction", "Evidence Retrieval", "Info"]
+    st.set_page_config(
+        page_title="Healthcare AI — Clinical Decision Support",
+        page_icon="🏥",
+        layout="wide",
     )
-    with tab_analyze:
-        run_analysis_tab(client)
-    with tab_predict:
-        run_prediction_tab(client)
-    with tab_retrieve:
-        run_retrieval_tab(client)
-    with tab_info:
-        run_info_tab(client)
+
+    client, n8n_base_url, _route = render_sidebar()
+
+    tab_overview, tab_assessment, tab_imaging, tab_results, tab_status = st.tabs(
+        [
+            "Overview",
+            "Clinical Assessment",
+            "Imaging",
+            "Results",
+            "System Status",
+        ]
+    )
+    with tab_overview:
+        run_overview_tab(client, n8n_base_url)
+    with tab_assessment:
+        run_assessment_tab(client)
+    with tab_imaging:
+        run_imaging_tab(client)
+    with tab_results:
+        run_results_tab()
+    with tab_status:
+        run_system_status_tab(client, n8n_base_url)
 
 
 if __name__ == "__main__":
