@@ -2,38 +2,41 @@
 
 ## Objective
 
-Commit the live n8n verification fixes (working tree is dirty) as focused
-commits, then push. Read `docs/DEVELOPMENT_STATUS.md` +
-`.ai/current_context.md` first (AGENTS.md workflow).
+Live n8n end-to-end verification is complete and pushed, and the original
+`healthcare-n8n` instance (:5678) is now running the fixed workflow
+(verified live on all three paths). Remaining work is optional polish /
+the next backlog direction.
 
-## Suggested Steps
+## Done This Session (no further action)
 
-1. Review `git diff` for:
-   - `n8n/healthcare-endtoend.json` — `$json.body.*` field references,
-     removed Write-to-disk node, `firstIncomingItem` respond nodes
-   - `n8n/clinical-analysis.json` — `firstIncomingItem` respond nodes
-   - `n8n/README.md` — corrected workflow description, credential
-     requirement, Docker networking, activation note
-   - docs: `CHANGELOG.md`, `DEVELOPMENT_STATUS.md`, `BACKLOG.md`,
-     `.ai/*`
-2. Commit as focused commits, e.g.:
-   - `fix(n8n): read webhook payload from body in end-to-end workflow`
-   - `fix(n8n): return report via respond node instead of disk write`
-   - `docs(n8n): document credential, Docker networking, activation`
-3. Push to `main`.
-4. (Optional, for the user's own instance) Bring up the original
-   `healthcare-n8n` (:5678): create the Header Auth credential, wire it
-   to the HTTP nodes, patch backend URLs to `http://172.17.0.1:8000`
-   (Docker bridge) or run n8n with host networking, import + activate the
-   fixed workflow, and re-run the smoke test.
-5. Pick the next backlog direction (unchanged candidates):
+- Committed + pushed the n8n workflow fixes (`e90d7ca`, `af48010`,
+  `ca46ea0`).
+- Reset the original n8n owner password (`NewPassw0rd!` for
+  `monjurulhaquerajun@gmail.com`, :5678).
+- Activated the original `healthcare-n8n` instance with the fixed
+  end-to-end workflow: created the `Healthcare API Token` httpHeaderAuth
+  credential (id `6bjqNVT4MoPaTZ6L`), deployed the 10-node workflow
+  (URLs patched to `http://172.17.0.1:8000`), activated it, and verified
+  analyze-only, train+analyze, and error paths over the webhook +
+  dashboard client.
+
+## Optional Next Steps
+
+1. Commit the doc updates recording the original-instance activation
+   (`docs/CHANGELOG.md`, `docs/DEVELOPMENT_STATUS.md`, `.ai/*`).
+2. (Optional) Backfill `n8n/README.md` with the operational details for
+   the original instance: create the credential via the UI, then
+   `PUT /api/v1/workflows/{id}` with `X-N8N-API-KEY` and activate.
+3. Pick the next backlog direction (unchanged candidates):
    - Patient persistence + history in the dashboard
    - Backend mortality/readmission risk models (replace "not estimated")
    - Model-derived / SHAP explainability for the decision report
    - Report disk-archival from n8n via a volume under the file-sandbox
-     base (`~/.n8n-files`), or OAuth / deployment container
-6. Run tests + lint: frontend from `frontend/` (`pytest dashboard/tests
+     base (`~/.n8n-files`)
+4. Consider tearing down the throwaway `n8n-live-test` container (:5679)
+   once it is no longer needed for re-verification.
+5. Run tests + lint: frontend from `frontend/` (`pytest dashboard/tests
    -q`, `ruff check streamlit_app.py dashboard/`, `black --check`,
    `isort --check-only`); backend from `backend/`. Never ruff from the
    repo root.
-7. Update docs per AGENTS.md.
+6. Update docs per AGENTS.md.

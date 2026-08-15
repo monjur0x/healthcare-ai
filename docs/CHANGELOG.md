@@ -24,10 +24,23 @@
     required Header Auth credential, Docker bridge networking
     (`172.17.0.1:8000` vs `localhost:8000`), and n8n 2.x draft/published
     activation.
+  - The `Merge: Merge Errors` node emitted nothing when only one error
+    input fired (empty webhook body); removed it — the train/analyze
+    error formatters and the validation IF now respond directly through
+    `Respond to Webhook (Error)`.
   - Live-verified end-to-end (n8n 2.34.6 → FastAPI): `analyze_via_n8n()`
     returns the report with the real patient; `train: true` trains a
     diabetes logistic model (accuracy 0.66) and returns prediction +
-    risk + evidence in one webhook response.
+    risk + evidence in one webhook response; missing features return a
+    readable `status: error` payload.
+  - Original `healthcare-n8n` instance (:5678) activated with the fixed
+    workflow (Header Auth credential `6bjqNVT4MoPaTZ6L`, workflow
+    `e2f0a94c-90ee-4f9f-9b39-4d6bfd71b4e2`, URLs → `172.17.0.1:8000`);
+    analyze-only, train+analyze (accuracy 0.683), and error paths
+    verified over the webhook and via `analyze_via_n8n()`.
+  - Ops note: n8n 2.34 API-key creation requires an `expiresAt` (seconds)
+    and the exact scope set, and returns the raw key JWT in `rawApiKey`
+    (the `apiKey` field is masked).
 
 ### Added
 

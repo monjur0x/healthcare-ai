@@ -11,7 +11,10 @@ n8n/ (healthcare-endtoend.json · clinical-analysis.json · README.md) · docs/ 
 
 ## Current Task
 
-Live n8n end-to-end verification of the Milestone 11 n8n route. Drove the
+Live n8n end-to-end verification of the Milestone 11 n8n route — complete,
+and the original `healthcare-n8n` instance (:5678) is now live with the
+fixed workflow (analyze-only, train+analyze, and error paths verified over
+the webhook + dashboard client). Drove the
 dashboard's n8n path against a real n8n instance (2.34.6) + the real
 FastAPI backend. This exposed **real bugs in the committed
 `n8n/healthcare-endtoend.json`** that hermetic tests could not catch:
@@ -57,14 +60,29 @@ Live verification results (n8n-live-test on :5679 → backend :8000):
   (accuracy 0.66) then analyzes: prediction + risk + 3 evidence items,
   full report in one webhook response.
 
+Original `healthcare-n8n` (:5678) now live with the fixed workflow:
+- Owner API key created (in this n8n 2.34 the create response masks
+  `apiKey`; the raw JWT is returned in `rawApiKey`; requires `expiresAt`
+  seconds + exact valid scope set).
+- `Healthcare API Token` httpHeaderAuth credential created via public API
+  (id `6bjqNVT4MoPaTZ6L`, `Authorization: Bearer healthcare-ai-dev-token`).
+- Workflow id `e2f0a94c-90ee-4f9f-9b39-4d6bfd71b4e2` (10 nodes) deployed
+  via `PUT /api/v1/workflows/{id}` with URLs patched to
+  `http://172.17.0.1:8000`, then activated.
+- Verified live on :5678: analyze-only (patient "Nora Kim", 3 evidence),
+  train+analyze (logistic, accuracy 0.683), and the missing-features error
+  path — all return proper single-object JSON. Dashboard
+  `analyze_via_n8n()` against :5678 works.
+
 ## Completed
 
 - Milestones 1–10 — prior context (committed + pushed).
 - Milestone 11 — committed + pushed (`a4161c0`, `6c08bf1`, `e1e2714`,
   `90d194b`, `a6f88bc`, `8894006`).
-- This session (uncommitted):
+- This session (committed `e90d7ca`, `af48010`, `ca46ea0`; pushed):
   - `n8n/healthcare-endtoend.json` — `$json.body.*` field references,
-    removed Write node + binary, `firstIncomingItem` respond nodes
+    removed Write node + binary, `firstIncomingItem` respond nodes,
+    removed merge in error path (each error formatter responds directly)
   - `n8n/clinical-analysis.json` — `firstIncomingItem` respond nodes
   - `n8n/README.md` — updated to the corrected workflow (no disk write),
     credential requirement, Docker networking, activation note
@@ -76,15 +94,15 @@ Live verification results (n8n-live-test on :5679 → backend :8000):
     (:5679) with owner `test@test.local`, full-scope API key, and the
     Healthcare API Token credential (id `dSEzRW3tonyQlUwD`)
   - Frontend suite still 35 passing (no frontend changes)
+  - Original `healthcare-n8n` (:5678) activated with the fixed workflow
+    (uncommitted docs — see Next Files)
 
 ## Next Files (frontend / downstream)
 
-- Commit the n8n workflow fixes + docs (focused `fix(n8n)` / `docs(n8n)`
-  commits), then push.
-- Optionally re-activate the original `healthcare-n8n` instance: create
-  the Header Auth credential, re-select it on the HTTP nodes, patch URLs
-  to the Docker gateway (or host networking), import the fixed workflow
-  and activate via the UI/public API.
+- Commit the doc updates recording the original-instance activation
+  (`docs/CHANGELOG.md`, `docs/DEVELOPMENT_STATUS.md`, `.ai/*`).
+- (Optional) Backfill `n8n/README.md` with operational details for the
+  original instance (UI credential creation, API deploy + activate).
 - Backlog (unchanged): patient persistence, mortality/readmission risk,
   SHAP explainability, disk-archive of reports (n8n file sandbox) via a
   volume under `~/.n8n-files`.
@@ -106,7 +124,9 @@ Live verification results (n8n-live-test on :5679 → backend :8000):
 
 ## Status
 
-Milestones 1–11 committed/pushed; live n8n end-to-end verification
-complete with the committed workflow fixed and verified (analyze-only and
-train+analyze). Workflow + doc changes are uncommitted — next step is
-focused commits + push.
+Milestones 1–11 committed/pushed. Live n8n end-to-end verification
+complete: the committed workflow was fixed and verified on the throwaway
+instance, then deployed + activated on the original `healthcare-n8n`
+(:5678) with all three paths (analyze-only, train+analyze, error) working
+live. Repo clean except the doc updates recording the original-instance
+activation — commit those next.

@@ -363,10 +363,22 @@ Treatment Agent → Explainability → n8n → Doctor Dashboard).
 - [x] Respond nodes use `firstIncomingItem` (single JSON object) so the
       dashboard's `analyze_via_n8n()` contract holds
 - [x] `clinical-analysis.json` Respond nodes aligned
+- [x] Removed the `Merge: Merge Errors` node — with a single input it
+      emitted nothing (empty webhook body); each error formatter
+      (`Code: Format Train Error`, `Code: Format Analyze Error`) and the
+      validation IF now respond directly to `Respond to Webhook (Error)`
 - [x] Live results: `analyze_via_n8n()` returns the report with the real
       patient; `train: true` through the webhook trains a diabetes
       logistic model (accuracy 0.66) and returns prediction + risk +
-      evidence in one response
+      evidence in one response; missing-feature inputs return a readable
+      `status: error` payload
+- [x] Original `healthcare-n8n` instance (:5678) is live with the fixed
+      workflow: `Healthcare API Token` credential (id
+      `6bjqNVT4MoPaTZ6L`), workflow id
+      `e2f0a94c-90ee-4f9f-9b39-4d6bfd71b4e2` deployed (URLs →
+      `172.17.0.1:8000`) + activated; analyze-only, train+analyze
+      (accuracy 0.683), and error paths verified over the webhook and
+      via `analyze_via_n8n()`
 
 ### Verification
 

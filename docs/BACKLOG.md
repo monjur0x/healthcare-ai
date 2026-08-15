@@ -356,10 +356,20 @@ automated system that runs on CPU-only hardware.
     empty HTTP 200
   - Respond nodes use `firstIncomingItem` so the response is a single
     object (dashboard contract)
-  - `clinical-analysis.json` Respond nodes aligned
-  - Verified: `analyze_via_n8n()` (real patient) + `train: true`
-    (diabetes logistic 0.66 → prediction + risk + evidence in one
-    response)
+- `clinical-analysis.json` Respond nodes aligned
+   - removed the `Merge: Merge Errors` node (single-input merge emitted
+     nothing → empty webhook body on errors); error formatters + the
+     validation IF now respond directly
+   - Verified: `analyze_via_n8n()` (real patient) + `train: true`
+     (diabetes logistic 0.66 → prediction + risk + evidence in one
+     response) + missing-features error path
+- [x] Original `healthcare-n8n` instance (:5678) live with the fixed
+      workflow: created the Header Auth credential
+      (`6bjqNVT4MoPaTZ6L`), deployed the workflow (URLs →
+      `172.17.0.1:8000`), activated it, and verified analyze-only /
+      train+analyze / error over the webhook + dashboard client
+      (n8n 2.34 ops note: API-key create needs `expiresAt` seconds + the
+      exact scope set; the raw key JWT is returned in `rawApiKey`)
 
 New deferred items from Milestone 11 / n8n verification:
 

@@ -103,3 +103,30 @@ honest handling of unsupported outputs; update docs at the end.
   - Verified live: `analyze_via_n8n()` (report + real patient) and
     `train: true` (diabetes logistic 0.66 → prediction + risk + evidence
     in one response).
+
+## Original-instance activation (same session, :5678)
+
+- Reset password `NewPassw0rd!` works for the owner login; owner id
+  `3614f42f-5fa4-4a14-8c9e-3dfc9c6317f4`.
+- n8n 2.34 API-key creation (`POST /rest/api-keys`) requires BOTH
+  `expiresAt` (unix seconds) and the exact valid scope set — a superset
+  with `workflow:execute` / `variable:*` / `execution:delete` /
+  `user:read` fails with "Invalid scopes for user role". Valid set used:
+  credential:create/read/list/update/delete, workflow:create/read/
+  update/activate/deactivate/list, user:list, execution:read/list.
+- The create response masks `apiKey` (e.g. `******Ebk0`) and returns the
+  raw JWT in `rawApiKey` — use that as `X-N8N-API-KEY`.
+- Credential `Healthcare API Token` created via public API: id
+  `6bjqNVT4MoPaTZ6L` (httpHeaderAuth, Authorization: Bearer
+  healthcare-ai-dev-token).
+- Workflow id `e2f0a94c-90ee-4f9f-9b39-4d6bfd71b4e2` updated via
+  `PUT /api/v1/workflows/{id}` with the repo's fixed JSON (URLs patched
+  to `http://172.17.0.1:8000`, credential wired) then activated via
+  `POST .../activate` (public API with the key). GET on the POST-only
+  webhook returns 404 (expected).
+- Verified live on :5678: analyze-only (Nora Kim, 3 evidence),
+  train+analyze (logistic, accuracy 0.683), missing-features error →
+  proper single-object JSON; dashboard `analyze_via_n8n()` against
+  :5678 returns the real report.
+- Backup copies: key raw JWT at /tmp/opencode/n8n_apikey_orig.txt;
+  deployment payload /tmp/opencode/wf_orig_deploy.json.
