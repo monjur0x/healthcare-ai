@@ -242,3 +242,118 @@ def test_token_header_sent_when_configured():
         client.health()
     finally:
         client.close()
+
+
+def test_analyze_via_n8n_posts_to_webhook_and_parses_report():
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["url"] = str(request.url)
+        captured["json"] = json.loads(request.content)
+        return httpx.Response(
+            200,
+            json={"status": "success", "report": _report()},
+        )
+
+    client = _client(handler)
+    try:
+        result = client.analyze_via_n8n(
+            n8n_base_url="http://n8n:5678/",
+            patient={"id": "p-1", "name": "Patient"},
+            features={"glucose": 148.0},
+            markers={"glucose": 148.0},
+            input_type="csv",
+        )
+    finally:
+        client.close()
+
+    assert captured["url"] == "http://n8n:5678/webhook/healthcare-endtoend"
+    assert captured["json"]["features"]["glucose"] == 148.0
+    assert captured["json"]["markers"]["glucose"] == 148.0
+    assert captured["json"]["input_type"] == "csv"
+    assert result["prediction"]["predicted_class"] == "1"
+
+
+def test_analyze_via_n8n_raises_on_workflow_error():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "status": "error",
+                "stage": "analysis_call",
+                "error_message": "No prediction model configured",
+            },
+        )
+
+    client = _client(handler)
+    try:
+        with pytest.raises(HealthcareAPIError) as excinfo:
+            client.analyze_via_n8n(
+                n8n_base_url="http://n8n:5678",
+                patient={"id": "p-1"},
+                features={"glucose": 148.0},
+            )
+    finally:
+        client.close()
+
+    assert excinfo.value.code == "n8n_workflow_error"
+    assert "No prediction model configured" in excinfo.value.message
+
+
+def test_analyze_via_n8n_raises_when_report_missing():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"status": "success"})
+
+    client = _client(handler)
+    try:
+        with pytest.raises(HealthcareAPIError) as excinfo:
+            client.analyze_via_n8n(
+                n8n_base_url="http://n8n:5678",
+                patient={"id": "p-1"},
+                features={"glucose": 148.0},
+            )
+    finally:
+        client.close()
+
+    assert excinfo.value.code == "n8n_report_missing"
+
+
+def test_analyze_via_n8n_raises_on_http_error():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404, json={"message": "webhook not active"})
+
+    client = _client(handler)
+    try:
+        with pytest.raises(HealthcareAPIError) as excinfo:
+            client.analyze_via_n8n(
+                n8n_base_url="http://n8n:5678",
+                patient={"id": "p-1"},
+                features={"glucose": 148.0},
+            )
+    finally:
+        client.close()
+
+    assert excinfo.value.status_code == 404
+
+
+def test_n8n_health_true_when_healthz_ok():
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/healthz"
+        return httpx.Response(200, text="OK")
+
+    client = _client(handler)
+    try:
+        assert client.n8n_health("http://n8n:5678") is True
+    finally:
+        client.close()
+
+
+def test_n8n_health_false_when_unreachable():
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("connection refused")
+
+    client = _client(handler)
+    try:
+        assert client.n8n_health("http://n8n:5678") is False
+    finally:
+        client.close()
