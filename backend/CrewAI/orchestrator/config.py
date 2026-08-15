@@ -20,6 +20,7 @@ class CrewSettings(BaseSettings):
         env_file=".env",
         env_prefix="CREW_",
         case_sensitive=False,
+        extra="ignore",
     )
 
     ##########################################
@@ -28,7 +29,7 @@ class CrewSettings(BaseSettings):
 
     LLM_PROVIDER: str = "google"
 
-    LLM_MODEL: str = "gemini-2.0-flash"
+    LLM_MODEL: str = "gemini-3.7-flash"
 
     LLM_API_KEY: str = ""
 

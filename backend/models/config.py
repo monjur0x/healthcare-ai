@@ -20,6 +20,7 @@ class ModelSettings(BaseSettings):
         env_file=".env",
         env_prefix="MODEL_",
         case_sensitive=False,
+        extra="ignore",
     )
 
     ##########################################

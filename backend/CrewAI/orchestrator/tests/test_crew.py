@@ -65,7 +65,8 @@ def test_run_analysis_without_model_and_pipeline() -> None:
     assert report.patient_summary
 
 
-def test_run_prefers_deterministic_when_no_llm(model) -> None:
+def test_run_prefers_deterministic_when_no_llm(model, monkeypatch) -> None:
+    monkeypatch.setattr("CrewAI.orchestrator.crew.settings.LLM_API_KEY", "")
     crew = ClinicalCrew(
         patient=PatientInfo(id="p3"),
         model=model,

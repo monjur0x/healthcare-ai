@@ -17,6 +17,7 @@ class RAGSettings(BaseSettings):
         env_file=".env",
         env_prefix="RAG_",
         case_sensitive=False,
+        extra="ignore",
     )
 
     RANDOM_SEED: int = 42

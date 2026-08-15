@@ -19,6 +19,7 @@ class PreprocessingSettings(BaseSettings):
         env_file=".env",
         env_prefix="PREPROCESS_",
         case_sensitive=False,
+        extra="ignore",
     )
 
     ##########################################

@@ -31,7 +31,7 @@ def create_agents(
         Tool instances keyed by name (prediction, evidence retrieval,
         risk assessment, clinical report, ...).
     llm : str | None
-        Optional LLM identifier (e.g. ``"google/gemini-2.0-flash"``).
+        Optional LLM identifier (e.g. ``"google/gemini-3.7-flash"``).
         When omitted the agent is constructed without an explicit LLM so
         construction stays hermetic; the configured provider/model is
         used by the LLM orchestration path.

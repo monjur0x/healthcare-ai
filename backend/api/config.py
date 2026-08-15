@@ -21,6 +21,7 @@ class APISettings(BaseSettings):
         env_file=".env",
         env_prefix="API_",
         case_sensitive=False,
+        extra="ignore",
     )
 
     ##########################################

@@ -166,6 +166,11 @@ class ClinicalCrew:
                 "run_analysis() for the offline deterministic path."
             )
 
+        if not os.environ.get("GEMINI_API_KEY") and not os.environ.get(
+            "GOOGLE_API_KEY"
+        ):
+            os.environ["GEMINI_API_KEY"] = settings.LLM_API_KEY
+
         base = self.run_analysis()
         try:
             from crewai import Crew, Process
