@@ -11,6 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+
 from streamlit.testing.v1 import AppTest
 
 APP_PATH = Path(__file__).resolve().parents[2] / "streamlit_app.py"
