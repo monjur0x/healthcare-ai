@@ -17,6 +17,13 @@ from typing import Any
 
 import httpx
 
+#: n8n webhook path that drives the end-to-end workflow (train + analyze +
+#: store + respond). See ``n8n/healthcare-endtoend.json``.
+N8N_ANALYZE_WEBHOOK = "healthcare-endtoend"
+
+#: Path of the n8n health probe endpoint (plain ``200 OK`` when reachable).
+N8N_HEALTH_PATH = "healthz"
+
 
 class HealthcareAPIError(Exception):
     """
@@ -178,6 +185,120 @@ class HealthcareAPIClient:
         dict[str, Any]
             ``ClinicalReport`` payload.
         """
+        return self._post_json(
+            "/api/v1/analyze",
+            self._analyze_payload(
+                patient, features, markers, recommendations, input_type
+            ),
+        )
+
+    def analyze_via_n8n(
+        self,
+        n8n_base_url: str,
+        patient: Mapping[str, Any],
+        features: Mapping[str, float],
+        markers: Mapping[str, float] | None = None,
+        recommendations: list[str] | None = None,
+        input_type: str = "csv",
+        webhook: str = N8N_ANALYZE_WEBHOOK,
+    ) -> dict[str, Any]:
+        """
+        Run the clinical analysis through the n8n end-to-end webhook.
+
+        The webhook orchestrates the FastAPI call (optionally training a
+        model first) and returns the full clinical report when it succeeds.
+
+        Parameters
+        ----------
+        n8n_base_url : str
+            Origin of the n8n instance, e.g. ``http://localhost:5678``.
+        patient : Mapping[str, Any]
+            Patient context (``name``, ``id``, ``age``, ``notes``).
+        features : Mapping[str, float]
+            Preprocessed feature row for the prediction step.
+        markers : Mapping[str, float] | None
+            Raw clinical markers for the risk assessment.
+        recommendations : list[str] | None
+            Recommendation strings for the report.
+        input_type : str
+            Data modality analyzed (``"csv"`` / ``"image"`` / ...).
+        webhook : str
+            n8n webhook path to call (defaults to the end-to-end workflow).
+
+        Returns
+        -------
+        dict[str, Any]
+            ``ClinicalReport`` payload extracted from the webhook response.
+
+        Raises
+        ------
+        HealthcareAPIError
+            If the webhook is unreachable, the workflow reports an error,
+            or the response omits the clinical report.
+        """
+        response = self._client.post(
+            f"{n8n_base_url.rstrip('/')}/webhook/{webhook}",
+            json=self._analyze_payload(
+                patient, features, markers, recommendations, input_type
+            ),
+        )
+        self._raise_for_error(response)
+        body = response.json()
+        if not isinstance(body, dict):
+            raise HealthcareAPIError(
+                "n8n returned an unexpected response.",
+                response.status_code,
+                "n8n_error",
+            )
+        if body.get("status") != "success":
+            message = (
+                body.get("error_message")
+                or body.get("message")
+                or "n8n workflow did not complete successfully."
+            )
+            raise HealthcareAPIError(
+                str(message), response.status_code, "n8n_workflow_error"
+            )
+        report = body.get("report")
+        if not isinstance(report, dict):
+            raise HealthcareAPIError(
+                "n8n response did not include a clinical report.",
+                response.status_code,
+                "n8n_report_missing",
+            )
+        return report
+
+    def n8n_health(self, n8n_base_url: str, path: str = N8N_HEALTH_PATH) -> bool:
+        """
+        Probe an n8n instance health endpoint.
+
+        Parameters
+        ----------
+        n8n_base_url : str
+            Origin of the n8n instance, e.g. ``http://localhost:5678``.
+        path : str
+            Health endpoint path (default ``healthz``).
+
+        Returns
+        -------
+        bool
+            True when n8n answers with a successful status.
+        """
+        try:
+            response = self._client.get(f"{n8n_base_url.rstrip('/')}/{path}")
+        except httpx.HTTPError:
+            return False
+        return response.is_success
+
+    def _analyze_payload(
+        self,
+        patient: Mapping[str, Any],
+        features: Mapping[str, float],
+        markers: Mapping[str, float] | None,
+        recommendations: list[str] | None,
+        input_type: str,
+    ) -> dict[str, Any]:
+        """Build the shared ``/api/v1/analyze`` request body."""
         payload: dict[str, Any] = {
             "patient": dict(patient),
             "features": dict(features),
@@ -187,7 +308,7 @@ class HealthcareAPIClient:
             payload["markers"] = dict(markers)
         if recommendations is not None:
             payload["recommendations"] = list(recommendations)
-        return self._post_json("/api/v1/analyze", payload)
+        return payload
 
     def analyze_image(
         self,
@@ -255,4 +376,10 @@ class HealthcareAPIClient:
         raise HealthcareAPIError(message, response.status_code, code)
 
 
-__all__ = ["APIConfig", "HealthcareAPIClient", "HealthcareAPIError"]
+__all__ = [
+    "N8N_ANALYZE_WEBHOOK",
+    "N8N_HEALTH_PATH",
+    "APIConfig",
+    "HealthcareAPIClient",
+    "HealthcareAPIError",
+]
