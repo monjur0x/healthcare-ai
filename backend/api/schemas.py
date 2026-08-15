@@ -52,6 +52,18 @@ class TrainRequest(BaseModel):
         Number of simulated hospital clients (federated path).
     rounds : int
         Number of federated rounds (federated path).
+    differential_privacy : bool
+        When true and ``federated`` is set, local client training uses
+        Opacus DP-SGD (requires a torch-backed model).
+    noise_multiplier : float
+        DP-SGD noise multiplier.
+    max_grad_norm : float
+        DP-SGD per-sample gradient clipping norm.
+    privacy_delta : float
+        Target privacy delta for the epsilon audit.
+    secure_aggregation : bool
+        When true, client updates are masked with the pairwise
+        one-time-pad secure aggregator.
     """
 
     preset: DatasetPreset | None = None
@@ -64,6 +76,11 @@ class TrainRequest(BaseModel):
     federated: bool = False
     clients: int = Field(default=3, ge=1, le=16)
     rounds: int = Field(default=3, ge=1, le=50)
+    differential_privacy: bool = False
+    noise_multiplier: float = Field(default=1.1, gt=0.0)
+    max_grad_norm: float = Field(default=1.0, gt=0.0)
+    privacy_delta: float = Field(default=1e-5, gt=0.0, le=1.0)
+    secure_aggregation: bool = False
 
 
 class TrainResponse(BaseModel):

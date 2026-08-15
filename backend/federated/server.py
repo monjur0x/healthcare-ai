@@ -25,6 +25,7 @@ from federated.metrics import (
     round_accuracy_deltas,
 )
 from federated.parameters import average_weights
+from federated.privacy import SecureAggregator
 from preprocessing.logger import get_logger
 
 logger = get_logger(__name__)
@@ -101,6 +102,10 @@ class FedAvgServer:
         Optional global evaluation of the aggregated weights. When
         omitted, per-client evaluations are combined (loss- and
         count-weighted) into a global estimate.
+    secure_aggregation : bool
+        When enabled, client updates are masked with the pairwise
+        one-time-pad :class:`federated.privacy.SecureAggregator` before
+        aggregation so the server never observes any single update.
     """
 
     def __init__(
@@ -109,6 +114,7 @@ class FedAvgServer:
         aggregate_fn: AggregateFn = average_weights,
         num_rounds: int = 3,
         evaluate_fn: EvaluateFn | None = None,
+        secure_aggregation: bool = False,
     ) -> None:
         if not clients:
             raise ValueError("FedAvgServer requires at least one client.")
@@ -119,6 +125,11 @@ class FedAvgServer:
         self._aggregate_fn = aggregate_fn
         self._num_rounds = num_rounds
         self._evaluate_fn = evaluate_fn
+        self._secure_aggregation = secure_aggregation
+        self._aggregator = (
+            SecureAggregator(len(self._clients)) if secure_aggregation else None
+        )
+        self._epsilons: list[float] = []
         self._global_parameters: list[np.ndarray] | None = None
         self._history: list[RoundResult] = []
         self._round_durations: list[float] = []
@@ -128,6 +139,11 @@ class FedAvgServer:
     def global_parameters(self) -> list[np.ndarray] | None:
         """Most recently aggregated global weights."""
         return self._global_parameters
+
+    @property
+    def max_epsilon(self) -> float | None:
+        """Worst-case per-client epsilon across all rounds."""
+        return max(self._epsilons) if self._epsilons else None
 
     @property
     def history(self) -> tuple[RoundResult, ...]:
@@ -165,6 +181,12 @@ class FedAvgServer:
             total_time_s=sum(self._round_durations),
             accuracy_deltas=round_accuracy_deltas(accuracies),
             convergence_round=convergence_round(accuracies),
+            secure_aggregation=self._secure_aggregation,
+            differential_privacy=any(
+                bool(getattr(client, "_privacy", None) and client._privacy.enabled)
+                for client in self._clients
+            ),
+            epsilon=self.max_epsilon,
         )
 
     def run(self) -> FedAvgServer:
@@ -186,10 +208,19 @@ class FedAvgServer:
         for round_index in range(1, self._num_rounds + 1):
             round_start = time.perf_counter()
             logger.info("Starting federated round %d", round_index)
-            updated = [
-                client.fit(self._global_parameters, {})[0] for client in self._clients
-            ]
-            self._global_parameters = self._aggregate_fn(updated)
+            updated, _, metrics = zip(
+                *[client.fit(self._global_parameters, {}) for client in self._clients],
+                strict=True,
+            )
+            self._epsilons.extend(
+                float(item["epsilon"]) for item in metrics if "epsilon" in item
+            )
+            if self._aggregator is not None:
+                self._global_parameters = self._aggregator.aggregate(
+                    updated, [1.0] * len(updated)
+                )
+            else:
+                self._global_parameters = self._aggregate_fn(updated)
             round_duration_s = time.perf_counter() - round_start
             bytes_exchanged = (
                 2 * len(self._clients) * parameter_set_bytes(self._global_parameters)

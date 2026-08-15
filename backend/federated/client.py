@@ -19,6 +19,7 @@ import numpy as np
 from flwr.client import NumPyClient
 
 from evaluation import evaluate_classifier
+from federated.privacy import PrivacyConfig, train_with_differential_privacy
 from models.base import BaseModel
 
 ModelFactory = Callable[[], BaseModel]
@@ -42,6 +43,10 @@ class FederatedClient(NumPyClient):
         Local validation features.
     y_val : np.ndarray
         Local validation labels.
+    privacy : PrivacyConfig | None
+        When enabled and the model exposes a torch ``module``, local
+        training uses Opacus DP-SGD and the per-round ``fit`` metrics
+        report the realized epsilon.
     """
 
     def __init__(
@@ -51,12 +56,14 @@ class FederatedClient(NumPyClient):
         y_train: np.ndarray,
         X_val: Any,
         y_val: np.ndarray,
+        privacy: PrivacyConfig | None = None,
     ) -> None:
         self._model_factory = model_factory
         self._X_train = X_train
         self._y_train = np.asarray(y_train)
         self._X_val = X_val
         self._y_val = np.asarray(y_val)
+        self._privacy = privacy or PrivacyConfig(enabled=False)
 
     def _build(self) -> BaseModel:
         """Construct and warm-start a fresh model instance."""
@@ -64,6 +71,39 @@ class FederatedClient(NumPyClient):
         if not model.is_fitted:
             model.fit(self._X_train, self._y_train)
         return model
+
+    def _train_locally(
+        self, model: BaseModel
+    ) -> tuple[list[np.ndarray], dict[str, Any]]:
+        """
+        Run one local training step, honoring DP-SGD when configured.
+
+        Parameters
+        ----------
+        model : BaseModel
+            Model carrying the aggregated global weights.
+
+        Returns
+        -------
+        tuple[list[np.ndarray], dict[str, Any]]
+            Updated weights and per-fit metrics (including ``epsilon``
+            when differential privacy is active).
+        """
+
+        if not self._privacy.enabled:
+            model.partial_fit(self._X_train, self._y_train)
+            return model.get_parameters(), {}
+
+        module = getattr(model, "module", None)
+        if module is None:
+            raise RuntimeError(
+                "Differential privacy requires a torch-backed model "
+                "(e.g. TorchMLPClassifier) exposing a 'module'."
+            )
+        _, epsilon = train_with_differential_privacy(
+            module, self._X_train, self._y_train, self._privacy
+        )
+        return model.get_parameters(), {"epsilon": float(epsilon)}
 
     def get_parameters(self, config: dict[str, Any] | None = None) -> list[np.ndarray]:
         """
@@ -101,13 +141,14 @@ class FederatedClient(NumPyClient):
         Returns
         -------
         tuple[list[np.ndarray], int, dict[str, Any]]
-            Updated weights, number of local samples, and metrics.
+            Updated weights, number of local samples, and metrics
+            (``epsilon`` when differential privacy is active).
         """
 
         model = self._build()
         model.set_parameters(parameters)
-        model.partial_fit(self._X_train, self._y_train)
-        return model.get_parameters(), len(self._X_train), {}
+        updated, metrics = self._train_locally(model)
+        return updated, len(self._X_train), metrics
 
     def evaluate(
         self,

@@ -21,7 +21,7 @@ validation, cleaning, scaling, encoding, and image normalization.
 """
 
 from .base import BaseModel
-from .csv import TabularClassifier
+from .csv import TabularClassifier, TorchMLPClassifier
 from .exceptions import (
     InvalidModelInputError,
     ModelError,
@@ -41,5 +41,6 @@ __all__ = [
     "ModelLoadError",
     "ModelNotFittedError",
     "TabularClassifier",
+    "TorchMLPClassifier",
     "UnsupportedModelError",
 ]

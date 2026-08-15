@@ -10,7 +10,7 @@ import pytest
 from sklearn.datasets import make_classification
 
 from federated import FedAvgServer, FederatedClient, make_global_evaluator
-from models import TabularClassifier
+from models import TabularClassifier, TorchMLPClassifier
 
 
 @pytest.fixture
@@ -130,3 +130,56 @@ def test_server_metrics_require_run(clients) -> None:
     server = FedAvgServer(clients=clients, num_rounds=2)
     with pytest.raises(RuntimeError):
         _ = server.metrics
+
+
+def test_server_differential_privacy_reports_epsilon() -> None:
+    X, y = make_classification(
+        n_samples=150,
+        n_features=8,
+        n_informative=6,
+        n_redundant=2,
+        n_classes=2,
+        random_state=7,
+    )
+    shards = [X[:50], X[50:100], X[100:]]
+    labels = [y[:50], y[50:100], y[100:]]
+
+    def make_model() -> TorchMLPClassifier:
+        return TorchMLPClassifier(n_features=8, n_classes=2, epochs=3, seed=7)
+
+    from federated.privacy import PrivacyConfig
+
+    clients = [
+        FederatedClient(
+            make_model,
+            shard,
+            label,
+            shard,
+            label,
+            privacy=PrivacyConfig(
+                enabled=True,
+                noise_multiplier=1.1,
+                max_grad_norm=1.0,
+                local_epochs=1,
+            ),
+        )
+        for shard, label in zip(shards, labels, strict=True)
+    ]
+    server = FedAvgServer(clients=clients, num_rounds=2).run()
+    metrics = server.metrics
+    assert metrics.differential_privacy is True
+    assert metrics.epsilon is not None and metrics.epsilon > 0.0
+    assert server.max_epsilon == metrics.epsilon
+    assert all(result.accuracy >= 0.4 for result in server.history)
+
+
+def test_server_secure_aggregation_matches_plain_average(clients) -> None:
+    plain = FedAvgServer(clients=clients, num_rounds=1).run()
+    secure = FedAvgServer(clients=clients, num_rounds=1, secure_aggregation=True).run()
+    assert secure.metrics.secure_aggregation is True
+    assert plain.metrics.secure_aggregation is False
+    np.testing.assert_allclose(
+        secure.global_parameters[0],
+        plain.global_parameters[0],
+        atol=1e-4,
+    )

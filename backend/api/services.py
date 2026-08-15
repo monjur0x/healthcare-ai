@@ -33,8 +33,21 @@ from CrewAI.orchestrator.schemas import (
 from CrewAI.orchestrator.services import retrieve_evidence, run_prediction
 from evaluation import evaluate_classifier
 from federated import FedAvgServer, FederatedClient, make_global_evaluator
-from models import ModelLoadError, TabularClassifier
+from federated.privacy import (
+    PrivacyConfig,
+    data_leakage_rate,
+    membership_inference_auroc,
+    privacy_metrics_summary,
+)
+from models import (
+    BaseModel,
+    ImageClassifier,
+    ModelLoadError,
+    TabularClassifier,
+    TorchMLPClassifier,
+)
 from preprocessing.csv import CSVPipeline
+from preprocessing.image import ImagePipeline
 from preprocessing.logger import get_logger
 from rag import RAGPipeline
 from rag.documents import Document
@@ -354,6 +367,11 @@ class AnalysisService:
         federated: bool = False,
         clients: int = 3,
         rounds: int = 3,
+        differential_privacy: bool = False,
+        noise_multiplier: float = 1.1,
+        max_grad_norm: float = 1.0,
+        privacy_delta: float = 1e-5,
+        secure_aggregation: bool = False,
     ) -> TrainResult:
         """
         Preprocess a dataset, fit a tabular model, evaluate, and persist it.
@@ -385,6 +403,18 @@ class AnalysisService:
             Number of simulated hospital clients (federated path).
         rounds : int
             Number of federated rounds (federated path).
+        differential_privacy : bool
+            Apply Opacus DP-SGD to local client steps (federated path,
+            requires a torch-backed model).
+        noise_multiplier : float
+            DP-SGD noise multiplier.
+        max_grad_norm : float
+            DP-SGD per-sample gradient clipping norm.
+        privacy_delta : float
+            Target privacy delta for the epsilon audit.
+        secure_aggregation : bool
+            Mask client updates with the pairwise one-time-pad
+            aggregator (federated path).
 
         Returns
         -------
@@ -422,7 +452,19 @@ class AnalysisService:
                         "(incremental local steps)."
                     )
                 fitted, fed_metrics = self._train_federated(
-                    train_x, train_y, test_x, test_y, model, clients, rounds, seed
+                    train_x,
+                    train_y,
+                    test_x,
+                    test_y,
+                    model,
+                    clients,
+                    rounds,
+                    seed,
+                    differential_privacy=differential_privacy,
+                    noise_multiplier=noise_multiplier,
+                    max_grad_norm=max_grad_norm,
+                    privacy_delta=privacy_delta,
+                    secure_aggregation=secure_aggregation,
                 )
             else:
                 fitted = TabularClassifier(model_name=model).fit(train_x, train_y)
@@ -485,34 +527,123 @@ class AnalysisService:
         clients: int,
         rounds: int,
         seed: int,
-    ) -> tuple[TabularClassifier, dict[str, Any]]:
-        """Train through the synchronous FedAvg path and return model + metrics."""
+        differential_privacy: bool = False,
+        noise_multiplier: float = 1.1,
+        max_grad_norm: float = 1.0,
+        privacy_delta: float = 1e-5,
+        secure_aggregation: bool = False,
+    ) -> tuple[BaseModel, dict[str, Any]]:
+        """
+        Train through the synchronous FedAvg path and return model + metrics.
+
+        When differential privacy is requested a torch-backed
+        ``TorchMLPClassifier`` is used per client (Opacus requires a
+        ``torch.nn.Module``), the per-round epsilons are collected, and
+        a membership-inference audit plus leakage check are appended to
+        the federated metrics block.
+
+        Parameters
+        ----------
+        train_x : pd.DataFrame
+            Training features.
+        train_y : pd.Series
+            Training labels.
+        test_x : pd.DataFrame
+            Hold-out features (global evaluator / MIA audit).
+        test_y : pd.Series
+            Hold-out labels (global evaluator / MIA audit).
+        model_name : str
+            Model family name (only ``"mlp"`` is supported).
+        clients : int
+            Number of simulated hospital clients.
+        rounds : int
+            Number of federated rounds.
+        seed : int
+            Reproducibility seed.
+        differential_privacy : bool
+            Apply Opacus DP-SGD to local steps.
+        noise_multiplier : float
+            DP-SGD noise multiplier.
+        max_grad_norm : float
+            DP-SGD gradient clipping norm.
+        privacy_delta : float
+            Privacy delta for the epsilon audit.
+        secure_aggregation : bool
+            Mask updates with the pairwise one-time-pad aggregator.
+
+        Returns
+        -------
+        tuple[BaseModel, dict[str, Any]]
+            Aggregated global model and federated metrics (including a
+            ``"privacy"`` block when differential privacy is active).
+        """
+
         train_n = train_x.to_numpy(dtype=np.float64)
         labels_n = train_y.to_numpy()
         test_n = test_x.to_numpy(dtype=np.float64)
         test_labels_n = test_y.to_numpy()
 
+        n_features = train_n.shape[1]
+        n_classes = len(np.unique(labels_n))
+
+        def make_client_model() -> BaseModel:
+            if differential_privacy:
+                return TorchMLPClassifier(
+                    n_features=n_features,
+                    n_classes=n_classes,
+                    seed=seed,
+                )
+            return TabularClassifier(model_name=model_name)
+
+        privacy_config = PrivacyConfig(
+            enabled=differential_privacy,
+            noise_multiplier=noise_multiplier,
+            max_grad_norm=max_grad_norm,
+            delta=privacy_delta,
+        )
+
         shards = _partition_shards(train_n, labels_n, clients, seed)
+        member_x = np.concatenate([shard for shard, _ in shards], axis=0)
         federated_clients = [
             FederatedClient(
-                lambda: TabularClassifier(model_name=model_name),
+                make_client_model,
                 shard_x,
                 shard_y,
                 test_n,
                 test_labels_n,
+                privacy=privacy_config,
             )
             for shard_x, shard_y in shards
         ]
-        evaluator = make_global_evaluator(
-            lambda: TabularClassifier(model_name=model_name), test_n, test_labels_n
-        )
+        evaluator = make_global_evaluator(make_client_model, test_n, test_labels_n)
         server = FedAvgServer(
-            clients=federated_clients, num_rounds=rounds, evaluate_fn=evaluator
+            clients=federated_clients,
+            num_rounds=rounds,
+            evaluate_fn=evaluator,
+            secure_aggregation=secure_aggregation,
         ).run()
 
-        global_model = TabularClassifier(model_name=model_name)
+        global_model = make_client_model()
         global_model.set_parameters(server.global_parameters)
-        return global_model, server.metrics.to_dict()
+
+        fed_metrics = server.metrics.to_dict()
+        if differential_privacy:
+            epsilon = server.max_epsilon or 0.0
+            proba_member = global_model.predict_proba(member_x)[:, 1]
+            proba_holdout = global_model.predict_proba(test_n)[:, 1]
+            mia_auroc = membership_inference_auroc(proba_member, proba_holdout)
+            fed_metrics["privacy"] = privacy_metrics_summary(
+                epsilon=epsilon,
+                delta=privacy_delta,
+                mia_auroc=mia_auroc,
+                leakage_rate=data_leakage_rate(
+                    [{"exposed": False}]  # raw frames never leave the clients
+                ),
+                num_samples=len(train_n),
+                epsilon_target=PrivacyConfig().epsilon_target,
+                secure_aggregation=secure_aggregation,
+            )
+        return global_model, fed_metrics
 
     def predict(self, features: Mapping[str, float]) -> PredictionResult:
         """

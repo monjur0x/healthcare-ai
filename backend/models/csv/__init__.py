@@ -6,5 +6,6 @@ preprocessing pipeline and perform classification/regression only.
 """
 
 from .tabular import TabularClassifier
+from .torch_mlp import TorchMLPClassifier
 
-__all__ = ["TabularClassifier"]
+__all__ = ["TabularClassifier", "TorchMLPClassifier"]

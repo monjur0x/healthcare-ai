@@ -230,3 +230,49 @@ def test_train_federated_rejects_non_mlp(tmp_path):
         service.train(
             dataset=str(dataset), target="Outcome", model="logistic", federated=True
         )
+
+
+def test_train_federated_with_differential_privacy_and_secure_aggregation(tmp_path):
+    dataset = _write_csv(tmp_path, n=120)
+    service = AnalysisService(artifacts_dir=tmp_path / "artifacts")
+    result = service.train(
+        dataset=str(dataset),
+        target="Outcome",
+        model="mlp",
+        federated=True,
+        clients=3,
+        rounds=2,
+        differential_privacy=True,
+        noise_multiplier=1.1,
+        max_grad_norm=1.0,
+        privacy_delta=1e-5,
+        secure_aggregation=True,
+    )
+    assert result.federated is True
+    assert result.federated_metrics is not None
+    privacy = result.federated_metrics["privacy"]
+    assert privacy["epsilon"] > 0.0
+    assert privacy["secure_aggregation"] is True
+    assert 0.0 <= privacy["attack_resistance_score"] <= 1.0
+    assert privacy["data_leakage_rate"] == 0.0
+    assert "DP-SGD" in privacy["mechanism"]
+    assert "Secure Aggregation" in privacy["mechanism"]
+    assert service.model is not None
+    prediction = service.predict({"glucose": 150.0, "bmi": 25.0, "age": 55.0})
+    assert prediction.predicted_class in {"0", "1"}
+
+
+def test_train_federated_with_secure_aggregation_only(tmp_path):
+    dataset = _write_csv(tmp_path, n=120)
+    service = AnalysisService(artifacts_dir=tmp_path / "artifacts")
+    result = service.train(
+        dataset=str(dataset),
+        target="Outcome",
+        model="mlp",
+        federated=True,
+        clients=3,
+        rounds=2,
+        secure_aggregation=True,
+    )
+    assert result.federated_metrics["secure_aggregation"] is True
+    assert "privacy" not in result.federated_metrics

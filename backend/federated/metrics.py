@@ -85,7 +85,7 @@ def convergence_round(
 @dataclass(frozen=True)
 class FederatedMetrics:
     """
-    Aggregate cost, convergence, and timing statistics for a run.
+    Aggregate cost, convergence, timing, and privacy statistics.
 
     Parameters
     ----------
@@ -105,6 +105,12 @@ class FederatedMetrics:
         Round-to-round absolute accuracy changes.
     convergence_round : int | None
         First converged round index (see :func:`convergence_round`).
+    secure_aggregation : bool
+        Whether secure aggregation masked the client updates.
+    differential_privacy : bool
+        Whether local training used DP-SGD.
+    epsilon : float | None
+        Worst-case per-client epsilon when differential privacy is on.
     """
 
     n_rounds: int
@@ -115,6 +121,9 @@ class FederatedMetrics:
     total_time_s: float
     accuracy_deltas: tuple[float, ...]
     convergence_round: int | None
+    secure_aggregation: bool = False
+    differential_privacy: bool = False
+    epsilon: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """
@@ -135,6 +144,9 @@ class FederatedMetrics:
             "total_time_s": self.total_time_s,
             "accuracy_deltas": list(self.accuracy_deltas),
             "convergence_round": self.convergence_round,
+            "secure_aggregation": self.secure_aggregation,
+            "differential_privacy": self.differential_privacy,
+            "epsilon": self.epsilon,
         }
 
 

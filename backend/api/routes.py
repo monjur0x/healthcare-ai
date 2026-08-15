@@ -117,6 +117,11 @@ def train(request: TrainRequest, service: ServiceDependency) -> TrainResponse:
         federated=request.federated,
         clients=request.clients,
         rounds=request.rounds,
+        differential_privacy=request.differential_privacy,
+        noise_multiplier=request.noise_multiplier,
+        max_grad_norm=request.max_grad_norm,
+        privacy_delta=request.privacy_delta,
+        secure_aggregation=request.secure_aggregation,
     )
     return TrainResponse(**result.to_dict())
 
