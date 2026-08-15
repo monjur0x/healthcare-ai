@@ -17,7 +17,7 @@ from .embedder import (
     TfidfEmbedder,
     build_embedder,
 )
-from .metrics import RetrievalMetrics, retrieval_metrics
+from .metrics import RAGQualityMetrics, RetrievalMetrics, rag_quality_metrics, retrieval_metrics
 from .pipeline import RAGPipeline
 from .retriever import Retriever
 from .store import VectorStore, build_vector_store
@@ -30,6 +30,7 @@ __all__ = [
     "Embedder",
     "HashingEmbedder",
     "RAGPipeline",
+    "RAGQualityMetrics",
     "RAGSettings",
     "RetrievalMetrics",
     "RetrievalResult",
@@ -40,6 +41,7 @@ __all__ = [
     "VectorStore",
     "build_embedder",
     "build_vector_store",
+    "rag_quality_metrics",
     "retrieval_metrics",
     "settings",
 ]
