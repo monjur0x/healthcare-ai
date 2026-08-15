@@ -213,6 +213,30 @@ report with reasoning):
 `backend/.env.example` documents every variable (API_ / CREW_ / MODEL_ /
 RAG_). Never commit `.env` — it is gitignored.
 
+## Privacy & Security
+
+This framework is a research prototype; treat all outputs as
+non-clinical. It applies defense-in-depth at three layers:
+
+- **Data protection (in-process)** — PHI never leaves a client. When
+  federated training runs with `differential_privacy=true`, local
+  updates use Opacus DP-SGD; `secure_aggregation=true` adds a pairwise
+  one-time-pad mask so per-client updates are hidden from the server.
+  The training response reports epsilon, MIA-AUROC, and leakage rate
+  (ADR-013). Raw records are never returned by the API.
+- **Access control** — the API supports an optional static bearer token
+  (`API_TOKEN`, off by default). Full OAuth is deferred to the backlog.
+- **Transport security (encrypted communication)** — all inter-service
+  traffic (dashboard ↔ API, n8n ↔ API) should be served over TLS at the
+  deployment boundary, not encrypted inside the application (ADR-014).
+  Run uvicorn behind a TLS-terminating reverse proxy such as nginx or
+  Caddy; use mTLS where components must mutually authenticate. Localhost
+  dev traffic can remain plain HTTP.
+
+Secrets policy: never commit `.env`, API keys, tokens, passwords, private
+datasets, or hospital records. `backend/.env.example` and `backend/.gitignore`
+enforce this.
+
 ## Datasets
 
 This machine ships the Pima Diabetes, UCI Heart Disease, UCI CKD, and a

@@ -275,3 +275,34 @@ Reason
   module (not preprocessing) because they exist to protect federated
   exchange payloads; raw frames never leave a client, so the API's
   leakage rate is structurally zero unless a payload path is added.
+
+---
+
+ADR-014
+
+Encrypted communication is a deployment-layer concern, not an in-process
+one: all inter-service traffic (API ↔ dashboard, API ↔ n8n, and any
+future deployment) is secured with TLS/mTLS at the transport boundary
+rather than by application-level encryption inside the framework.
+
+Reason
+
+- The framework runs as a local research system (FastAPI on localhost,
+  Streamlit, n8n in Docker), so there is no trusted third party to
+  encrypt to at the application layer, and adding one would be
+  premature.
+- Transport-level encryption is the industry-standard control for
+  health-adjacent HTTP traffic: a reverse proxy (e.g. nginx/Caddy) or
+  the deployment platform terminates TLS, and mTLS authenticates clients
+  where mutual trust is required. This covers every communication path
+  uniformly, including the n8n webhook and the dashboard's API client.
+- The in-process data protections already implemented stay where the
+  paper's threat model lives: DP-SGD (ADR-013) protects model gradients
+  during federated aggregation, secure aggregation masks per-client
+  updates, and PHI never leaves a client. Transport encryption
+  complements these by protecting data in transit between separately
+  deployed components.
+- No application code change is required: the API already binds via
+  uvicorn, so it can sit behind any TLS-terminating proxy unchanged.
+  Enabling TLS is documented in the README "Privacy & Security" section
+  rather than hardcoded, keeping the local dev loop simple.
