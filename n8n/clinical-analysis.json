@@ -92,7 +92,7 @@
     },
     {
       "parameters": {
-        "respondWith": "allIncomingItems",
+        "respondWith": "firstIncomingItem",
         "options": {}
       },
       "id": "3b5bfce1-bb93-499f-9b3a-b9377eef07af",
@@ -135,7 +135,7 @@
     },
     {
       "parameters": {
-        "respondWith": "allIncomingItems",
+        "respondWith": "firstIncomingItem",
         "options": {}
       },
       "id": "f80c34fe-241e-4828-91ad-01e88bd36342",
