@@ -15,7 +15,7 @@ This repository implements a research-oriented healthcare AI framework integrati
 - Electronic Health Record (CSV) Analysis
 - FastAPI
 - n8n Orchestration
-- Next.js Dashboard
+- Streamlit Dashboard
 
 The goal is to produce a clean, modular, production-quality implementation suitable for academic research.
 

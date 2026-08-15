@@ -4,6 +4,30 @@
 
 ### Added
 
+- **Milestone 11 — Doctor-facing Clinical Decision Support dashboard**
+  (Milestone 7 rework; `frontend/`):
+  - `frontend/dashboard/clinical.py` — pure presentation helpers:
+    `group_features`, `feature_label`, `feature_bounds`,
+    `is_flag_feature`, `build_analyze_payload`, `analysis_stages`,
+    `explanation_sections`, `output_availability` (+14 tests)
+  - `frontend/streamlit_app.py` — five-tab CDS layout: Overview,
+    Clinical Assessment (model-driven, grouped clinical form, one
+    **Analyze Patient** action), Imaging (upload → preview → analyze,
+    graceful when no image model), Results (six research outputs with
+    honest "not estimated" states), System Status (live FastAPI / ML /
+    RAG / CrewAI / n8n probes + effective route)
+  - `frontend/dashboard/client.py` — `analyze_via_n8n()` (reads the full
+    report from the end-to-end webhook response) + `n8n_health()`
+    (+6 tests)
+  - `n8n/healthcare-endtoend.json` — Code node now returns `report` in
+    the webhook response so the dashboard consumes the real report via
+    the n8n path
+  - `frontend/pyproject.toml` — mirrors `backend/pyproject.toml` tooling
+    config so the frontend lints standalone
+  - AppTest smoke suite rewritten for the new layout (7 tests)
+  - Frontend suite now **35 passing**; backend suite unchanged at **326
+    passing**; lint clean (black / ruff / isort)
+
 - Draft project guide in `README1.md` covering architecture, quick
   start, backend/dashboard/n8n startup, dataset assumptions, and
   end-to-end execution steps for the complete healthcare AI system.

@@ -53,7 +53,8 @@ nothing needs to be trained or configured manually first.
 6. **Write: Report to Disk** — writes the JSON to
    `/tmp/healthcare_reports/` (override with `output_dir` in the request).
 7. **Respond to Webhook** — returns a structured `status: success`
-   payload with the summary + `file_path`.
+   payload with the summary, the full clinical `report` (consumed
+   directly by the Streamlit dashboard), and the `file_path`.
 8. Errors from training, analysis, or validation are merged and returned
    as a single `status: error` payload with the failing `stage`.
 
@@ -73,7 +74,7 @@ Example payload:
 }
 ```
 
-Success response (summary):
+Success response (summary + full report):
 
 ```json
 {
@@ -86,9 +87,13 @@ Success response (summary):
   "confidence": 0.72,
   "risk_level": "moderate",
   "evidence_count": 3,
-  "file_path": "/tmp/healthcare_reports/report-<id>.json"
+  "file_path": "/tmp/healthcare_reports/report-<id>.json",
+  "report": { "patient_summary": "…", "prediction": "…", "risk": "…", "evidence": [ "…" ], "recommendations": "…" }
 }
 ```
+
+The `report` field is the full `ClinicalReport`; the Streamlit dashboard
+reads it from the response (no extra file round-trip).
 
 ### `clinical-analysis.json`
 

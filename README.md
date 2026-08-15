@@ -15,7 +15,7 @@ the CPU (Intel Iris Xe integrated graphics is fine).
 | RAG (retrieval) | `backend/rag/` | TF-IDF (default) or dense embedding + in-memory / ChromaDB store, RAGAS-style quality metrics |
 | Multi-agent crew | `backend/CrewAI/orchestrator/` | Deterministic tool pipeline + optional Gemini agents; agent-level metrics |
 | Federated learning | `backend/federated/` | Flower FedAvg with opt-in DP (Opacus) + secure aggregation |
-| Streamlit dashboard | `frontend/streamlit_app.py` | Clinical UI over the API |
+| Streamlit dashboard | `frontend/streamlit_app.py` | Doctor-facing Clinical Decision Support UI (Overview / Clinical Assessment / Imaging / Results / System Status) over the API, routed through n8n when available |
 | n8n automation | `n8n/healthcare-endtoend.json` | One workflow: train → analyze → store → respond |
 | Datasets | `~/dataset/` | `diabetes.csv`, `heart_disease_uci.csv`, `kidney_disease.csv`, `sepsis_icu_synthetic.csv`, brain-tumor MRI |
 
@@ -124,12 +124,35 @@ python scripts/train_image_model.py --dataset /path/to/dataset \
   --max-per-class 300 --epochs 6 --image-size 64
 ```
 
-**4. Start the dashboard:**
+**4. Start the dashboard:** (opens at http://localhost:8501)
 
 ```bash
 cd frontend
 ../backend/CrewAI/.venv-opencode/bin/python -m streamlit run streamlit_app.py
 ```
+
+The dashboard is a thin view layer (ADR-010): it collects clinical
+inputs, calls the backend (directly or through the n8n end-to-end
+webhook), and renders the structured report. Pages:
+
+- **Overview** — research workflow recap + current configuration.
+- **Clinical Assessment** — model-driven form grouped into Patient
+  Information / Vital Signs / Clinical Measurements / Medical History /
+  Additional Model Features, one **Analyze Patient** action, inline
+  results.
+- **Imaging** — upload → preview → analyze (when an image model is
+  configured).
+- **Results** — the six research outputs (disease risk, mortality risk,
+  readmission risk, treatment recommendation, clinical evidence,
+  explainable decision report), with unsupported outputs shown honestly
+  as "not estimated".
+- **System Status** — live probes of FastAPI / ML model / RAG / CrewAI /
+  n8n.
+
+The sidebar configures the backend URL, optional API token, n8n URL, and
+the analysis route (`Automatic` uses n8n when it is reachable and falls
+back to the FastAPI backend; `N8N_ENABLED=0` is the dev-only direct
+route).
 
 **5. n8n (Docker)** — orchestrate the whole lifecycle in one workflow:
 
@@ -256,6 +279,6 @@ CrewAI/.venv-opencode/bin/python -m pytest \
   preprocessing/tests models/tests evaluation/tests federated/tests \
   rag/tests examples/tests CrewAI/orchestrator/tests api/tests -q
 
-# Frontend (from frontend/): 13 tests
+# Frontend (from frontend/): 35 tests
 ../backend/CrewAI/.venv-opencode/bin/python -m pytest dashboard/tests -q
 ```

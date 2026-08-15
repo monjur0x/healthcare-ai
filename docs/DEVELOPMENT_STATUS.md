@@ -282,6 +282,89 @@ functional end-to-end system (Milestone 8) are complete.
 
 ---
 
+## Milestone 11 — Doctor-facing CDS dashboard (Milestone 7 rework)
+
+Scope: turn the research-facing Streamlit dashboard into a doctor-friendly
+Clinical Decision Support interface aligned with the research workflow
+(Patient Data → Federated Prediction → Disease Prediction Agent → RAG →
+Treatment Agent → Explainability → n8n → Doctor Dashboard).
+
+### Shared view-layer module
+
+- [x] `frontend/dashboard/clinical.py` — pure presentation helpers (no
+      Streamlit, unit-testable):
+  - `group_features` — research-defined groups (Vital Signs / Clinical
+    Measurements / Medical History / Additional Model Features)
+  - `feature_label`, `feature_bounds`, `is_flag_feature` — display
+    labels, safe numeric ranges, binary-flag detection
+  - `build_analyze_payload`, `analysis_stages`,
+    `explanation_sections`, `output_availability` — request payload,
+    post-hoc pipeline stages (only real report fields are marked done),
+    and the derived explainable decision report
+- [x] Unit tests (`tests/test_clinical.py`, 14 passing)
+
+### Client (`frontend/dashboard/client.py`)
+
+- [x] `analyze_via_n8n()` — POST the analysis payload to the n8n
+      end-to-end webhook (`/webhook/healthcare-endtoend`) and read the
+      full `ClinicalReport` back from `body["report"]`
+- [x] `n8n_health()` — probe `{n8n_base}/healthz` for the route
+      decision; shared `_analyze_payload()` used by direct and n8n paths
+- [x] Tests (+6: webhook success / missing-report / workflow error /
+      HTTP error, healthz ok / down)
+
+### Dashboard UI (`frontend/streamlit_app.py`)
+
+- [x] Five tabs: **Overview**, **Clinical Assessment**, **Imaging**,
+      **Results**, **System Status**
+- [x] Model-driven assessment form: only features the backend reports
+      (`/api/v1/model`) are shown, grouped, with flags as checkboxes and
+      `sex`/`gender` as 0/1 selectors; one **Analyze Patient** action
+- [x] Analysis routing: `Automatic` (n8n when reachable, else direct) /
+      `Via n8n workflow` / `Direct to FastAPI`, chosen in the sidebar
+      "Advanced" expander (`N8N_ENABLED=0` is the dev-only direct route)
+- [x] Imaging page: upload → preview → analyze when an image model is
+      configured; honest "not currently available" state otherwise
+- [x] Results renderer: the six research outputs — Disease Risk Score
+      (score / level badge / confidence / contributing factors /
+      monitoring), Mortality Risk and Readmission Risk (explicitly "not
+      estimated — future work"), Treatment Recommendation (only from the
+      report; honest message when the Treatment Agent produced none),
+      Clinical Evidence (source label + text, no vector ids / scores),
+      Explainable Decision Report (derived from actual prediction /
+      risk outputs, no chain-of-thought)
+- [x] Analysis pipeline stages derived post-hoc from the report (no fake
+      progress); report JSON download
+- [x] System Status: live probes of FastAPI, ML model, RAG, CrewAI, and
+      n8n + the current effective route
+- [x] No patient persistence — documented as future work (each
+      assessment is entered fresh)
+
+### n8n integration
+
+- [x] `healthcare-endtoend.json` Code node now returns the full
+      `report` in the webhook response so the dashboard consumes the
+      real report through the n8n path (workflow JSON validated)
+
+### Verification
+
+- [x] Frontend suite **35 passing** (+22: clinical helpers 14, client
+      n8n 6, app smoke rewritten 7), backend suite 326 passing
+      (unchanged, no backend edits)
+- [x] Lint clean (black / ruff / isort) — note `frontend/pyproject.toml`
+      now mirrors the backend tooling config so the frontend lints
+      standalone (ruff config resolves from cwd; black/isort from file
+      location)
+- [x] Live against a running backend: `/api/v1/model` returns the
+      brain-tumor CNN (image only), `analyze` with no tabular model
+      returns evidence-without-prediction gracefully, and a real glioma
+      scan via `analyze_image` returns prediction (meningioma @ 69%) +
+      risk + evidence through the dashboard client
+- [x] Not live-tested: the n8n webhook path (no local n8n instance) —
+      covered by hermetic unit tests and workflow JSON validation
+
+---
+
 ## Milestone 6 — n8n orchestration (`n8n/`)
 
 ### Principles
@@ -314,6 +397,12 @@ functional end-to-end system (Milestone 8) are complete.
 
 ## Milestone 7 — Streamlit dashboard (`frontend/`)
 
+> **Superseded in part by Milestone 11.** The original research-facing
+> tabs (Clinical Analysis / Prediction / Evidence Retrieval / Info) were
+> replaced by the doctor-facing Clinical Decision Support layout
+> (Overview / Clinical Assessment / Imaging / Results / System Status).
+> The thin view-layer principle (ADR-010) and the client tests remain.
+
 ### Principles
 
 - Thin view layer only: the dashboard talks to the FastAPI backend and
@@ -325,7 +414,7 @@ functional end-to-end system (Milestone 8) are complete.
 - [x] `client.py` — `HealthcareAPIClient` (httpx): `health`, `predict`,
       `retrieve`, `analyze`; optional bearer token; `HealthcareAPIError`
       with status + code from the backend error detail
-- [x] Unit tests (`tests/test_client.py`) — 7 passing via
+- [x] Unit tests (`tests/test_client.py`) — passing via
       `httpx.MockTransport` (hermetic, no network)
 
 ### UI (`frontend/streamlit_app.py`)
@@ -334,8 +423,8 @@ functional end-to-end system (Milestone 8) are complete.
 - [x] Tabs: Clinical Analysis (form -> full report with prediction, risk,
       evidence, recommendations, JSON download), Prediction (bar chart
       of probabilities), Evidence Retrieval (score bars), Info (health +
-      endpoint reference)
-- [x] AppTest smoke tests (`tests/test_app_smoke.py`) — 2 passing
+      endpoint reference) — **reworked in Milestone 11**
+- [x] AppTest smoke tests (`tests/test_app_smoke.py`) — passing
       (boot + mocked analyze submission renders the report)
 - [x] `frontend/requirements.txt` — `streamlit`, `httpx`, `pytest`
 
@@ -598,5 +687,5 @@ prediction, and retrieval modules, per `docs/SOFTWARE_ARCHITECTURE.md`
 - [x] Full suite: 326 backend tests passing (`pytest preprocessing/tests
       models/tests evaluation/tests federated/tests rag/tests
       examples/tests CrewAI/orchestrator/tests api/tests`)
-- [x] Frontend: 13 tests passing (from `frontend/`)
+- [x] Frontend: 35 tests passing (from `frontend/`)
 - [ ] Full test command documented in README/AGENTS (see `AGENTS.md` tooling note)

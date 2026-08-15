@@ -283,7 +283,7 @@ reasoning stays in the CrewAI crew (see `AGENTS.md`).
       targeted the removed old demo endpoints `/predict/federated`,
       `/predict/image`, `/agents/run-crew`)
 
-### Milestone 7 — Streamlit dashboard (complete)
+### Milestone 7 — Streamlit dashboard (reworked in Milestone 11)
 
 Scope: a research-facing frontend for the FastAPI backend. The dashboard
 is a thin view layer; all reasoning stays server-side (ADR-010).
@@ -291,12 +291,12 @@ is a thin view layer; all reasoning stays server-side (ADR-010).
 - [x] `frontend/dashboard/client.py` — `HealthcareAPIClient` (httpx):
       `health` / `predict` / `retrieve` / `analyze`, optional bearer
       token, typed `HealthcareAPIError`
-- [x] `frontend/dashboard/tests/test_client.py` — 7 passing
+- [x] `frontend/dashboard/tests/test_client.py` — passing
       (`httpx.MockTransport`, hermetic)
 - [x] `frontend/streamlit_app.py` — sidebar config + live health
       indicator; tabs for Clinical Analysis, Prediction, Evidence
-      Retrieval, and Info
-- [x] `frontend/dashboard/tests/test_app_smoke.py` — 2 passing
+      Retrieval, and Info (**replaced by the Milestone 11 CDS layout**)
+- [x] `frontend/dashboard/tests/test_app_smoke.py` — passing
       (Streamlit AppTest: boots clean; mocked analyze submission renders
       the report)
 - [x] `frontend/requirements.txt` — `streamlit`, `httpx`, `pytest`
@@ -327,6 +327,37 @@ automated system that runs on CPU-only hardware.
       (4 classes, ~0.71 accuracy / ~0.92 ROC-AUC)
 - [x] Friendly per-feature inputs + MRI upload mode in the dashboard
 - [x] Verified live on a real glioma scan
+
+### Milestone 11 — Doctor-facing CDS dashboard (complete)
+
+- [x] `frontend/dashboard/clinical.py` — grouped inputs, display labels,
+      feature bounds, flag detection, payload builder, post-hoc pipeline
+      stages, explainable decision sections (+14 tests)
+- [x] Five-tab CDS layout (Overview / Clinical Assessment / Imaging /
+      Results / System Status) with a model-driven assessment form and
+      one **Analyze Patient** action
+- [x] n8n routing: `analyze_via_n8n()` reads the full report from the
+      end-to-end webhook (Code node returns `report`); Automatic /
+      Via-n8n / Direct route selection; `n8n_health()` probe (+6 tests)
+- [x] Honest rendering of unsupported outputs (mortality / readmission
+      risk = "not estimated"; no fabricated treatment recommendations)
+- [x] `frontend/pyproject.toml` mirrors backend tooling config
+- [x] Tests: frontend 35 (+22), backend 326 (unchanged); lint clean;
+      live-verified analyze + analyze_image against a running backend
+
+New deferred items from Milestone 11:
+
+- [ ] Persistent patient records + history in the dashboard (each
+      assessment is currently entered fresh)
+- [ ] Backend mortality-risk and readmission-risk models so the Results
+      page can report them instead of "not estimated" (currently the
+      `ClinicalReport` has no such fields)
+- [ ] Backend feature-importance / SHAP-style explainability so the
+      "Explainable Decision Report" can be model-derived rather than
+      derived from prediction / risk outputs
+- [ ] Live n8n end-to-end verification from the dashboard (no local n8n
+      instance during the Milestone 11 session; covered by hermetic
+      tests + workflow JSON validation)
 
 ### Milestone 9+ (not yet scoped)
 
