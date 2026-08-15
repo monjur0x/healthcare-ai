@@ -272,6 +272,7 @@ def assemble_clinical_report(
     risk: RiskResult | None = None,
     evidence: list[EvidenceItem] | None = None,
     recommendations: list[str] | None = None,
+    agent_metrics: Mapping[str, float] | None = None,
 ) -> ClinicalReport:
     """
     Assemble the final structured clinical report from tool outputs.
@@ -290,6 +291,9 @@ def assemble_clinical_report(
         Optional retrieved evidence.
     recommendations : list[str] | None
         Optional treatment / monitoring recommendations.
+    agent_metrics : Mapping[str, float] | None
+        Optional agent-level metrics block (e.g. from
+        ``compute_agent_metrics``).
 
     Returns
     -------
@@ -329,6 +333,7 @@ def assemble_clinical_report(
         risk=risk,
         evidence=items,
         recommendations=list(recommendations or []),
+        agent_metrics=dict(agent_metrics) if agent_metrics else None,
     )
     logger.info("Assembled clinical report for patient %s", patient.id)
     return report

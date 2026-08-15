@@ -18,6 +18,13 @@ from .exceptions import (
     RetrievalToolError,
     RiskToolError,
 )
+from .metrics import (
+    AgentMetrics,
+    agent_collaboration_score,
+    compute_agent_metrics,
+    decision_consistency,
+    task_completion_rate,
+)
 from .schemas import (
     ClinicalReport,
     EvidenceItem,
@@ -39,6 +46,7 @@ from .tools import (
 )
 
 __all__ = [
+    "AgentMetrics",
     "ClinicalCrew",
     "ClinicalReport",
     "ClinicalReportTool",
@@ -57,9 +65,13 @@ __all__ = [
     "RiskAssessmentTool",
     "RiskResult",
     "RiskToolError",
+    "agent_collaboration_score",
     "assemble_clinical_report",
     "assess_risk",
+    "compute_agent_metrics",
+    "decision_consistency",
     "retrieve_evidence",
     "run_prediction",
     "settings",
+    "task_completion_rate",
 ]

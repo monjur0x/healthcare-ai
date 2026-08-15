@@ -117,6 +117,7 @@ class ClinicalReport(BaseModel):
     evidence: list[EvidenceItem] = Field(default_factory=list)
     context: str = ""
     recommendations: list[str] = Field(default_factory=list)
+    agent_metrics: dict[str, float] | None = None
     limitations: str = (
         "AI analysis has inherent limitations. This report is a decision "
         "support tool only and must be reviewed by a licensed physician."
