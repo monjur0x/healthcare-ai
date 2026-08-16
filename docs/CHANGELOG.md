@@ -11,6 +11,11 @@
   not import without crewai installed even in the deterministic no-LLM
   mode. Verified with a clean-venv install of `requirements.txt`: full
   backend suite 331 passed.
+- README no longer hardcodes personal machine paths: Quick Start and
+  Step-by-Step now use `/path/to/healthcare-ai` and
+  `/path/to/your/datasets`, and the Quick Start notes that `DATASET_DIR`
+  must point to a directory containing the four shipped CSV datasets
+  (none are bundled in the repository).
 
 ### Changed
 

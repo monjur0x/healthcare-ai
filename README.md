@@ -24,8 +24,12 @@ the CPU (Intel Iris Xe integrated graphics is fine).
 The one-command runner does everything (trains a default model, starts
 the API, starts the dashboard, starts n8n in Docker):
 
+> `DATASET_DIR` must point to a directory containing `diabetes.csv`,
+> `heart_disease_uci.csv`, `kidney_disease.csv`, and
+> `sepsis_icu_synthetic.csv` — none are bundled in this repository.
+
 ```bash
-cd /home/monjur0x0/Healthcare-AI
+cd /path/to/healthcare-ai
 scripts/run_system.sh start        # N8N_ENABLED=0 to skip n8n
 scripts/run_system.sh status       # what is running
 scripts/run_system.sh stop         # stop everything
@@ -48,7 +52,7 @@ even before any model exists):
 
 ```bash
 cd backend
-DATASET_DIR=/home/monjur0x0/dataset \
+DATASET_DIR=/path/to/your/datasets \
   CrewAI/.venv-opencode/bin/python -m uvicorn api.main:app \
   --host 0.0.0.0 --port 8000
 ```
@@ -119,7 +123,7 @@ To retrain the CNN (the brain-tumor dataset must be extracted with
 class folders like `glioma/`, `notumor/`):
 
 ```bash
-cd /home/monjur0x0/Healthcare-AI
+cd /path/to/healthcare-ai
 python scripts/train_image_model.py --dataset /path/to/dataset \
   --max-per-class 300 --epochs 6 --image-size 64
 ```
