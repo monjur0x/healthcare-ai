@@ -2,6 +2,43 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Baseline comparison study (paper §13)** —
+  `backend/scripts/baseline_study.py` runs the five proposal configurations
+  (1. Centralized / 2. Federated-only / 3. Federated+RAG /
+  4. Federated+Multi-Agent / 5. Proposed full) against the four shipped
+  datasets and writes `docs/BASELINE_STUDY_RESULTS.md` (per-dataset markdown
+  tables + a hand-written Findings section answering RQ1–RQ4, preserved
+  across re-runs). No metric is reimplemented: classification numbers come
+  from `evaluation.metrics.classification_metrics`, communication
+  cost/convergence from `federated.metrics`, RAG quality from
+  `rag.metrics.rag_quality_metrics`, agent metrics from
+  `CrewAI/orchestrator/metrics.compute_agent_metrics`. Every baseline scores
+  the same held-out split (`test_size=0.25`, `seed=42`); the federated model
+  is 3 clients × 5 rounds; RAG is graded on 5 literal queries per dataset;
+  agent metrics come from the deterministic LLM-free crew over 5 sampled
+  test patients. Headline numbers:
+  - Federated matched/exceeded centralized accuracy on all four datasets
+    (Δ +0.027 diabetes, +0.026 heart, +0.020 kidney, 0.000 sepsis) with no
+    raw data leaving the clients; communication cost scaled with model size
+    (0.65–1.67 MB per run).
+  - RAG context recall 1.000 on every dataset, but precision only
+    0.300–0.350 at top-k=5 (TF-IDF against small corpora) — the honest lever
+    is the already-implemented dense `SentenceTransformerEmbedder`.
+  - Agent task completion 0.600 → 0.800 and collaboration 0.400 → 0.600 once
+    RAG evidence is wired into the deterministic crew; n8n reported as a
+    qualitative orchestration layer (already live-verified), not a metric.
+  - Caveats stated plainly in the Findings: pilot scale (5 queries / 5
+    patients per dataset, single seed), sepsis trivially separable at 1.000.
+  - Tests: `backend/scripts/tests/test_baseline_study.py` (4 passing,
+    hermetic on synthetic data — no `DATASET_DIR` needed in CI).
+- `prepare_tabular_data` now strips whitespace from string labels before
+  `LabelEncoder`, so `'ckd\t'` and `'ckd'` encode as the same class. Latent
+  bug: the kidney CSV has 2 trailing-tab rows that produced a phantom third
+  class, which made the federated path (`≥ clients` samples per class) fail
+  for the kidney preset; `examples/fedavg_demo.py` already stripped labels.
+
 ### Fixed
 
 - `backend/requirements.txt` now declares `crewai>=1.15.0` under a

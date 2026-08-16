@@ -426,5 +426,7 @@ New deferred items from Milestone 10:
       evaluation endpoint (currently library functions + tests only)
 - [ ] RAGAS-vs-heuristic calibration: compare the LLM-free faithful/\
       relevancy proxies against a judge-LLM baseline on a labeled set
-- [ ] Baseline comparison study (paper §13): centralized vs federated vs
-      federated+RAG vs federated+multi-agent on the shipped datasets
+- [x] Baseline comparison study (paper §13): centralized vs federated vs
+      federated+RAG vs federated+multi-agent on the shipped datasets —
+      `backend/scripts/baseline_study.py` → `docs/BASELINE_STUDY_RESULTS.md`
+      (5 baselines × 4 datasets, real numbers + Findings for RQ1–RQ4)

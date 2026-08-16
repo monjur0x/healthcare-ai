@@ -416,6 +416,51 @@ Treatment Agent → Explainability → n8n → Doctor Dashboard).
 
 ---
 
+## Milestone 12 — Baseline comparison study (paper §13)
+
+Scope: run the five proposal configurations together as a structured
+comparison on the shipped datasets, reusing the existing metric modules
+(no reimplementation).
+
+- [x] `backend/scripts/baseline_study.py` — standalone runner:
+  1. Centralized ML (`AnalysisService.train(federated=False)`)
+  2. Federated-only (`train(federated=True, clients=3, rounds=5)`) +
+     `FederatedMetrics` (comm. cost via `parameter_set_bytes`, convergence
+     via the round-accuracy history in `federated_metrics`)
+  3. Federated + RAG — same model, `rag_quality_metrics` over 5 literal
+     clinical queries per dataset (reference answers grounded in literal
+     per-dataset corpora)
+  4. Federated + Multi-Agent — deterministic LLM-free crew
+     (`ClinicalCrew`/`AnalysisService.analyze`) over 5 sampled test rows +
+     `compute_agent_metrics`
+  5. Proposed (full) — agents + RAG evidence wired into the same crew;
+     n8n documented as the qualitative orchestration layer (no fabricated
+     metric)
+- [x] Same held-out split for all baselines (`test_size=0.25`, `seed=42`),
+      classification block reused for baselines 2–5 (RAG/agents do not
+      retrain); `n/a` for metrics a baseline does not produce
+- [x] `docs/BASELINE_STUDY_RESULTS.md` — real numbers (not placeholders) +
+      hand-written Findings answering RQ1–RQ4 with pilot-scale caveats;
+      the Findings section survives script re-runs
+- [x] `prepare_tabular_data` strips whitespace from string labels
+      (`'ckd\t'` == `'ckd'`), fixing the kidney preset's phantom third
+      class that broke the federated partition (matches
+      `examples/fedavg_demo.py`)
+- [x] Tests (`backend/scripts/tests/test_baseline_study.py`, 4 passing) —
+      hermetic on a synthetic CSV, no `DATASET_DIR` required
+
+### Verification
+
+- [x] Backend suite **335 passing** (+4 study tests; `api`, `scripts`)
+- [x] Lint clean (black / ruff / isort) from `backend/`
+- [x] Real-data run: `DATASET_DIR=/home/monjur0x0/dataset` → all four
+      presets (diabetes / heart / kidney / sepsis) with full tables
+- [x] Headline: federated Δ accuracy +0.027 / +0.026 / +0.020 / 0.000 vs
+      centralized; RAG context recall 1.000, precision 0.300–0.350; agent
+      completion 0.6→0.8 with RAG evidence
+
+---
+
 ## Milestone 6 — n8n orchestration (`n8n/`)
 
 ### Principles
@@ -736,8 +781,10 @@ prediction, and retrieval modules, per `docs/SOFTWARE_ARCHITECTURE.md`
       LLM-style report parsing)
 - [x] Examples: 7 tests passing
 - [x] API: 46 tests passing
-- [x] Full suite: 331 backend tests passing (`pytest preprocessing/tests
+- [x] Scripts (baseline study): 4 tests passing (hermetic on synthetic data)
+- [x] Full suite: 335 backend tests passing (`pytest preprocessing/tests
       models/tests evaluation/tests federated/tests rag/tests
-      examples/tests CrewAI/orchestrator/tests api/tests`)
+      examples/tests CrewAI/orchestrator/tests api/tests
+      scripts/tests`)
 - [x] Frontend: 35 tests passing (from `frontend/`)
 - [ ] Full test command documented in README/AGENTS (see `AGENTS.md` tooling note)

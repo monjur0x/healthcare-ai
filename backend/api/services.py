@@ -148,6 +148,7 @@ def prepare_tabular_data(
 
     labels = y_raw.loc[features.index]
     if pd.api.types.is_string_dtype(labels):
+        labels = labels.str.strip()
         labels = pd.Series(
             LabelEncoder().fit_transform(labels), index=labels.index, name=target
         )

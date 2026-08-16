@@ -2,45 +2,44 @@
 
 ## Objective
 
-Live n8n end-to-end verification is complete and pushed, the original
-`healthcare-n8n` instance (:5678) runs the fixed workflow, and the
-Clinical Assessment Blood Pressure field now accepts `SYS/DIA` input.
-Remaining work is optional polish / the next backlog direction.
+The baseline comparison study (paper §13) is complete, committed, and
+pushed: `backend/scripts/baseline_study.py` + `docs/BASELINE_STUDY_RESULTS.md`
+(real numbers for all four datasets + Findings for RQ1–RQ4). Remaining work
+is the optional backlog / the earlier evaluation-gap discussion.
 
 ## Done This Session (no further action)
 
-- Blood Pressure input accepts `120/90` (systolic/diastolic); the model's
-  `bloodpressure` feature is the diastolic reading (PIMA), so `120/90`
-  maps to `90` — `parse_blood_pressure` in `dashboard/clinical.py`
-  (+3 tests, frontend suite 38 passing). Uncommitted — commit/push.
-- Committed + pushed the n8n workflow fixes (`e90d7ca`, `af48010`,
-  `ca46ea0`).
-- Reset the original n8n owner password (`NewPassw0rd!` for
-  `monjurulhaquerajun@gmail.com`, :5678).
-- Activated the original `healthcare-n8n` instance with the fixed
-  end-to-end workflow: created the `Healthcare API Token` httpHeaderAuth
-  credential (id `6bjqNVT4MoPaTZ6L`), deployed the 10-node workflow
-  (URLs patched to `http://172.17.0.1:8000`), activated it, and verified
-  analyze-only, train+analyze, and error paths over the webhook +
-  dashboard client.
+- Baseline study implemented, tested, run on the real datasets, and
+  committed as `feat(eval): add baseline comparison study (paper §13)`.
+- Fixed `prepare_tabular_data` to strip whitespace from string labels
+  (`'ckd\t'` == `'ckd'`) — the kidney preset previously failed the
+  federated partition (phantom third class with < 3 samples).
+- Headline results (shared split, test_size=0.25, seed=42; 3 clients × 5
+  rounds): federated Δ accuracy +0.027 (diabetes) / +0.026 (heart) /
+  +0.020 (kidney) / 0.000 (sepsis) vs centralized; RAG context recall
+  1.000 with precision 0.300–0.350 at top-k=5; agent completion 0.6→0.8 and
+  collaboration 0.4→0.6 with RAG evidence wired into the deterministic crew.
+- Backend suite 335 passing (+4 script tests), lint clean.
 
 ## Optional Next Steps
 
-1. Commit + push the Blood Pressure `SYS/DIA` input change (`feat(frontend)`
-   + doc updates for CHANGELOG / DEVELOPMENT_STATUS / `.ai/*`).
-2. (Optional) Backfill `n8n/README.md` with the operational details for
-   the original instance: create the credential via the UI, then
-   `PUT /api/v1/workflows/{id}` with `X-N8N-API-KEY` and activate.
-3. Pick the next backlog direction (unchanged candidates):
+1. Backlog (unchanged candidates, pick a direction):
    - Patient persistence + history in the dashboard
    - Backend mortality/readmission risk models (replace "not estimated")
    - Model-derived / SHAP explainability for the decision report
-   - Report disk-archival from n8n via a volume under the file-sandbox
-     base (`~/.n8n-files`)
-4. Consider tearing down the throwaway `n8n-live-test` container (:5679)
-   once it is no longer needed for re-verification.
-5. Run tests + lint: frontend from `frontend/` (`pytest dashboard/tests
-   -q`, `ruff check streamlit_app.py dashboard/`, `black --check`,
-   `isort --check-only`); backend from `backend/`. Never ruff from the
-   repo root.
-6. Update docs per AGENTS.md.
+   - Qdrant vector-store backend (paper §13 context: the RAG evaluation in
+     the baseline study showed low precision at top-k=5 — the dense
+     `SentenceTransformerEmbedder` is the cheapest lever, Qdrant a storage
+     one)
+   - Open-source / local LLM provider for the crew (`transformers` is
+     installed; `CrewSettings.LLM_PROVIDER` currently only has `google`)
+2. If the baseline study is re-run, the Findings section is preserved
+   automatically (script keeps everything from `## Findings` onward).
+3. Run tests + lint from `backend/` (`pytest ... scripts/tests`, `ruff
+   check . ../frontend`); never ruff from the repo root.
+
+## Open Questions
+
+- `gemini-3.7-flash` still returns transient 503 "high demand";
+  `gemini-3.6-flash` verified stable — consider switching
+  `CrewSettings.LLM_MODEL` default.
