@@ -357,6 +357,10 @@ Treatment Agent → Explainability → n8n → Doctor Dashboard).
 - [x] `healthcare-endtoend.json` Code node returns the full `report` in
       the webhook response so the dashboard consumes the real report
       through the n8n path (workflow JSON validated)
+- [x] Blood Pressure input in the Clinical Assessment form accepts
+      `SYS/DIA` (e.g. `120/90`); the model's `bloodpressure` feature is
+      the diastolic reading, so `120/90` → `90` (`parse_blood_pressure`,
+      +3 tests, invalid entries error with a `80` fallback)
 
 ### Live n8n end-to-end verification (follow-up)
 

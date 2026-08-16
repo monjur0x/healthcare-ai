@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **Blood Pressure input accepts SYS/DIA** (`frontend/`): the Clinical
+  Assessment form's Blood Pressure field now accepts `120/90`
+  (systolic/diastolic) or a single value. The model's `bloodpressure`
+  feature is the diastolic reading (PIMA "Blood Pressure (mm Hg)"), so
+  `120/90` maps to `90`. New pure helper `parse_blood_pressure` in
+  `dashboard/clinical.py` (+3 tests); invalid entries show a form error
+  and fall back to `80`.
+
 ### Fixed
 
 - **Live n8n end-to-end verification fixes** (`n8n/`):

@@ -50,6 +50,7 @@ from dashboard.clinical import (
     feature_label,
     group_features,
     is_flag_feature,
+    parse_blood_pressure,
 )
 
 DEFAULT_BACKEND_URL = "http://localhost:8000"
@@ -384,6 +385,8 @@ def feature_widget(name: str) -> float:
     """
     label = feature_label(name)
     key = f"feature_{name}"
+    if name == "bloodpressure":
+        return _blood_pressure_widget(label, key)
     if is_flag_feature(name):
         return float(st.checkbox(label, value=False, key=key))
     if name in {"sex", "gender"}:
@@ -415,6 +418,43 @@ def feature_widget(name: str) -> float:
         format="%.2f",
         key=key,
     )
+
+
+def _blood_pressure_widget(label: str, key: str) -> float:
+    """
+    Render a systolic/diastolic blood-pressure entry.
+
+    Accepts ``SYS/DIA`` (e.g. ``120/90``) or a lone value. The model's
+    ``bloodpressure`` feature is the diastolic reading (the PIMA diabetes
+    "Blood Pressure (mm Hg)" column), so ``120/90`` maps to ``90``.
+
+    Parameters
+    ----------
+    label : str
+        Feature display label.
+    key : str
+        Session-state key for the text input.
+
+    Returns
+    -------
+    float
+        The parsed value (diastolic for ``SYS/DIA`` input).
+    """
+    raw = st.text_input(
+        label,
+        value="120/80",
+        key=key,
+        help="Enter as SYS/DIA, e.g. 120/90, or a single value. The "
+        "model's Blood Pressure feature uses the diastolic reading.",
+    )
+    value = parse_blood_pressure(raw)
+    if value is None:
+        st.error(
+            "Blood Pressure must be SYS/DIA (e.g. 120/90) or a single "
+            "positive number."
+        )
+        return 80.0
+    return value
 
 
 def render_feature_groups(feature_names: list[str]) -> dict[str, float]:

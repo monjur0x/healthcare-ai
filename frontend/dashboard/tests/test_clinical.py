@@ -16,6 +16,7 @@ from dashboard.clinical import (
     is_flag_feature,
     normalize_feature_name,
     output_availability,
+    parse_blood_pressure,
 )
 
 REPORT = {
@@ -101,6 +102,28 @@ def test_flag_and_bounds_detection():
     assert feature_bounds("age") == (0.0, 120.0)
     assert feature_bounds("spo2_mean") == (0.0, 100.0)
     assert feature_bounds("glucose") is None
+
+
+def test_parse_blood_pressure_uses_diastolic():
+    assert parse_blood_pressure("120/90") == 90.0
+    assert parse_blood_pressure("120 / 90") == 90.0
+    assert parse_blood_pressure("  120/90  ") == 90.0
+
+
+def test_parse_blood_pressure_single_value():
+    assert parse_blood_pressure("90") == 90.0
+    assert parse_blood_pressure("90.5") == 90.5
+
+
+def test_parse_blood_pressure_rejects_invalid():
+    assert parse_blood_pressure("") is None
+    assert parse_blood_pressure("   ") is None
+    assert parse_blood_pressure("abc") is None
+    assert parse_blood_pressure("120/90/80") is None
+    assert parse_blood_pressure("90/120") is None
+    assert parse_blood_pressure("120/0") is None
+    assert parse_blood_pressure("0/90") is None
+    assert parse_blood_pressure("0") is None
 
 
 def test_build_analyze_payload():

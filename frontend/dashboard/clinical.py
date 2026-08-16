@@ -359,6 +359,45 @@ def feature_bounds(name: str) -> tuple[float, float] | None:
     return BOUNDED_FEATURES.get(normalize_feature_name(name))
 
 
+def parse_blood_pressure(raw: str) -> float | None:
+    """
+    Parse a blood-pressure entry into the model's ``bloodpressure`` value.
+
+    The model feature ``bloodpressure`` corresponds to the diastolic
+    reading (the PIMA diabetes "Blood Pressure (mm Hg)" column), so a
+    ``"SYS/DIA"`` entry maps to the diastolic component. A lone number is
+    used as-is.
+
+    Parameters
+    ----------
+    raw : str
+        User entry, e.g. ``"120/90"``, ``"120 / 90"``, or ``"90"``.
+
+    Returns
+    -------
+    float | None
+        The diastolic value (or the single value), or None when the entry
+        is not parseable.
+    """
+    text = raw.strip()
+    if not text:
+        return None
+    parts = [part.strip() for part in text.split("/")]
+    try:
+        if len(parts) == 2:
+            systolic = float(parts[0])
+            diastolic = float(parts[1])
+            if systolic <= 0 or diastolic <= 0 or diastolic > systolic:
+                return None
+            return diastolic
+        if len(parts) == 1:
+            value = float(parts[0])
+            return value if value > 0 else None
+        return None
+    except ValueError:
+        return None
+
+
 def build_analyze_payload(
     patient: Mapping[str, object],
     features: Mapping[str, float],
@@ -606,4 +645,5 @@ __all__ = [
     "is_flag_feature",
     "normalize_feature_name",
     "output_availability",
+    "parse_blood_pressure",
 ]
