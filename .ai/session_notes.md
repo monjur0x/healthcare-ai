@@ -130,3 +130,23 @@ honest handling of unsupported outputs; update docs at the end.
   :5678 returns the real report.
 - Backup copies: key raw JWT at /tmp/opencode/n8n_apikey_orig.txt;
   deployment payload /tmp/opencode/wf_orig_deploy.json.
+
+## Blood-pressure SYS/DIA input (frontend)
+
+- Clinical Assessment's Blood Pressure field was a plain number input.
+  The user wanted "120/90" (systolic/diastolic) accepted.
+- The model's `bloodpressure` feature is the PIMA diabetes "Blood
+  Pressure (mm Hg)" column = **diastolic**, so `SYS/DIA` maps to the
+  diastolic component (`120/90` → `90`); a lone number is used as-is.
+  Recorded in the widget help text + parser docstring.
+- Added `parse_blood_pressure(raw) -> float | None` to
+  `frontend/dashboard/clinical.py` (pure, exported); rejects empty,
+  non-numeric, >2 parts, `dia > sys`, and non-positive values.
+- `streamlit_app.py`: `feature_widget` special-cases `bloodpressure`
+  via `_blood_pressure_widget` (text_input default "120/80", help text,
+  st.error + fallback 80.0 on invalid). Same widget keying as before so
+  session state persists.
+- Tests: +3 in `test_clinical.py`; frontend suite 38 passing; lint clean.
+- If the project ever needs systolic as a separate marker, the risk
+  service's marker thresholds would need a `systolic_bp` key — not
+  implemented (features dict must stay exactly the model's columns).

@@ -2,13 +2,17 @@
 
 ## Objective
 
-Live n8n end-to-end verification is complete and pushed, and the original
-`healthcare-n8n` instance (:5678) is now running the fixed workflow
-(verified live on all three paths). Remaining work is optional polish /
-the next backlog direction.
+Live n8n end-to-end verification is complete and pushed, the original
+`healthcare-n8n` instance (:5678) runs the fixed workflow, and the
+Clinical Assessment Blood Pressure field now accepts `SYS/DIA` input.
+Remaining work is optional polish / the next backlog direction.
 
 ## Done This Session (no further action)
 
+- Blood Pressure input accepts `120/90` (systolic/diastolic); the model's
+  `bloodpressure` feature is the diastolic reading (PIMA), so `120/90`
+  maps to `90` — `parse_blood_pressure` in `dashboard/clinical.py`
+  (+3 tests, frontend suite 38 passing). Uncommitted — commit/push.
 - Committed + pushed the n8n workflow fixes (`e90d7ca`, `af48010`,
   `ca46ea0`).
 - Reset the original n8n owner password (`NewPassw0rd!` for
@@ -22,8 +26,8 @@ the next backlog direction.
 
 ## Optional Next Steps
 
-1. Commit the doc updates recording the original-instance activation
-   (`docs/CHANGELOG.md`, `docs/DEVELOPMENT_STATUS.md`, `.ai/*`).
+1. Commit + push the Blood Pressure `SYS/DIA` input change (`feat(frontend)`
+   + doc updates for CHANGELOG / DEVELOPMENT_STATUS / `.ai/*`).
 2. (Optional) Backfill `n8n/README.md` with the operational details for
    the original instance: create the credential via the UI, then
    `PUT /api/v1/workflows/{id}` with `X-N8N-API-KEY` and activate.

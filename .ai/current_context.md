@@ -11,10 +11,12 @@ n8n/ (healthcare-endtoend.json · clinical-analysis.json · README.md) · docs/ 
 
 ## Current Task
 
-Live n8n end-to-end verification of the Milestone 11 n8n route — complete,
-and the original `healthcare-n8n` instance (:5678) is now live with the
-fixed workflow (analyze-only, train+analyze, and error paths verified over
-the webhook + dashboard client). Drove the
+Frontend polish: the Clinical Assessment form's Blood Pressure field now
+accepts `SYS/DIA` (e.g. `120/90`); the model's `bloodpressure` feature is
+the diastolic reading (PIMA), so `120/90` maps to `90`
+(`parse_blood_pressure` helper, +3 tests, frontend suite 38 passing).
+Prior task — live n8n verification and original-instance activation —
+is complete. Drove the
 dashboard's n8n path against a real n8n instance (2.34.6) + the real
 FastAPI backend. This exposed **real bugs in the committed
 `n8n/healthcare-endtoend.json`** that hermetic tests could not catch:
