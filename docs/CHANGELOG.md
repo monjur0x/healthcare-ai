@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- `backend/requirements.txt` now declares `crewai>=1.15.0` under a
+  `# Multi-agent orchestration` section. `CrewAI/orchestrator/tools.py`
+  imports `crewai.tools.BaseTool` unconditionally (the orchestrator
+  package imports it eagerly via its `__init__.py`), so the module could
+  not import without crewai installed even in the deterministic no-LLM
+  mode. Verified with a clean-venv install of `requirements.txt`: full
+  backend suite 331 passed.
+
 ### Changed
 
 - **Blood Pressure input accepts SYS/DIA** (`frontend/`): the Clinical
