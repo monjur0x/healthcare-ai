@@ -270,6 +270,18 @@ functional end-to-end system (Milestone 8) are complete.
 - [x] README "Privacy & Security" section (data protection / access
       control / transport security + secrets policy)
 
+### Agentic report parsing (Milestone 10 follow-up)
+
+- [x] `RiskResult.monitoring_schedule` tolerant `field_validator` —
+      coerces LLM string entries into `{test, frequency}` dicts so
+      agentic output lands instead of the silent deterministic fallback
+- [x] `REPORT_SCHEMA_INSTRUCTIONS` shows the `{test, frequency}` shape
+      with a bare-string warning
+- [x] Live-verified on `gemini-3.6-flash`: "LLM analysis complete",
+      agentic summary / recommendations / 7 schedule entries in the
+      report; `gemini-3.7-flash` still transient 503 (open question)
+- [x] Tests: backend 331 (+5), lint clean
+
 ### Verification
 
 - [x] Backend suite 326 passing (+37), frontend 13 (unchanged)
@@ -716,10 +728,11 @@ prediction, and retrieval modules, per `docs/SOFTWARE_ARCHITECTURE.md`
 - [x] Federated: 51 tests passing
 - [x] RAG: 61 tests passing (incl. Chroma store, sentence-transformer
       embedder, RAGAS metrics)
-- [x] Orchestration (CrewAI): 44 tests passing (incl. agent metrics)
+- [x] Orchestration (CrewAI): 49 tests passing (incl. agent metrics,
+      LLM-style report parsing)
 - [x] Examples: 7 tests passing
 - [x] API: 46 tests passing
-- [x] Full suite: 326 backend tests passing (`pytest preprocessing/tests
+- [x] Full suite: 331 backend tests passing (`pytest preprocessing/tests
       models/tests evaluation/tests federated/tests rag/tests
       examples/tests CrewAI/orchestrator/tests api/tests`)
 - [x] Frontend: 35 tests passing (from `frontend/`)

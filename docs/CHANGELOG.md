@@ -382,6 +382,21 @@
   - Tests: backend 326 (+37 across the Chroma store, sentence-transformer
     embedder, RAGAS metrics, agent metrics), frontend 13; lint clean
     (black / ruff / isort)
+- **Agentic report parsing fix (Milestone 10 follow-up):**
+  - `RiskResult.monitoring_schedule` now has a tolerant `field_validator`
+    that coerces sloppy LLM output into the `{test, frequency}` shape:
+    bare strings become `{"test": <text>, "frequency": ""}`, mappings are
+    stringified, `None` becomes an empty list — so LLM-generated reports
+    with prose schedule entries no longer fail pydantic validation
+  - `REPORT_SCHEMA_INSTRUCTIONS` now shows `monitoring_schedule` as a
+    list of `{test, frequency}` objects with an explicit warning never to
+    emit a bare string
+  - Live-verified on `gemini-3.6-flash`: `run_llm()` logs
+    "LLM analysis complete", the agentic `patient_summary`,
+    `recommendations`, and 7 valid `monitoring_schedule` entries land in
+    the report instead of the deterministic fallback
+  - Tests: backend 331 (+5: schedule coercion, full LLM-style report
+    parse, `_parse_report` acceptance), lint clean
 
 ### Removed
 

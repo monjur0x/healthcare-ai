@@ -137,10 +137,14 @@ REPORT_SCHEMA_INSTRUCTIONS: str = (
     '"patient_summary": "", "prediction": {"predicted_class": "", '
     '"probabilities": {}, "confidence": 0.0, "model_name": ""}, '
     '"risk": {"risk_score": 0.0, "risk_level": "", "risk_factors": [], '
-    '"monitoring_schedule": []}, "evidence": [{"document_id": "", '
-    '"source": "", "score": 0.0, "text": ""}], "recommendations": [], '
-    '"limitations": "", "doctor_notice": "This report is AI-assisted. '
-    'Final diagnosis must be made by a licensed physician."}'
+    '"monitoring_schedule": [{"test": "", "frequency": ""}]}, '
+    '"evidence": [{"document_id": "", "source": "", "score": 0.0, '
+    '"text": ""}], "recommendations": [], "limitations": "", '
+    '"doctor_notice": "This report is AI-assisted. Final diagnosis must be '
+    'made by a licensed physician."}  '
+    'CRITICAL: every item in "monitoring_schedule" MUST be a JSON object '
+    'with exactly two string fields "test" and "frequency" — never a bare '
+    'string. Example: {"test": "HbA1c", "frequency": "Every 3 months"}.'
 )
 
 __all__ = ["AGENT_PROFILES", "REPORT_SCHEMA_INSTRUCTIONS", "TASK_DESCRIPTIONS"]

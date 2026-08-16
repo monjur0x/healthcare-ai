@@ -119,3 +119,26 @@ def test_run_analysis_image_requires_image_array(image_model) -> None:
     crew = ClinicalCrew(patient=PatientInfo(id="p-img2"), image_model=image_model)
     with pytest.raises(OrchestrationError, match="image array"):
         crew.run_analysis()
+
+
+def test_parse_report_accepts_llm_string_schedule() -> None:
+    text = (
+        '{"patient": {"name": "P", "id": "p9", "age": 55, "notes": ""}, '
+        '"input_type": "csv", "patient_summary": "summary", '
+        '"prediction": null, "risk": {"risk_score": 0.6, '
+        '"risk_level": "high", "risk_factors": [], "monitoring_schedule": '
+        '["Weekly blood pressure monitoring"]}, "evidence": [], '
+        '"recommendations": [], "limitations": "AI limitations", '
+        '"doctor_notice": "AI-assisted"}'
+    )
+    report = ClinicalCrew._parse_report(text)
+    assert report is not None
+    assert report.risk is not None
+    assert report.risk.monitoring_schedule == [
+        {"test": "Weekly blood pressure monitoring", "frequency": ""}
+    ]
+
+
+def test_parse_report_returns_none_for_invalid_json() -> None:
+    assert ClinicalCrew._parse_report("not json at all") is None
+    assert ClinicalCrew._parse_report("{}") is None

@@ -8,9 +8,10 @@ so results can be persisted or rendered by the dashboard.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class PatientInfo(BaseModel):
@@ -77,6 +78,34 @@ class RiskResult(BaseModel):
     risk_level: str
     risk_factors: list[str] = Field(default_factory=list)
     monitoring_schedule: list[dict[str, str]] = Field(default_factory=list)
+
+    @field_validator("monitoring_schedule", mode="before")
+    @classmethod
+    def _coerce_monitoring_schedule(cls, value: Any) -> list[dict[str, str]]:
+        """Coerce sloppy LLM output into ``{test, frequency}`` entries.
+
+        LLM-generated reports sometimes emit each schedule item as a bare
+        string (a sentence or phase description) instead of the
+        ``{"test": ..., "frequency": ...}`` shape. Accept both: strings
+        become ``{"test": <text>, "frequency": ""}``, mappings are kept
+        with string values, and ``None`` becomes an empty list.
+        """
+
+        if value is None:
+            return []
+        if isinstance(value, Mapping):
+            value = [value]
+        items: list[dict[str, str]] = []
+        for entry in value:
+            if isinstance(entry, str):
+                items.append({"test": entry, "frequency": ""})
+            elif isinstance(entry, Mapping):
+                items.append({str(key): str(val) for key, val in entry.items()})
+            elif entry is None:
+                continue
+            else:
+                items.append({"test": str(entry), "frequency": ""})
+        return items
 
 
 class EvidenceItem(BaseModel):
