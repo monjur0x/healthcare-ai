@@ -461,6 +461,87 @@ comparison on the shipped datasets, reusing the existing metric modules
 
 ---
 
+## Milestone 13 — Doctor-friendly Clinical Assessment page
+
+Scope: make the dashboard's Clinical Assessment page model/preset-driven
+and doctor-friendly while keeping it a thin presentation layer (ADR-010):
+human labels, verified units, patient context separated from model
+features, validation, CSV upload, and honest pre-run summaries. No ML
+logic moves into the frontend; the FastAPI + n8n + CrewAI architecture is
+unchanged.
+
+### Backend (presets + CSV analysis)
+
+- [x] `GET /api/v1/presets` — `PresetInfo` (name, dataset, target,
+      available, feature_names, classes) per shipped preset, derived from
+      the trained artifact (`artifacts_dir/<preset>/global_model.joblib`,
+      `TabularClassifier.load`); a preset with no artifact is reported
+      `available: false`
+- [x] `POST /api/v1/analyze/csv` — `AnalyzeCSVRequest` (base64-decoded
+      `csv: bytes`, optional patient/markers/recommendations) →
+      `CSVPipeline().run(csv)` → first-row analysis through the existing
+      `analyze()` path; missing columns → 422, no tabular model → 503
+- [x] `ModelInfo.preset` — the served model's training preset, recorded
+      by `AnalysisService.train()` and exposed via `/api/v1/model`
+
+### Dashboard assessment tab (`frontend/streamlit_app.py`)
+
+- [x] **Assessment Type** selector — served preset when a single model is
+      configured, otherwise the preset list from `/api/v1/presets`;
+      switching presets swaps the feature schema dynamically
+- [x] Train-on-demand: when the selected preset differs from the served
+      model, the dashboard trains it first (direct route →
+      `client.train(preset)`; n8n route → `preset` + `train` in the
+      webhook payload, already supported by `healthcare-endtoend.json`)
+- [x] **Patient Context** (name / id / age) separated from model features
+      and never sent to the model (the `age` model feature is filled from
+      the context age in one place)
+- [x] Model-driven "Clinical measurements": only backend-reported features,
+      grouped, human labels (no raw column names), verified units in
+      labels, `%d` formatting for integer features, `sex`/`gender`
+      selectors and flag checkboxes
+- [x] Blood-pressure widget returns `float | None` — invalid input blocks
+      submission with an error instead of silently substituting `80`
+- [x] Pre-run **Assessment summary** (patient / assessment / entered
+      features / notes), validation before submit, and a clinical
+      disclaimer caption on form + results
+- [x] Input method toggle **Manual Entry / CSV Upload** — CSV uploads
+      route directly to `/api/v1/analyze/csv` (the n8n workflow carries
+      structured feature input only); caption states this honestly
+
+### Presentation helpers (`frontend/dashboard/clinical.py`)
+
+- [x] `DISPLAY_LABELS` — human labels for all four presets (Pima / UCI
+      heart / UCI CKD / sepsis), raw-name suffixes removed
+- [x] `FEATURE_UNITS` (glucose mg/dL, bloodpressure mmHg, bmi kg/m², ...),
+      `INTEGER_FEATURES`, `feature_unit()`, `is_integer_feature()`
+- [x] `validate_feature_values()` — bounds + required checks (age bounds
+      from the Patient Context), used to block invalid submission
+- [x] `assessment_summary()` — derived pre-run summary rows
+
+### Client (`frontend/dashboard/client.py`)
+
+- [x] `presets()` — fetch `/api/v1/presets`
+- [x] `train(preset, model="mlp")` — `POST /api/v1/train`
+- [x] `analyze_csv(patient, csv, ...)` — base64-encoded `POST
+      /api/v1/analyze/csv`
+- [x] `analyze_via_n8n()` / `_analyze_payload()` accept `preset` / `train`
+      kwargs forwarded to the n8n webhook only when a retrain is requested
+
+### Verification
+
+- [x] Frontend suite **54 passing** (+14: client presets/train/analyze_csv
+      ×5, clinical labels/units/integers/validation/summary ×6, smoke:
+      selector adapts form, train-on-demand direct route, CSV upload ×3)
+- [x] Backend suite **340 passing** (+5: presets schema, analyze_csv
+      success / missing-CSV 422 / invalid-base64 422 / service error 503)
+- [x] Lint clean (black / ruff) from `frontend/` and `backend/`
+- [x] Smoke tests cover preset switching (dynamic fields), train-on-demand
+      (patient metadata never sent as features), and CSV upload
+      (bytes + patient forwarded, direct-route caption)
+
+---
+
 ## Milestone 6 — n8n orchestration (`n8n/`)
 
 ### Principles
@@ -780,11 +861,11 @@ prediction, and retrieval modules, per `docs/SOFTWARE_ARCHITECTURE.md`
 - [x] Orchestration (CrewAI): 49 tests passing (incl. agent metrics,
       LLM-style report parsing)
 - [x] Examples: 7 tests passing
-- [x] API: 46 tests passing
+- [x] API: 51 tests passing (incl. presets + CSV analysis endpoints)
 - [x] Scripts (baseline study): 4 tests passing (hermetic on synthetic data)
-- [x] Full suite: 335 backend tests passing (`pytest preprocessing/tests
+- [x] Full suite: 340 backend tests passing (`pytest preprocessing/tests
       models/tests evaluation/tests federated/tests rag/tests
       examples/tests CrewAI/orchestrator/tests api/tests
       scripts/tests`)
-- [x] Frontend: 35 tests passing (from `frontend/`)
+- [x] Frontend: 54 tests passing (from `frontend/`)
 - [ ] Full test command documented in README/AGENTS (see `AGENTS.md` tooling note)

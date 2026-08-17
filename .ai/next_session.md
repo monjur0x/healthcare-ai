@@ -2,44 +2,54 @@
 
 ## Objective
 
-The baseline comparison study (paper §13) is complete, committed, and
-pushed: `backend/scripts/baseline_study.py` + `docs/BASELINE_STUDY_RESULTS.md`
-(real numbers for all four datasets + Findings for RQ1–RQ4). Remaining work
-is the optional backlog / the earlier evaluation-gap discussion.
+The doctor-friendly Clinical Assessment rework (Milestone 13) is
+implemented and verified (frontend 54, backend 340, lint clean) but
+**not yet committed** (10 modified files). The natural first step is to
+review `git diff` and commit, then pick a backlog direction.
 
-## Done This Session (no further action)
+## Done This Session (uncommitted)
 
-- Baseline study implemented, tested, run on the real datasets, and
-  committed as `feat(eval): add baseline comparison study (paper §13)`.
-- Fixed `prepare_tabular_data` to strip whitespace from string labels
-  (`'ckd\t'` == `'ckd'`) — the kidney preset previously failed the
-  federated partition (phantom third class with < 3 samples).
-- Headline results (shared split, test_size=0.25, seed=42; 3 clients × 5
-  rounds): federated Δ accuracy +0.027 (diabetes) / +0.026 (heart) /
-  +0.020 (kidney) / 0.000 (sepsis) vs centralized; RAG context recall
-  1.000 with precision 0.300–0.350 at top-k=5; agent completion 0.6→0.8 and
-  collaboration 0.4→0.6 with RAG evidence wired into the deterministic crew.
-- Backend suite 335 passing (+4 script tests), lint clean.
+- Backend: `GET /api/v1/presets` (per-preset schemas from trained
+  artifacts), `POST /api/v1/analyze/csv` (base64 CSV → CSVPipeline →
+  first-row analyze), `ModelInfo.preset`, `active_preset` in
+  `AnalysisService`.
+- Frontend: Assessment Type selector (preset-driven, train-on-demand),
+  Patient Context separated from model features, human labels + units +
+  integer formatting, blood-pressure `float | None` (no silent fallback),
+  pre-run summary + validation, disclaimer, and a **Manual Entry / CSV
+  Upload** input toggle (CSV routes directly to FastAPI — n8n cannot
+  carry files).
+- Tests: frontend +14 (client presets/train/analyze_csv, clinical
+  units/integers/validation/summary, smoke: selector adapts form,
+  train-on-demand direct route, CSV upload), backend +5 (presets schema,
+  analyze_csv success/422/503). Black + ruff clean.
 
 ## Optional Next Steps
 
-1. Backlog (unchanged candidates, pick a direction):
-   - Patient persistence + history in the dashboard
-   - Backend mortality/readmission risk models (replace "not estimated")
+1. Commit Milestone 13 (await user instruction): one or two focused
+   commits (e.g. `feat(api)` presets + CSV analyze endpoint, then
+   `feat(dashboard)` assessment tab rework).
+2. Backlog candidates (pick a direction):
+   - Patient persistence + history in the dashboard (each assessment is
+     entered fresh)
+   - Backend mortality/readmission risk models (Results page still shows
+     "not estimated")
    - Model-derived / SHAP explainability for the decision report
-   - Qdrant vector-store backend (paper §13 context: the RAG evaluation in
-     the baseline study showed low precision at top-k=5 — the dense
-     `SentenceTransformerEmbedder` is the cheapest lever, Qdrant a storage
-     one)
-   - Open-source / local LLM provider for the crew (`transformers` is
-     installed; `CrewSettings.LLM_PROVIDER` currently only has `google`)
-2. If the baseline study is re-run, the Findings section is preserved
-   automatically (script keeps everything from `## Findings` onward).
-3. Run tests + lint from `backend/` (`pytest ... scripts/tests`, `ruff
-   check . ../frontend`); never ruff from the repo root.
+   - Route CSV uploads through the n8n end-to-end workflow (currently
+     direct-to-FastAPI only; the workflow's HTTP request node would need
+     a multipart/base64 body)
+   - Multimodal fusion so the assessment summary can show an image result
+     instead of the static "Not provided"
+   - Open-source / local LLM provider for the crew (`CrewSettings.
+     LLM_PROVIDER` currently only has `google`)
+3. Run tests + lint from the right directory: `frontend/` for the
+   dashboard suite + ruff/black; `backend/` for the API suite. Never ruff
+   from the repo root.
 
 ## Open Questions
 
+- Whether to commit now (user decides; nothing was committed this
+  session).
 - `gemini-3.7-flash` still returns transient 503 "high demand";
   `gemini-3.6-flash` verified stable — consider switching
   `CrewSettings.LLM_MODEL` default.

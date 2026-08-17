@@ -2,72 +2,106 @@
 
 ## Current Milestone
 
-Milestone 12 — Baseline comparison study (paper §13) — complete, committed,
-pushed (`feat(eval): add baseline comparison study (paper §13)`).
+Milestone 13 — Doctor-friendly Clinical Assessment page (paper §11/§12
+dashboard UX) — implementation complete and verified by tests; not yet
+committed. Working tree has the uncommitted changes (10 files) from this
+task.
 
 ## Current Module
 
-`backend/scripts/` (baseline_study.py · tests/) · `docs/BASELINE_STUDY_RESULTS.md`
+`frontend/streamlit_app.py` (assessment tab) · `frontend/dashboard/`
+(`client.py`, `clinical.py`) · `backend/api/` (`routes.py`,
+`services.py`, `schemas.py`)
 
 ## Current Task
 
-None active — the study is done. The script runs all five proposal
-configurations against the four shipped datasets, reusing the existing
-metric modules (nothing reimplemented):
+Reworked the Clinical Assessment page into a model/preset-driven,
+doctor-friendly form while keeping it a thin presentation layer (no ML
+in the frontend, existing FastAPI + n8n + CrewAI architecture intact).
 
-1. Centralized ML (`train(federated=False)`)
-2. Federated-only (`train(federated=True, clients=3, rounds=5)`) +
-   `FederatedMetrics`
-3. Federated + RAG (`rag_quality_metrics` over 5 literal queries/dataset)
-4. Federated + Multi-Agent (deterministic LLM-free crew + `compute_agent_metrics`)
-5. Proposed full (union of classification + RAG + agent metrics; n8n noted
-   as the qualitative orchestration layer, no fabricated metric)
-
-Real results are in `docs/BASELINE_STUDY_RESULTS.md` (all four datasets) +
-hand-written Findings for RQ1–RQ4 with pilot-scale caveats. The Findings
-section survives script re-runs (preserved from the `## Findings` marker).
+1. **Backend preset + CSV support**
+   - `GET /api/v1/presets` — per-preset schemas (name, dataset, target,
+     available, feature_names, classes) read from trained artifacts
+     `artifacts_dir/<preset>/global_model.joblib`
+   - `POST /api/v1/analyze/csv` — `AnalyzeCSVRequest` (base64-decoded
+     `csv: bytes` + patient/markers/recommendations) →
+     `CSVPipeline().run(csv)` → first-row prediction via the existing
+     `analyze()` path
+   - `ModelInfo` now carries `preset` (the served model's training
+     preset), set by `AnalysisService.train()` and reported by
+     `model_info()`
+2. **Dashboard assessment tab** — Assessment Type selector (presets when
+   available, else served model); Patient Context (name/id/age) separated
+   from model features; model-driven "Clinical measurements" with human
+   labels + verified units + integer formatting; blood-pressure entry
+   now returns `float | None` (no silent 80.0 substitution); pre-run
+   Assessment summary; validation before submit; train-on-demand when the
+   selected preset differs from the served model (direct route → 
+   `client.train`, n8n route → `preset`/`train` in the webhook payload);
+   Input method toggle **Manual Entry / CSV Upload** (CSV routes directly
+   to `/api/v1/analyze/csv`; n8n workflow does not carry files);
+   disclaimer caption throughout.
+3. **Tests** — frontend suite 54 passing (client +5, clinical +6,
+   smoke +3 new: selector adapts form, train-on-demand direct route,
+   CSV upload), backend suite 340 passing (+5 api tests). Lint clean
+   (black/ruff from `frontend/` and `backend/`).
 
 ## Completed
 
-- Milestones 1–11 — prior context (committed + pushed).
-- Milestone 12 — baseline comparison study:
-  - `backend/scripts/baseline_study.py` (+ `__init__.py`) — 5 baselines,
-    shared split (test_size=0.25, seed=42), `n/a` for inapplicable metrics,
-    stdout tables + repo-root output default
-  - `backend/scripts/tests/test_baseline_study.py` — 4 passing, hermetic on
-    a synthetic CSV (no `DATASET_DIR` in CI)
-  - `docs/BASELINE_STUDY_RESULTS.md` — real numbers + Findings
-  - `api/services.py::prepare_tabular_data` — strip string labels
-    (`'ckd\t'` == `'ckd'`); unblocks the kidney preset's federated partition
-  - Docs: BACKLOG item checked off, CHANGELOG `### Added` entry (headline
-    numbers), DEVELOPMENT_STATUS Milestone 12 + Testing section, `.ai/*`
-  - Headline: federated Δ accuracy +0.027 / +0.026 / +0.020 / 0.000 vs
-    centralized; RAG recall 1.000 / precision 0.300–0.350; agent completion
-    0.6→0.8 with RAG evidence
-- Backend suite **335 passing** (+4), lint clean.
+- Milestones 1–12 — prior context (committed + pushed).
+- Milestone 13 (this session, uncommitted):
+  - `backend/api/schemas.py` — `PresetInfo`, `AnalyzeCSVRequest`,
+    `ModelInfo.preset`
+  - `backend/api/services.py` — `active_preset`, `presets_info()`,
+    `analyze_csv()`, `model_info()` preset field
+  - `backend/api/routes.py` — `GET /api/v1/presets`,
+    `POST /api/v1/analyze/csv`
+  - `frontend/dashboard/client.py` — `presets()`, `train(preset, ...)`,
+    `analyze_csv()` (base64), n8n `preset`/`train` kwargs
+  - `frontend/dashboard/clinical.py` — `DISPLAY_LABELS` (all four
+    presets, no raw-name suffixes), `FEATURE_UNITS`, `INTEGER_FEATURES`,
+    `feature_unit()`, `is_integer_feature()`, `validate_feature_values()`,
+    `assessment_summary()`
+  - `frontend/streamlit_app.py` — assessment tab rewrite + CSV upload
+    mode, `CLINICAL_DISCLAIMER`, `fetch_presets_info()`,
+    `assessment_type_label()`, `model_matches_preset()`, blood-pressure
+    widget returning `float | None`
+  - Tests: frontend 54 (+14), backend 340 (+5); black + ruff clean
+- Backend full suite **340 passing**; frontend suite **54 passing**.
 
 ## Next Files (optional / backlog)
 
-- Backlog candidates (pick one): patient persistence; mortality/readmission
-  models; SHAP explainability; Qdrant store + dense-embedding RAG lever
-  (the study showed RAG precision 0.3 at top-k=5); local/open-source LLM
-  provider for the crew.
+- Commit the uncommitted changes (user's call — no commit was made).
+- Backlog candidates (pick one): patient persistence + history;
+  mortality/readmission models (Results page still "not estimated");
+  SHAP explainability; CSV path through the n8n end-to-end workflow;
+  multimodal fusion so the summary no longer shows "image: Not provided";
+  local/open-source LLM provider for the crew.
 
 ## Design Notes
 
-- Study design decisions: classification block reused for baselines 2–5
-  (RAG/agents do not retrain); RAG "answer" is a per-dataset reference
-  answer grounded in a literal corpus (faithfulness is meaningful, not
-  trivially 1.0); agent "task outputs" are the 5 report sections (summary /
-  prediction / risk / evidence / recommendations), so completion is 0.6
-  without RAG (evidence empty) and 0.8 with it (recommendations still empty
-  in the deterministic path).
-- `write_results` preserves everything from `## Findings` onward so a
-  re-run does not clobber the hand-written narrative.
-- Lint/tests: run from `backend/`; never ruff from the repo root.
+- The dashboard remains a thin view layer (ADR-010): all prediction/RAG/
+  crew reasoning stays server-side; the assessment tab only renders the
+  schema the backend reports and delegates.
+- One tabular model is served at a time. When the selected preset differs
+  from the served model, the dashboard trains the preset on demand
+  (direct route → `client.train`; n8n route → `preset` + `train` in the
+  webhook payload, already supported by `healthcare-endtoend.json`).
+- `presets_info()` derives schemas from trained artifacts only (datasets
+  are not in the repo); a preset with no trained artifact is reported
+  `available: false` and the tab asks the user to train it first.
+- Uploaded CSV analysis re-fits the `CSVPipeline` scaler on the uploaded
+  rows (fresh fit) — a documented limitation for inference-time
+  consistency, same behaviour as the existing analyze path.
+- Blood-pressure widget: `SYS/DIA` → diastolic (PIMA convention); invalid
+  input returns `None` and blocks submission with a clear error (no
+  silent `80` fallback anymore).
+- Lint/tests: frontend from `frontend/`, backend from `backend/`; never
+  ruff from the repo root.
 
 ## Status
 
-Milestones 1–12 committed/pushed. Working tree clean (verify with
-`git status`). Baseline study reproducible with
-`DATASET_DIR=/path/to/datasets python scripts/baseline_study.py`.
+Milestones 1–12 committed/pushed; Milestone 13 changes are **uncommitted**
+(10 modified files). Verify with `git status`. Frontend `pytest -q` from
+`frontend/` = 54 passed; backend `pytest -q` from `backend/` = 340
+passed.

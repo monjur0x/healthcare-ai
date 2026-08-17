@@ -4,6 +4,40 @@
 
 ### Added
 
+- **Doctor-friendly Clinical Assessment page** (`frontend/` + `backend/`):
+  the assessment tab is now preset-driven and doctor-friendly while
+  staying a thin presentation layer (ADR-010 — no ML in the frontend).
+  - Backend: `GET /api/v1/presets` (per-preset `PresetInfo` — name,
+    dataset, target, available, feature_names, classes — read from
+    trained artifacts) and `POST /api/v1/analyze/csv` (`AnalyzeCSVRequest`
+    with base64-decoded `csv: bytes` → `CSVPipeline().run()` → first-row
+    analysis through the existing path; missing columns → 422, no tabular
+    model → 503). `ModelInfo`/`AnalysisService` now record the served
+    model's training `preset`.
+  - Dashboard: **Assessment Type** selector (swaps the feature schema;
+    trains the selected preset on demand when it differs from the served
+    model — direct route → `client.train`, n8n route → `preset`/`train`
+    in the webhook payload), **Patient Context** (name/id/age) separated
+    from model features (never sent to the model; `age` is filled from
+    the context in one place), model-driven measurements with human
+    labels + verified units + integer formatting, blood-pressure entry
+    returning `float | None` (invalid input blocks submission instead of
+    silently substituting `80`), pre-run assessment summary + validation,
+    a clinical disclaimer, and a **Manual Entry / CSV Upload** input
+    toggle (CSV routes directly to FastAPI — the n8n workflow carries
+    structured feature input only).
+  - Helpers (`dashboard/clinical.py`): `DISPLAY_LABELS` for all four
+    presets (no raw column names), `FEATURE_UNITS`, `INTEGER_FEATURES`,
+    `feature_unit()`, `is_integer_feature()`, `validate_feature_values()`,
+    `assessment_summary()`.
+  - Client (`dashboard/client.py`): `presets()`, `train(preset, ...)`,
+    `analyze_csv()` (base64), and `preset`/`train` kwargs for the n8n
+    path.
+  - Tests: frontend 54 (+14 — incl. smoke tests for preset switching,
+    train-on-demand with patient metadata never sent as features, and CSV
+    upload), backend 340 (+5 — presets schema, analyze_csv success/422/
+    503). Black + ruff clean.
+
 - **Baseline comparison study (paper §13)** —
   `backend/scripts/baseline_study.py` runs the five proposal configurations
   (1. Centralized / 2. Federated-only / 3. Federated+RAG /

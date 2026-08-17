@@ -386,12 +386,49 @@ New deferred items from Milestone 11 / n8n verification:
       mount a volume under the sandbox base and write inside it, or
       return the report to a caller that persists it
 
+### Milestone 13 — Doctor-friendly Clinical Assessment page (complete)
+
+- [x] Backend: `GET /api/v1/presets` (per-preset `PresetInfo` schemas read
+      from trained artifacts) + `POST /api/v1/analyze/csv` (base64 CSV →
+      `CSVPipeline` → first-row analyze); `ModelInfo.preset` /
+      `AnalysisService.active_preset` record the served model's preset
+- [x] Dashboard assessment tab: Assessment Type selector (preset-driven
+      with train-on-demand via `client.train` or n8n `preset`/`train`),
+      Patient Context (name/id/age) separated from model features, human
+      labels + verified units + integer formatting, blood-pressure entry
+      returning `float | None` (no silent fallback), pre-run summary +
+      validation, clinical disclaimer, and a Manual Entry / CSV Upload
+      input toggle
+- [x] `dashboard/clinical.py`: `DISPLAY_LABELS` (all four presets),
+      `FEATURE_UNITS`, `INTEGER_FEATURES`, `feature_unit()`,
+      `is_integer_feature()`, `validate_feature_values()`,
+      `assessment_summary()`
+- [x] `dashboard/client.py`: `presets()`, `train(preset, model="mlp")`,
+      `analyze_csv()` (base64), n8n `preset`/`train` kwargs
+- [x] Tests: frontend 54 (+14), backend 340 (+5); lint clean
+- [x] Smoke tests: preset switching adapts the form, train-on-demand on
+      the direct route (patient metadata never sent as features), CSV
+      upload forwards bytes + patient
+
+New deferred items from Milestone 13:
+
+- [ ] Route CSV uploads through the n8n end-to-end workflow (currently
+      direct-to-FastAPI only; the webhook's HTTP Request node would need
+      a base64/multipart body for the CSV bytes)
+- [ ] Multimodal fusion in the assessment summary — it currently shows
+      the static "Medical image: Not provided" (the imaging workflow is a
+      separate tab)
+- [ ] Scaler/encoder persistence for inference-time consistency — uploaded
+      CSV analysis re-fits the `CSVPipeline` scaler on the uploaded rows
+      (same behaviour as the existing analyze path)
+
 ### Milestone 9+ (not yet scoped)
 
 - [ ] Full OAuth / per-user authentication (currently an optional static
       bearer token via `API_TOKEN`)
-- [ ] File upload endpoint for CSV / image inference (backend) + upload
-      widget in the dashboard
+- [x] File upload for CSV + image inference (backend `POST
+      /api/v1/analyze/csv` + `/api/v1/analyze/image`; dashboard CSV upload
+      in the assessment tab + MRI upload in the Imaging tab)
 - [ ] Deployment container for the API (the old app's Dockerfile was
       removed with the superseded demo)
 - [ ] Downstream n8n storage/notification branches (e.g. append report
