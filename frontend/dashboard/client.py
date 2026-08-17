@@ -274,17 +274,89 @@ class HealthcareAPIClient:
             If the webhook is unreachable, the workflow reports an error,
             or the response omits the clinical report.
         """
+        payload = self._analyze_payload(
+            patient,
+            features,
+            markers,
+            recommendations,
+            input_type,
+            preset=preset,
+            train=train,
+        )
+        return self._post_n8n_webhook(n8n_base_url, payload, webhook)
+
+    def analyze_csv_via_n8n(
+        self,
+        n8n_base_url: str,
+        patient: Mapping[str, Any],
+        csv: bytes,
+        markers: Mapping[str, float] | None = None,
+        recommendations: list[str] | None = None,
+        input_type: str = "csv",
+        webhook: str = N8N_ANALYZE_WEBHOOK,
+        preset: str | None = None,
+        train: bool = False,
+    ) -> dict[str, Any]:
+        """
+        Run a CSV upload analysis through the n8n end-to-end webhook.
+
+        The CSV bytes are base64-encoded into the webhook payload
+        (``csv_b64``); the workflow's ``HTTP: Analyze CSV`` node forwards
+        them to ``POST /api/v1/analyze/csv`` where parsing and
+        preprocessing happen on the backend.
+
+        Parameters
+        ----------
+        n8n_base_url : str
+            Origin of the n8n instance, e.g. ``http://localhost:5678``.
+        patient : Mapping[str, Any]
+            Patient context (``name``, ``id``, ``age``, ``notes``).
+        csv : bytes
+            Raw UTF-8 CSV file bytes.
+        markers : Mapping[str, float] | None
+            Optional raw clinical markers for the risk assessment.
+        recommendations : list[str] | None
+            Recommendation strings for the report.
+        input_type : str
+            Data modality analyzed (default ``"csv"``).
+        webhook : str
+            n8n webhook path to call (defaults to the end-to-end workflow).
+        preset : str | None
+            When given, the workflow trains this preset before analyzing.
+        train : bool
+            When true (and ``preset`` is set), the workflow trains the
+            preset model before the analysis step.
+
+        Returns
+        -------
+        dict[str, Any]
+            ``ClinicalReport`` payload extracted from the webhook response.
+
+        Raises
+        ------
+        HealthcareAPIError
+            If the webhook is unreachable, the workflow reports an error,
+            or the response omits the clinical report.
+        """
+        payload = self._analyze_payload(
+            patient,
+            {},
+            markers,
+            recommendations,
+            input_type,
+            preset=preset,
+            train=train,
+        )
+        payload["csv_b64"] = base64.b64encode(csv).decode("ascii")
+        return self._post_n8n_webhook(n8n_base_url, payload, webhook)
+
+    def _post_n8n_webhook(
+        self, n8n_base_url: str, payload: dict[str, Any], webhook: str
+    ) -> dict[str, Any]:
+        """POST a payload to an n8n webhook and extract the clinical report."""
         response = self._client.post(
             f"{n8n_base_url.rstrip('/')}/webhook/{webhook}",
-            json=self._analyze_payload(
-                patient,
-                features,
-                markers,
-                recommendations,
-                input_type,
-                preset=preset,
-                train=train,
-            ),
+            json=payload,
         )
         self._raise_for_error(response)
         body = response.json()

@@ -294,6 +294,59 @@ def test_imaging_upload_analyzes_image(monkeypatch):
     assert "Image analysis" in text
 
 
+def test_assessment_csv_upload_routes_through_n8n(monkeypatch):
+    import dashboard.client as client_module
+
+    monkeypatch.setattr(
+        client_module.HealthcareAPIClient, "model_info", lambda self: TABULAR_MODEL
+    )
+    monkeypatch.setattr(
+        client_module.HealthcareAPIClient, "presets", lambda self: PRESETS
+    )
+    calls: dict[str, object] = {}
+
+    def fake_analyze_csv_via_n8n(
+        self,
+        n8n_base_url,
+        patient,
+        csv,
+        markers=None,
+        recommendations=None,
+        input_type="csv",
+        webhook="healthcare-endtoend",
+        preset=None,
+        train=False,
+    ):
+        calls["csv"] = csv
+        calls["preset"] = preset
+        calls["train"] = train
+        return REPORT
+
+    monkeypatch.setattr(
+        client_module.HealthcareAPIClient,
+        "analyze_csv_via_n8n",
+        fake_analyze_csv_via_n8n,
+    )
+
+    app = AppTest.from_file(APP_PATH, default_timeout=30)
+    app.run()
+    _route_radio(app).set_value(ROUTE_N8N).run()
+    app.radio[0].set_value("CSV Upload").run()
+
+    uploader = app.get("file_uploader")[0]
+    uploader.set_value(("data.csv", b"glucose,bmi,age\n150,25,45\n", "text/csv")).run()
+
+    app.button[0].click().run()
+
+    assert len(app.exception) == 0
+    assert calls["csv"] == b"glucose,bmi,age\n150,25,45\n"
+    assert calls["train"] is False
+    assert calls["preset"] is None
+    text = " ".join(_texts(app))
+    assert "Clinical Results" in text
+    assert "n8n end-to-end workflow" in text
+
+
 def test_results_tab_prompts_before_first_analysis(app):
     text = " ".join(_texts(app))
     assert "No analysis has been run yet" in text

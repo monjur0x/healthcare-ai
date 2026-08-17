@@ -733,9 +733,9 @@ def run_assessment_tab(client: HealthcareAPIClient) -> None:
     if input_mode == "CSV Upload":
         st.caption(
             "Upload a CSV file whose columns match the model feature names "
-            "(the first row is analyzed). CSV analysis is sent directly to "
-            "the FastAPI backend — the n8n workflow currently handles "
-            "structured feature input only."
+            "(the first row is analyzed). Parsing and preprocessing happen "
+            "on the backend; the n8n workflow forwards the file when the "
+            "analysis route uses n8n."
         )
 
     with st.form("assessment_form"):
@@ -828,20 +828,44 @@ def run_assessment_tab(client: HealthcareAPIClient) -> None:
         if csv_file is None:
             st.error("Please upload a CSV file before running the assessment.")
             return
+        route = resolve_route(
+            client,
+            st.session_state.get("n8n_base_url", DEFAULT_N8N_URL),
+            st.session_state.get("analysis_route", ROUTE_AUTOMATIC),
+        )
         try:
             with st.spinner("Running the clinical analysis pipeline…"):
-                report = client.analyze_csv(patient=patient, csv=csv_file.getvalue())
+                if route == "n8n":
+                    n8n_kwargs: dict[str, Any] = {}
+                    if need_train and selected is not None:
+                        n8n_kwargs = {"preset": selected, "train": True}
+                    report = client.analyze_csv_via_n8n(
+                        st.session_state.get("n8n_base_url", DEFAULT_N8N_URL),
+                        patient=patient,
+                        csv=csv_file.getvalue(),
+                        **n8n_kwargs,
+                    )
+                else:
+                    report = client.analyze_csv(
+                        patient=patient, csv=csv_file.getvalue()
+                    )
         except HealthcareAPIError as error:
             st.error(str(error))
+            if route == "n8n":
+                st.caption(
+                    "The n8n workflow did not complete. Check that n8n is "
+                    "running and the workflow is active, or switch the "
+                    "analysis route to 'Direct to FastAPI' in the sidebar."
+                )
             return
         except httpx.HTTPError as error:
-            st.error(f"Could not reach the analysis backend: {error}")
+            st.error(f"Could not reach the analysis workflow: {error}")
             return
         st.session_state["clinical_report"] = report
-        st.session_state["report_route"] = "direct"
+        st.session_state["report_route"] = route
         render_clinical_results(
             report,
-            "direct",
+            route,
             subtitle=f"Patient {patient_id}",
             download_key="download_assessment_csv",
         )

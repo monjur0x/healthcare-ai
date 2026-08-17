@@ -468,6 +468,85 @@ def test_analyze_via_n8n_omits_train_preset_when_unset():
     assert "preset" not in captured["json"]
 
 
+def test_analyze_csv_via_n8n_posts_base64_and_parses_report():
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["url"] = str(request.url)
+        captured["json"] = json.loads(request.content)
+        return httpx.Response(200, json={"status": "success", "report": _report()})
+
+    client = _client(handler)
+    try:
+        result = client.analyze_csv_via_n8n(
+            n8n_base_url="http://n8n:5678/",
+            patient={"id": "p-csv", "name": "Patient"},
+            csv=b"glucose,bmi,age\n150.0,25.0,55\n",
+            markers={"glucose": 150.0},
+            input_type="csv",
+        )
+    finally:
+        client.close()
+
+    assert captured["url"] == "http://n8n:5678/webhook/healthcare-endtoend"
+    assert captured["json"]["csv_b64"] == base64.b64encode(
+        b"glucose,bmi,age\n150.0,25.0,55\n"
+    ).decode("ascii")
+    assert captured["json"]["patient"]["id"] == "p-csv"
+    assert captured["json"]["markers"]["glucose"] == 150.0
+    assert captured["json"]["input_type"] == "csv"
+    assert result["prediction"]["predicted_class"] == "1"
+
+
+def test_analyze_csv_via_n8n_includes_train_and_preset_when_requested():
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["json"] = json.loads(request.content)
+        return httpx.Response(200, json={"status": "success", "report": _report()})
+
+    client = _client(handler)
+    try:
+        client.analyze_csv_via_n8n(
+            n8n_base_url="http://n8n:5678",
+            patient={"id": "p-csv"},
+            csv=b"glucose,bmi,age\n150.0,25.0,55\n",
+            preset="heart",
+            train=True,
+        )
+    finally:
+        client.close()
+    assert captured["json"]["train"] is True
+    assert captured["json"]["preset"] == "heart"
+    assert "csv_b64" in captured["json"]
+
+
+def test_analyze_csv_via_n8n_raises_on_workflow_error():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "status": "error",
+                "stage": "analysis_call",
+                "error_message": "CSV columns do not match the model",
+            },
+        )
+
+    client = _client(handler)
+    try:
+        with pytest.raises(HealthcareAPIError) as excinfo:
+            client.analyze_csv_via_n8n(
+                n8n_base_url="http://n8n:5678",
+                patient={"id": "p-csv"},
+                csv=b"bad,csv\n1,2\n",
+            )
+    finally:
+        client.close()
+
+    assert excinfo.value.code == "n8n_workflow_error"
+    assert "CSV columns do not match" in excinfo.value.message
+
+
 def test_n8n_health_false_when_unreachable():
     def handler(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("connection refused")
