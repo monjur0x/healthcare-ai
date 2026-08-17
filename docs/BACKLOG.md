@@ -412,9 +412,12 @@ New deferred items from Milestone 11 / n8n verification:
 
 New deferred items from Milestone 13:
 
-- [ ] Route CSV uploads through the n8n end-to-end workflow (currently
-      direct-to-FastAPI only; the webhook's HTTP Request node would need
-      a base64/multipart body for the CSV bytes)
+- [x] Route CSV uploads through the n8n end-to-end workflow —
+      `healthcare-endtoend.json` gained an **IF: CSV Input?** branch
+      (`csv_b64` non-empty) that posts to `/api/v1/analyze/csv` via the
+      new **HTTP: Analyze CSV** node; the dashboard's CSV Upload mode now
+      uses `analyze_csv_via_n8n()` when the analysis route is n8n
+      (client refactor: shared `_post_n8n_webhook()` report extraction)
 - [ ] Multimodal fusion in the assessment summary — it currently shows
       the static "Medical image: Not provided" (the imaging workflow is a
       separate tab)

@@ -90,6 +90,17 @@
 
 ### Changed
 
+- **CSV uploads now route through the n8n end-to-end workflow**
+  (`frontend/` + `n8n/`): `healthcare-endtoend.json` gained an
+  **IF: CSV Input?** branch that sends base64 CSV bytes (`csv_b64` in
+  the webhook payload) to `POST /api/v1/analyze/csv` via a new
+  **HTTP: Analyze CSV** node, so CSV analysis is orchestrated exactly
+  like the structured-feature path (train-on-demand included). The
+  dashboard's CSV Upload mode now calls `analyze_csv_via_n8n()` when the
+  analysis route is n8n and still falls back to direct `analyze_csv()`
+  for the direct route; the client's n8n report extraction was refactored
+  into a shared `_post_n8n_webhook()`. Tests: frontend 58 (+4 client,
+  +1 smoke).
 - **Blood Pressure input accepts SYS/DIA** (`frontend/`): the Clinical
   Assessment form's Blood Pressure field now accepts `120/90`
   (systolic/diastolic) or a single value. The model's `bloodpressure`

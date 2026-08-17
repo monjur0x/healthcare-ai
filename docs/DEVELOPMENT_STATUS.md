@@ -540,6 +540,25 @@ unchanged.
       (patient metadata never sent as features), and CSV upload
       (bytes + patient forwarded, direct-route caption)
 
+### CSV uploads through n8n (follow-up)
+
+- [x] `n8n/healthcare-endtoend.json` — new **IF: CSV Input?** node
+      (triggers when the webhook `csv_b64` is a non-empty string) + new
+      **HTTP: Analyze CSV** node posting to `/api/v1/analyze/csv`;
+      train-success and skip-train paths both converge on the IF, and the
+      CSV/structured branches merge back at the report-builder Code node
+- [x] `frontend/dashboard/client.py` — `analyze_csv_via_n8n()` (base64
+      `csv_b64` in the webhook payload, shared `_post_n8n_webhook()`
+      report extraction, `preset`/`train` forwarding)
+- [x] Dashboard CSV Upload mode resolves the analysis route and calls
+      `analyze_csv_via_n8n()` when n8n is selected, otherwise the direct
+      `analyze_csv()`; caption updated (n8n now forwards the file)
+- [x] Workflow JSON validated (all connection targets exist; embedded
+      Code-node JS parses under node)
+- [x] Tests: frontend 58 (+4 client, +1 smoke — CSV via n8n posts
+      base64 + parses report, train/preset forwarding, workflow-error
+      mapping, n8n-route smoke)
+
 ---
 
 ## Milestone 6 — n8n orchestration (`n8n/`)
@@ -867,5 +886,5 @@ prediction, and retrieval modules, per `docs/SOFTWARE_ARCHITECTURE.md`
       models/tests evaluation/tests federated/tests rag/tests
       examples/tests CrewAI/orchestrator/tests api/tests
       scripts/tests`)
-- [x] Frontend: 54 tests passing (from `frontend/`)
+- [x] Frontend: 58 tests passing (from `frontend/`)
 - [ ] Full test command documented in README/AGENTS (see `AGENTS.md` tooling note)
