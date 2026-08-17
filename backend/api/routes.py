@@ -20,10 +20,12 @@ from CrewAI.orchestrator.schemas import (
 
 from .exceptions import AuthenticationError, ServiceUnavailableError
 from .schemas import (
+    AnalyzeCSVRequest,
     AnalyzeImageRequest,
     AnalyzeRequest,
     ModelInfo,
     PredictRequest,
+    PresetInfo,
     RetrieveRequest,
     TrainRequest,
     TrainResponse,
@@ -227,6 +229,39 @@ def analyze_image(
     )
 
 
+@router.post("/analyze/csv", response_model=ClinicalReport)
+def analyze_csv(
+    request: AnalyzeCSVRequest, service: ServiceDependency
+) -> ClinicalReport:
+    """
+    Analyze the first row of an uploaded CSV and return a report.
+
+    The CSV is preprocessed entirely on the backend
+    (``preprocessing.csv.CSVPipeline``); the dashboard only uploads the
+    raw bytes.
+
+    Parameters
+    ----------
+    request : AnalyzeCSVRequest
+        Analysis payload (patient, CSV bytes, markers).
+    service : AnalysisService
+        Injected analysis service.
+
+    Returns
+    -------
+    ClinicalReport
+        The assembled structured report.
+    """
+
+    return service.analyze_csv(
+        patient=request.patient,
+        csv=request.csv,
+        markers=request.markers,
+        recommendations=request.recommendations,
+        input_type=request.input_type,
+    )
+
+
 @router.get("/model", response_model=ModelInfo)
 def model_info(service: ServiceDependency) -> ModelInfo:
     """
@@ -244,6 +279,26 @@ def model_info(service: ServiceDependency) -> ModelInfo:
     """
 
     return ModelInfo(**service.model_info())
+
+
+@router.get("/presets", response_model=list[PresetInfo])
+def presets(service: ServiceDependency) -> list[PresetInfo]:
+    """
+    Describe the named dataset presets and their feature schemas.
+
+    Parameters
+    ----------
+    service : AnalysisService
+        Injected analysis service.
+
+    Returns
+    -------
+    list[PresetInfo]
+        Preset metadata ordered by name; ``available`` reflects whether a
+        trained artifact exists.
+    """
+
+    return [PresetInfo(**info) for info in service.presets_info()]
 
 
 __all__ = ["router"]

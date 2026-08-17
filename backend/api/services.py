@@ -361,6 +361,9 @@ class AnalysisService:
     dataset_dir: Path = field(
         default_factory=lambda: Path(os.environ.get("DATASET_DIR", "."))
     )
+    #: Dataset preset the in-memory tabular model was trained on, when
+    #: known (None for a model loaded from ``API_MODEL_PATH``).
+    active_preset: str | None = None
 
     @classmethod
     def from_settings(cls, cfg: APISettings | None = None) -> AnalysisService:
@@ -519,6 +522,7 @@ class AnalysisService:
         fitted.save(model_path)
 
         self.model = fitted
+        self.active_preset = preset
         logger.info(
             "Trained %s model on %s (federated=%s): accuracy=%.4f artifact=%s",
             model,
@@ -754,8 +758,8 @@ class AnalysisService:
         Returns
         -------
         dict[str, Any]
-            ``{available, model_type, model_name, classes, feature_names}``
-            keyed for the ``ModelInfo`` schema.
+            ``{available, model_type, model_name, classes, feature_names,
+            preset}`` keyed for the ``ModelInfo`` schema.
         """
 
         tabular = self.model
@@ -786,7 +790,50 @@ class AnalysisService:
             "model_name": model_name,
             "classes": classes,
             "feature_names": feature_names,
+            "preset": self.active_preset if tabular is not None else None,
         }
+
+    def presets_info(self) -> list[dict[str, Any]]:
+        """
+        Describe the named dataset presets and their feature schemas.
+
+        A preset is ``available`` only when a trained artifact exists
+        under ``artifacts_dir/<preset>/global_model.joblib``; its feature
+        schema and classes are then read from that artifact so the
+        dashboard can render exactly the fields the model expects.
+
+        Returns
+        -------
+        list[dict[str, Any]]
+            One ``PresetInfo``-shaped dict per preset, ordered by name.
+        """
+
+        infos: list[dict[str, Any]] = []
+        for name, (file_name, target) in sorted(PRESETS.items()):
+            info: dict[str, Any] = {
+                "name": name,
+                "dataset": file_name,
+                "target": target,
+                "available": False,
+                "feature_names": None,
+                "classes": None,
+            }
+            artifact = self.artifacts_dir / name / "global_model.joblib"
+            if artifact.exists():
+                try:
+                    preset_model = TabularClassifier.load(artifact)
+                except ModelLoadError as error:
+                    logger.warning(
+                        "Could not read preset artifact %s: %s", artifact, error
+                    )
+                    preset_model = None
+                if preset_model is not None and preset_model.is_fitted:
+                    info["available"] = True
+                    info["feature_names"] = list(preset_model.feature_names or [])
+                    info["classes"] = [str(label) for label in preset_model.classes_]
+            infos.append(info)
+        logger.info("Reported %d presets", len(infos))
+        return infos
 
     def analyze_image(
         self,
@@ -846,6 +893,91 @@ class AnalysisService:
             raise InvalidInputError(str(error)) from error
         logger.info("API image analysis complete for patient %s", patient.id)
         return report
+
+    def analyze_csv(
+        self,
+        patient: PatientInfo,
+        csv: bytes,
+        markers: Mapping[str, float] | None = None,
+        recommendations: list[str] | None = None,
+        input_type: str = "csv",
+    ) -> ClinicalReport:
+        """
+        Run the clinical crew on the first row of an uploaded CSV.
+
+        Preprocessing stays in ``preprocessing.csv.CSVPipeline`` (the
+        reusable inference path, ADR-003); the dashboard never parses or
+        transforms the CSV itself. The first data row is aligned to the
+        served model's ``feature_names`` and fed through the standard
+        analysis pipeline.
+
+        Parameters
+        ----------
+        patient : PatientInfo
+            Patient context.
+        csv : bytes
+            Raw UTF-8 CSV bytes.
+        markers : Mapping[str, float] | None
+            Optional raw clinical markers for the risk assessment.
+        recommendations : list[str] | None
+            Optional recommendation strings.
+        input_type : str
+            Data modality analyzed (default ``"csv"``).
+
+        Returns
+        -------
+        ClinicalReport
+            The assembled structured report.
+
+        Raises
+        ------
+        ServiceUnavailableError
+            If no tabular model is configured.
+        InvalidInputError
+            If the CSV cannot be preprocessed or is missing the columns
+            the served model requires.
+        """
+
+        if self.model is None:
+            raise ServiceUnavailableError(
+                "No tabular model is configured for CSV analysis (set "
+                "API_MODEL_PATH or train one)."
+            )
+        names = list(self.model.feature_names or [])
+        if not names:
+            raise InvalidInputError(
+                "The served model has no recorded feature columns; CSV "
+                "analysis cannot align the data."
+            )
+        try:
+            result = CSVPipeline().run(csv)
+        except Exception as error:
+            raise InvalidInputError(f"CSV preprocessing failed: {error}") from error
+        frame = result.dataframe
+        if frame.shape[0] == 0:
+            raise InvalidInputError("The uploaded CSV contains no data rows.")
+        missing = [name for name in names if name not in frame.columns]
+        if missing:
+            raise InvalidInputError(
+                "The uploaded CSV is missing columns required by the model: "
+                f"{', '.join(missing)}. Expected: {', '.join(names)}."
+            )
+        row = frame.iloc[0]
+        features = {name: float(row[name]) for name in names}
+        effective_markers = markers if markers is not None else features
+        logger.info(
+            "API CSV analysis for patient %s (row 0 of %d, %d features)",
+            patient.id,
+            frame.shape[0],
+            len(features),
+        )
+        return self.analyze(
+            patient=patient,
+            features=features,
+            markers=effective_markers,
+            recommendations=recommendations,
+            input_type=input_type,
+        )
 
     def analyze(
         self,

@@ -105,7 +105,44 @@ class FakeService(AnalysisService):
             "model_name": "mlp",
             "classes": ["0", "1"],
             "feature_names": ["glucose", "bmi", "age"],
+            "preset": "diabetes",
         }
+
+    def presets_info(self):
+        return [
+            {
+                "name": "diabetes",
+                "dataset": "diabetes.csv",
+                "target": "Outcome",
+                "available": True,
+                "feature_names": ["glucose", "bmi", "age"],
+                "classes": ["0", "1"],
+            },
+            {
+                "name": "heart",
+                "dataset": "heart_disease_uci.csv",
+                "target": "num",
+                "available": False,
+                "feature_names": None,
+                "classes": None,
+            },
+        ]
+
+    def analyze_csv(self, patient, csv, markers=None, recommendations=None, **kwargs):
+        return ClinicalReport(
+            patient=patient,
+            input_type="csv",
+            patient_summary="CSV analysis completed.",
+            prediction=PredictionResult(
+                predicted_class="1",
+                probabilities={"0": 0.2, "1": 0.8},
+                confidence=0.8,
+                model_name="fake",
+            ),
+            risk=None,
+            evidence=[],
+            recommendations=list(recommendations or []),
+        )
 
 
 @pytest.fixture()
@@ -267,6 +304,7 @@ def test_model_info_returns_metadata(client):
     assert payload["available"] is True
     assert payload["model_type"] == "tabular_and_image"
     assert payload["feature_names"] == ["glucose", "bmi", "age"]
+    assert payload["preset"] == "diabetes"
 
 
 def test_model_info_returns_unavailable_when_no_model():
@@ -278,12 +316,72 @@ def test_model_info_returns_unavailable_when_no_model():
                 "model_name": None,
                 "classes": None,
                 "feature_names": None,
+                "preset": None,
             }
 
     app = create_app(cfg=APISettings(_env_file=None), service=EmptyService())
     response = TestClient(app).get("/api/v1/model")
     assert response.status_code == 200
     assert response.json()["available"] is False
+
+
+def test_presets_returns_feature_schemas(client):
+    response = client.get("/api/v1/presets")
+    assert response.status_code == 200
+    payload = response.json()
+    assert [item["name"] for item in payload] == ["diabetes", "heart"]
+    diabetes = payload[0]
+    assert diabetes["available"] is True
+    assert diabetes["feature_names"] == ["glucose", "bmi", "age"]
+    heart = payload[1]
+    assert heart["available"] is False
+    assert heart["feature_names"] is None
+
+
+def test_analyze_csv_returns_report(client):
+    response = client.post(
+        "/api/v1/analyze/csv",
+        json={
+            "patient": {"id": "p-csv", "name": "P"},
+            "csv": base64.b64encode(b"glucose,bmi,age\n150.0,25.0,55\n").decode(
+                "ascii"
+            ),
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["patient"]["id"] == "p-csv"
+    assert payload["input_type"] == "csv"
+    assert payload["prediction"]["confidence"] == 0.8
+
+
+def test_analyze_csv_missing_csv_is_422(client):
+    response = client.post("/api/v1/analyze/csv", json={"patient": {"id": "p-csv"}})
+    assert response.status_code == 422
+
+
+def test_analyze_csv_invalid_base64_is_422(client):
+    response = client.post(
+        "/api/v1/analyze/csv",
+        json={"patient": {"id": "p-csv"}, "csv": "not!base64!"},
+    )
+    assert response.status_code == 422
+
+
+def test_analyze_csv_error_maps_to_503():
+    class UnavailableService(FakeService):
+        def analyze_csv(
+            self, patient, csv, markers=None, recommendations=None, **kwargs
+        ):
+            raise ServiceUnavailableError("No tabular model is configured.")
+
+    app = create_app(cfg=APISettings(_env_file=None), service=UnavailableService())
+    response = TestClient(app).post(
+        "/api/v1/analyze/csv",
+        json={"patient": {"id": "p-csv"}, "csv": "Z2x1Y29zZQ=="},
+    )
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "service_unavailable"
 
 
 def test_token_required_when_configured():

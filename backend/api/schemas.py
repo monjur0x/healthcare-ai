@@ -175,6 +175,102 @@ class AnalyzeRequest(BaseModel):
     input_type: str = "csv"
 
 
+class AnalyzeCSVRequest(BaseModel):
+    """
+    A CSV-based clinical analysis request.
+
+    The frontend never parses or transforms the CSV for inference: it
+    uploads the raw bytes and the backend preprocessing pipeline produces
+    the feature row (ADR-003).
+
+    Parameters
+    ----------
+    patient : PatientInfo
+        Patient context (name, study id, age, notes).
+    csv : bytes
+        Raw CSV file bytes (UTF-8) for the preprocessing pipeline.
+    markers : dict[str, float] | None
+        Optional raw clinical markers feeding the risk assessment.
+    recommendations : list[str] | None
+        Optional recommendation strings for the report.
+    input_type : str
+        Data modality analyzed (default ``"csv"``).
+    """
+
+    patient: PatientInfo = Field(default_factory=PatientInfo)
+    csv: bytes
+    markers: dict[str, float] | None = None
+    recommendations: list[str] | None = None
+    input_type: str = "csv"
+
+    @field_validator("csv", mode="before")
+    @classmethod
+    def decode_base64_csv(cls, value: Any) -> bytes:
+        """
+        Decode a base64-encoded JSON string into raw CSV bytes.
+
+        Parameters
+        ----------
+        value : Any
+            Raw JSON value (a base64 string or already bytes).
+
+        Returns
+        -------
+        bytes
+            Decoded CSV bytes.
+
+        Raises
+        ------
+        ValueError
+            If the value is not a base64 string or decodes to nothing.
+        """
+
+        if isinstance(value, bytes):
+            return value
+        if not isinstance(value, str):
+            raise ValueError("csv must be a base64-encoded string.")
+        try:
+            decoded = base64.b64decode(value, validate=True)
+        except binascii.Error as error:
+            raise ValueError(f"Invalid base64 csv: {error}") from error
+        if not decoded:
+            raise ValueError("csv base64 payload is empty.")
+        return decoded
+
+
+class PresetInfo(BaseModel):
+    """
+    Metadata about a named dataset / model preset.
+
+    ``available`` is true only when a trained artifact exists for the
+    preset; the feature schema is then read from that artifact so the
+    dashboard can render the exact fields a doctor must provide.
+
+    Parameters
+    ----------
+    name : str
+        Preset name (``"diabetes"`` / ``"heart"`` / ``"kidney"`` /
+        ``"sepsis"``).
+    dataset : str
+        Source CSV file name.
+    target : str
+        Target column name.
+    available : bool
+        Whether a trained artifact exists for this preset.
+    feature_names : list[str] | None
+        Feature columns the served preset model expects (when available).
+    classes : list[str] | None
+        Class labels of the preset model (when available).
+    """
+
+    name: str
+    dataset: str
+    target: str
+    available: bool = False
+    feature_names: list[str] | None = None
+    classes: list[str] | None = None
+
+
 class AnalyzeImageRequest(BaseModel):
     """
     An image-based clinical analysis request.
@@ -247,6 +343,9 @@ class ModelInfo(BaseModel):
         Class labels of the primary model.
     feature_names : list[str] | None
         Expected feature columns (tabular model only).
+    preset : str | None
+        Dataset preset the served tabular model was trained on, when
+        known (None for a model loaded from ``API_MODEL_PATH``).
     """
 
     available: bool = False
@@ -254,6 +353,7 @@ class ModelInfo(BaseModel):
     model_name: str | None = None
     classes: list[str] | None = None
     feature_names: list[str] | None = None
+    preset: str | None = None
 
 
 class HealthResponse(BaseModel):
@@ -276,6 +376,7 @@ class HealthResponse(BaseModel):
 
 
 __all__ = [
+    "AnalyzeCSVRequest",
     "AnalyzeImageRequest",
     "AnalyzeRequest",
     "ClinicalReport",
@@ -286,6 +387,7 @@ __all__ = [
     "PatientInfo",
     "PredictRequest",
     "PredictionResult",
+    "PresetInfo",
     "RetrieveRequest",
     "TrainRequest",
     "TrainResponse",
