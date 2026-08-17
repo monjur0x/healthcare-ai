@@ -47,16 +47,30 @@ nothing needs to be trained or configured manually first.
    `dataset` + `target`); central fit by default, or the federated FedAvg
    path with `federated: true` + `clients` / `rounds`. The backend saves
    the artifact and starts serving it immediately.
-4. **HTTP: Analyze Patient** — posts the patient / features / markers to
-   `POST /api/v1/analyze` (payload always read from the original webhook
-   request body).
-5. **Code: Analyze & Build Report** — validates the clinical report and
+4. **IF: CSV Input?** — when the caller supplies a base64-encoded CSV
+   (`csv_b64`), the workflow posts it to `POST /api/v1/analyze/csv`;
+   otherwise it continues to the structured-feature path.
+5. **HTTP: Analyze CSV / HTTP: Analyze Patient** — posts the
+   CSV / patient / features / markers to the matching endpoint (payload
+   always read from the original webhook request body).
+6. **Code: Analyze & Build Report** — validates the clinical report and
    emits a `status: success` summary alongside the full `report`.
-6. **Respond to Webhook** — returns the summary + full clinical `report`
+7. **Respond to Webhook** — returns the summary + full clinical `report`
    as a single JSON object (consumed directly by the Streamlit
    dashboard).
-7. Errors from training, analysis, or validation each respond as a
+8. Errors from training, analysis, or validation each respond as a
    single `status: error` payload with the failing `stage`.
+
+### CSV uploads
+
+The dashboard's CSV Upload mode works through this workflow too: the
+caller base64-encodes the raw file bytes into `csv_b64` in the webhook
+payload (alongside the usual `patient` / optional `markers` /
+`recommendations`), and the **HTTP: Analyze CSV** node forwards them to
+`POST /api/v1/analyze/csv`, where parsing and preprocessing happen in
+`backend/preprocessing/csv`. `csv_b64` must be a non-empty string for
+the CSV branch to be selected; structured-feature requests simply omit
+it.
 
 Example payload:
 

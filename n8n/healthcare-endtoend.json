@@ -100,6 +100,63 @@
     },
     {
       "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "csv",
+              "leftValue": "={{ $json.body.csv_b64 }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "isNotEmpty",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "e2e00000-0000-4000-8000-00000000000e",
+      "name": "IF: CSV Input?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [-40, 40]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:8000/api/v1/analyze/csv",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { csv: $('Webhook: End-to-End Pipeline').item.json.body.csv_b64, patient: $('Webhook: End-to-End Pipeline').item.json.body.patient, markers: $('Webhook: End-to-End Pipeline').item.json.body.markers, recommendations: $('Webhook: End-to-End Pipeline').item.json.body.recommendations, input_type: 'csv' } }}",
+        "options": {
+          "timeout": 600000
+        }
+      },
+      "id": "e2e00000-0000-4000-8000-00000000000f",
+      "name": "HTTP: Analyze CSV",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [200, -60],
+      "onError": "continueErrorOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "PLACEHOLDER_CREDENTIAL_ID",
+          "name": "Healthcare API Token"
+        }
+      }
+    },
+    {
+      "parameters": {
         "jsCode": "const webhook = $('Webhook: End-to-End Pipeline').item.json.body;\nconst resp = $json || {};\nlet trainMeta = null;\ntry { trainMeta = $('HTTP: Train Model').item.json; } catch (e) { /* train branch not taken */ }\nconst valid = resp && typeof resp === 'object' && typeof resp.patient_summary === 'string' && Array.isArray(resp.evidence);\nif (!valid) {\n  return [{ json: { status: 'error', stage: 'validation', error_message: 'The analyze response is not a valid clinical report' } }];\n}\nreturn [{\n  json: {\n    status: 'success',\n    request_id: $execution.id,\n    dataset: webhook.preset || webhook.dataset || null,\n    train_status: trainMeta ? 'trained' : 'not_requested',\n    model_accuracy: trainMeta ? trainMeta.accuracy : null,\n    prediction: resp.prediction ? resp.prediction.predicted_class : null,\n    confidence: resp.prediction ? resp.prediction.confidence : null,\n    risk_level: resp.risk ? resp.risk.risk_level : null,\n    evidence_count: resp.evidence.length,\n    report: resp,\n  },\n}];"
       },
       "id": "e2e00000-0000-4000-8000-000000000006",
@@ -205,7 +262,7 @@
         ],
         [
           {
-            "node": "HTTP: Analyze Patient",
+            "node": "IF: CSV Input?",
             "type": "main",
             "index": 0
           }
@@ -216,7 +273,7 @@
       "main": [
         [
           {
-            "node": "HTTP: Analyze Patient",
+            "node": "IF: CSV Input?",
             "type": "main",
             "index": 0
           }
@@ -224,6 +281,42 @@
         [
           {
             "node": "Code: Format Train Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF: CSV Input?": {
+      "main": [
+        [
+          {
+            "node": "HTTP: Analyze CSV",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "HTTP: Analyze Patient",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP: Analyze CSV": {
+      "main": [
+        [
+          {
+            "node": "Code: Analyze & Build Report",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code: Format Analyze Error",
             "type": "main",
             "index": 0
           }
