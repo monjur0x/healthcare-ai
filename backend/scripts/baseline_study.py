@@ -525,7 +525,7 @@ def split_dataset(
     """
 
     file_name, target = PRESETS[preset]
-    features, labels = prepare_tabular_data(dataset_dir / file_name, target, None)
+    features, labels, _ = prepare_tabular_data(dataset_dir / file_name, target, None)
     return train_test_split(
         features,
         labels,
@@ -791,7 +791,7 @@ def evaluate_agents(
             id=f"{preset}-{index}",
             age=age,
         )
-        report = service.analyze(patient, row)
+        report = service.analyze(patient, row, preprocessed=True, use_llm=False)
         crew_results.extend(_report_sections(report))
         if report.prediction is not None:
             predictions.append(report.prediction.predicted_class)

@@ -71,6 +71,10 @@ class ClinicalCrew:
         Optional raw clinical markers for risk assessment.
     recommendations : list[str] | None
         Optional recommendation strings for the report.
+    preprocessed : bool
+        True when ``features`` were already transformed by the training
+        pipeline (CSV path); False applies the model's persisted scaler
+        to raw feature values.
     """
 
     def __init__(
@@ -84,11 +88,13 @@ class ClinicalCrew:
         rag_pipeline: object | None = None,
         markers: Mapping[str, float] | None = None,
         recommendations: list[str] | None = None,
+        preprocessed: bool = False,
     ) -> None:
         self.patient = patient
         self.input_type = input_type
         self._model = model
         self._features = dict(features or {})
+        self._preprocessed = preprocessed
         self._image_model = image_model
         self._image = image
         self._rag_pipeline = rag_pipeline
@@ -120,7 +126,9 @@ class ClinicalCrew:
                     "The prediction step requires a full feature row; "
                     "pass features to ClinicalCrew."
                 )
-            prediction = run_prediction(self._model, self._features)
+            prediction = run_prediction(
+                self._model, self._features, preprocessed=self._preprocessed
+            )
             risk = assess_risk(prediction, self._markers)
 
         evidence: list[EvidenceItem] = []

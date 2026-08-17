@@ -13,9 +13,11 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 import numpy as np
+import pandas as pd
 
 from models import ImageClassifier
 from models.csv.tabular import TabularClassifier
+from preprocessing.csv.scaler import CSVScaler
 from preprocessing.logger import get_logger
 from rag import RAGPipeline
 from rag.exceptions import EmptyCorpusError, EmptyQueryError
@@ -57,7 +59,9 @@ MONITORING_SCHEDULES: dict[str, list[dict[str, str]]] = {
 
 
 def run_prediction(
-    model: TabularClassifier, features: Mapping[str, float]
+    model: TabularClassifier,
+    features: Mapping[str, float],
+    preprocessed: bool = False,
 ) -> PredictionResult:
     """
     Predict the class and probabilities for a single feature row.
@@ -69,6 +73,11 @@ def run_prediction(
     features : Mapping[str, float]
         Feature values. Ordered by ``model.feature_names`` when the model
         captured column names during fit, otherwise by insertion order.
+    preprocessed : bool
+        True when the features were already transformed by the training
+        pipeline (e.g. the CSV inference path); False applies the model's
+        persisted scaler to raw values (manual entry, n8n structured
+        input).
 
     Returns
     -------
@@ -88,6 +97,13 @@ def run_prediction(
         raise PredictionToolError(f"Missing feature values for columns: {missing}.")
     try:
         row = np.array([float(features[key]) for key in keys], dtype=np.float64)
+        if not preprocessed and getattr(model, "scaler_params", None) is not None:
+            scaled = CSVScaler.from_params(model.scaler_params).transform(
+                pd.DataFrame([features])
+            )[0]
+            row = np.array(
+                [float(scaled.iloc[0][key]) for key in keys], dtype=np.float64
+            )
         probabilities = model.predict_proba(row.reshape(1, -1))[0]
     except Exception as error:
         raise PredictionToolError(f"Prediction failed: {error}") from error

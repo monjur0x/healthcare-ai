@@ -68,6 +68,9 @@ class CSVPipeline:
         Numeric columns to scale.
     scale_method : str | None
         Scaling method; defaults to ``settings.SCALER``.
+    scaler_params : dict[str, object] | None
+        Persisted ``CSVScaler.params()`` to reuse at inference instead of
+        re-fitting on this batch (None re-fits as before).
     enable_feature_engineering : bool | None
         Whether to create derived features. Defaults to
         ``settings.ENABLE_FEATURE_ENGINEERING``.
@@ -81,6 +84,7 @@ class CSVPipeline:
         encode_mode: str = "label",
         scale_columns: tuple[str, ...] | None = None,
         scale_method: str | None = None,
+        scaler_params: dict[str, object] | None = None,
         enable_feature_engineering: bool | None = None,
     ) -> None:
         self._transformer = CSVTransformer(
@@ -90,6 +94,7 @@ class CSVPipeline:
             encode_mode=encode_mode,
             scale_columns=scale_columns,
             scale_method=scale_method,
+            scaler_params=scaler_params,
             enable_feature_engineering=enable_feature_engineering,
         )
 
@@ -185,6 +190,19 @@ class CSVPipeline:
         if not getattr(self, "_fitted", False):
             self.fit(source)
         return self.transform(source)
+
+    def scaler_params(self) -> dict[str, object]:
+        """
+        Return the fitted scaler's serializable parameters.
+
+        Returns
+        -------
+        dict[str, object]
+            ``CSVScaler.params()`` output; empty dict when the scaler has
+            not been fitted yet.
+        """
+
+        return self._transformer.scaler_params()
 
 
 def _asdict_optional(report) -> dict | None:

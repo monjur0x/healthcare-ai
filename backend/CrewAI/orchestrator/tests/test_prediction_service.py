@@ -51,6 +51,55 @@ def test_run_prediction_unfitted_model_raises() -> None:
         run_prediction(model, {"a": 1.0, "b": 2.0})
 
 
+@pytest.fixture
+def scaled_model() -> TabularClassifier:
+    """A model trained on scaled features with persisted scaler params."""
+    rng = np.random.default_rng(11)
+    x = rng.normal(loc=100.0, scale=20.0, size=(120, 2))
+    y = (x[:, 0] + 2.0 * x[:, 1] > 260).astype(int)
+    model = TabularClassifier(model_name="logistic")
+    model.fit(pd.DataFrame(x, columns=["glucose", "bmi"]), y)
+    scaled = pd.DataFrame(
+        {
+            "glucose": (x[:, 0] - x[:, 0].mean()) / x[:, 0].std(),
+            "bmi": (x[:, 1] - x[:, 1].mean()) / x[:, 1].std(),
+        }
+    )
+    model.fit(scaled, y)
+    model.set_scaler_params(
+        {
+            "method": "standard",
+            "columns": ["glucose", "bmi"],
+            "min": {"glucose": float(x[:, 0].min()), "bmi": float(x[:, 1].min())},
+            "max": {"glucose": float(x[:, 0].max()), "bmi": float(x[:, 1].max())},
+            "mean": {"glucose": float(x[:, 0].mean()), "bmi": float(x[:, 1].mean())},
+            "std": {"glucose": float(x[:, 0].std()), "bmi": float(x[:, 1].std())},
+        }
+    )
+    return model
+
+
+def test_run_prediction_raw_features_are_scaled(scaled_model) -> None:
+    params = scaled_model.scaler_params
+    raw = {"glucose": 100.0, "bmi": 90.0}
+    scaled_row = {
+        "glucose": (100.0 - params["mean"]["glucose"]) / params["std"]["glucose"],
+        "bmi": (90.0 - params["mean"]["bmi"]) / params["std"]["bmi"],
+    }
+    raw_result = run_prediction(scaled_model, raw)
+    preprocessed_result = run_prediction(scaled_model, scaled_row, preprocessed=True)
+    assert raw_result.probabilities == preprocessed_result.probabilities
+
+
+def test_run_prediction_preprocessed_skips_scaling(scaled_model) -> None:
+    raw = {"glucose": 100.0, "bmi": 90.0}
+    raw_scaled = run_prediction(scaled_model, raw)
+    wrongly_preprocessed = run_prediction(
+        scaled_model, {"glucose": 100.0, "bmi": 90.0}, preprocessed=True
+    )
+    assert wrongly_preprocessed.probabilities != raw_scaled.probabilities
+
+
 def _fitted_image_model() -> ImageClassifier:
     """A tiny CNN fitted on two synthetic classes."""
     images = np.zeros((16, 8, 8, 3), dtype=np.float32)

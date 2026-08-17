@@ -154,10 +154,14 @@ def _write_csv(tmp_path, n=80, name="dataset.csv") -> Path:
 
 def test_prepare_tabular_data_returns_features_and_labels(tmp_path):
     dataset = _write_csv(tmp_path)
-    features, labels = prepare_tabular_data(dataset, "Outcome", max_rows=None)
+    features, labels, scaler_params = prepare_tabular_data(
+        dataset, "Outcome", max_rows=None
+    )
     assert features.shape[0] == labels.shape[0] == 80
     assert "outcome" not in features.columns
     assert set(labels.unique()) == {0, 1}
+    assert isinstance(scaler_params, dict)
+    assert scaler_params["method"] == "standard"
 
 
 def test_prepare_tabular_data_missing_target_raises(tmp_path):

@@ -97,7 +97,7 @@ def _normalize_columns(dataframe: pd.DataFrame) -> pd.DataFrame:
 
 def prepare_tabular_data(
     dataset: Path, target: str, max_rows: int | None
-) -> tuple[pd.DataFrame, pd.Series]:
+) -> tuple[pd.DataFrame, pd.Series, dict[str, object]]:
     """
     Load and preprocess a CSV into a feature frame and encoded labels.
 
@@ -112,9 +112,9 @@ def prepare_tabular_data(
 
     Returns
     -------
-    tuple[pd.DataFrame, pd.Series]
-        Engineered feature frame and integer-encoded label series aligned
-        by index.
+    tuple[pd.DataFrame, pd.Series, dict[str, object]]
+        Engineered feature frame, integer-encoded label series aligned
+        by index, and the fitted scaler's serializable parameters.
 
     Raises
     ------
@@ -141,7 +141,8 @@ def prepare_tabular_data(
     feature_frame = feature_frame.loc[valid]
     y_raw = y_raw.loc[valid]
 
-    result = CSVPipeline(input_columns=tuple(feature_frame.columns)).run(feature_frame)
+    pipeline = CSVPipeline(input_columns=tuple(feature_frame.columns))
+    result = pipeline.run(feature_frame)
     features = result.dataframe
     if features.shape[0] == 0 or features.shape[1] == 0:
         raise InvalidInputError("Pipeline produced no usable features.")
@@ -161,7 +162,7 @@ def prepare_tabular_data(
         labels.nunique(),
         dataset,
     )
-    return features, labels
+    return features, labels, pipeline.scaler_params()
 
 
 def _partition_shards(
@@ -473,7 +474,9 @@ class AnalysisService:
 
         dataset_path, target = self._resolve_dataset(preset, dataset, target)
         try:
-            features, labels = prepare_tabular_data(dataset_path, target, max_rows)
+            features, labels, scaler_params = prepare_tabular_data(
+                dataset_path, target, max_rows
+            )
         except (OSError, ValueError) as error:
             raise InvalidInputError(str(error)) from error
 
@@ -507,8 +510,11 @@ class AnalysisService:
                     privacy_delta=privacy_delta,
                     secure_aggregation=secure_aggregation,
                 )
+                if hasattr(fitted, "set_scaler_params"):
+                    fitted.set_scaler_params(scaler_params)
             else:
                 fitted = TabularClassifier(model_name=model).fit(train_x, train_y)
+                fitted.set_scaler_params(scaler_params)
                 fed_metrics = None
         except InvalidInputError:
             raise
@@ -841,6 +847,7 @@ class AnalysisService:
         image: bytes,
         markers: Mapping[str, float] | None = None,
         recommendations: list[str] | None = None,
+        use_llm: bool = True,
     ) -> ClinicalReport:
         """
         Preprocess an uploaded image and run the clinical crew on it.
@@ -855,6 +862,9 @@ class AnalysisService:
             Optional raw clinical markers for the risk assessment.
         recommendations : list[str] | None
             Optional recommendation strings.
+        use_llm : bool
+            Run the CrewAI agentic path when ``CREW_LLM_API_KEY`` is set
+            (default True); pass False for a deterministic analysis.
 
         Returns
         -------
@@ -888,7 +898,7 @@ class AnalysisService:
             recommendations=recommendations,
         )
         try:
-            report = crew.run_analysis()
+            report = crew.run() if use_llm else crew.run_analysis()
         except CrewError as error:
             raise InvalidInputError(str(error)) from error
         logger.info("API image analysis complete for patient %s", patient.id)
@@ -950,7 +960,8 @@ class AnalysisService:
                 "analysis cannot align the data."
             )
         try:
-            result = CSVPipeline().run(csv)
+            pipeline = CSVPipeline(scaler_params=self.model.scaler_params)
+            result = pipeline.run(csv)
         except Exception as error:
             raise InvalidInputError(f"CSV preprocessing failed: {error}") from error
         frame = result.dataframe
@@ -977,6 +988,7 @@ class AnalysisService:
             markers=effective_markers,
             recommendations=recommendations,
             input_type=input_type,
+            preprocessed=True,
         )
 
     def analyze(
@@ -986,9 +998,11 @@ class AnalysisService:
         markers: Mapping[str, float] | None = None,
         recommendations: list[str] | None = None,
         input_type: str = "csv",
+        preprocessed: bool = False,
+        use_llm: bool = True,
     ) -> ClinicalReport:
         """
-        Run the deterministic clinical crew and return the report.
+        Run the clinical crew and return the report.
 
         Parameters
         ----------
@@ -1002,6 +1016,14 @@ class AnalysisService:
             Optional recommendation strings.
         input_type : str
             Data modality analyzed (``"csv"`` / ``"image"`` / ...).
+        preprocessed : bool
+            True when ``features`` were already transformed by the
+            training pipeline (CSV path); False applies the model's
+            persisted scaler to raw feature values.
+        use_llm : bool
+            True to prefer CrewAI LLM orchestration when ``CREW_LLM_API_KEY``
+            is configured (falls back to the deterministic path otherwise);
+            False always runs the deterministic pipeline.
 
         Returns
         -------
@@ -1022,9 +1044,10 @@ class AnalysisService:
             rag_pipeline=self.rag_pipeline,
             markers=markers,
             recommendations=recommendations,
+            preprocessed=preprocessed,
         )
         try:
-            report = crew.run_analysis()
+            report = crew.run() if use_llm else crew.run_analysis()
         except CrewError as error:
             raise InvalidInputError(str(error)) from error
         logger.info("API analysis complete for patient %s", patient.id)

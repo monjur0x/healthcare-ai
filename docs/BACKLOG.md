@@ -421,12 +421,23 @@ New deferred items from Milestone 13:
 - [ ] Multimodal fusion in the assessment summary — it currently shows
       the static "Medical image: Not provided" (the imaging workflow is a
       separate tab)
-- [ ] Scaler/encoder persistence for inference-time consistency — uploaded
-      CSV analysis re-fits the `CSVPipeline` scaler on the uploaded rows
-      (same behaviour as the existing analyze path)
+- [x] Scaler/encoder persistence for inference-time consistency — scaler
+      parameters are now persisted in the model artifact and applied by
+      `run_prediction` to raw input; the `CSVPipeline` inference path
+      reuses the persisted scaler instead of re-fitting on uploaded rows
+      (Milestone 13.1). Encoder persistence (categorical level maps) is
+      still open — the frontend pre-encodes categorical features.
 
 ### Milestone 9+ (not yet scoped)
 
+- [ ] Fix 4 pre-existing frontend smoke-test failures (present on `main`
+      before any Milestone 13.1 change): `test_n8n_route_uses_webhook`,
+      `test_unconfigured_model_is_graceful`, `test_imaging_upload_analyzes_image`,
+      `test_assessment_csv_upload_analyzes` — likely tied to the live
+      backend/n8n now answering where the tests expect an offline state
+- [ ] Persist categorical encoder level maps in the model artifact so
+      CSV inference and manual entry encode categorical features exactly
+      as at training time (scaler persistence done in Milestone 13.1)
 - [ ] Full OAuth / per-user authentication (currently an optional static
       bearer token via `API_TOKEN`)
 - [x] File upload for CSV + image inference (backend `POST

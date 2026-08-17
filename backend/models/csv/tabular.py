@@ -109,12 +109,30 @@ class TabularClassifier(BaseModel):
 
         self._classes: np.ndarray | None = None
         self._feature_names: list[str] | None = None
+        self._scaler_params: dict[str, object] | None = None
         self._fitted = False
 
     @property
     def is_fitted(self) -> bool:
         """True if the model is ready for prediction."""
         return self._fitted
+
+    @property
+    def scaler_params(self) -> dict[str, object] | None:
+        """Persisted scaling parameters captured during training (if any)."""
+        return self._scaler_params
+
+    def set_scaler_params(self, params: dict[str, object] | None) -> None:
+        """
+        Attach the preprocessing scaler parameters for inference.
+
+        Parameters
+        ----------
+        params : dict[str, object] | None
+            ``CSVScaler.params()`` output from training, or None.
+        """
+
+        self._scaler_params = params
 
     @property
     def model_name(self) -> str:
@@ -234,6 +252,7 @@ class TabularClassifier(BaseModel):
             "model_name": self._model_name,
             "classes": self._classes,
             "feature_names": self._feature_names,
+            "scaler_params": self._scaler_params,
         }
         destination = Path(path)
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -274,6 +293,7 @@ class TabularClassifier(BaseModel):
         instance._classifier = payload["classifier"]
         instance._classes = payload.get("classes")
         instance._feature_names = payload.get("feature_names")
+        instance._scaler_params = payload.get("scaler_params")
         instance._fitted = True
         logger.info("Loaded %s model from %s", instance._model_name, source)
         return instance

@@ -74,6 +74,7 @@ class CSVTransformer:
         encode_mode: str = "label",
         scale_columns: tuple[str, ...] | None = None,
         scale_method: str | None = None,
+        scaler_params: dict[str, object] | None = None,
         enable_feature_engineering: bool | None = None,
     ) -> None:
         self._validator = CSVValidator(required_columns=required_columns)
@@ -81,7 +82,11 @@ class CSVTransformer:
         self._imputer = CSVImputer()
         self._encoder = CSVEncoder(columns=encode_columns, mode=encode_mode)
         self._engineer = CSVFeatureEngineer()
-        self._scaler = CSVScaler(columns=scale_columns, method=scale_method)
+        self._scaler_params = scaler_params
+        if scaler_params is not None:
+            self._scaler = CSVScaler.from_params(scaler_params)
+        else:
+            self._scaler = CSVScaler(columns=scale_columns, method=scale_method)
         self._input_columns = input_columns
         self._enable_feature_engineering = (
             settings.ENABLE_FEATURE_ENGINEERING
@@ -140,8 +145,11 @@ class CSVTransformer:
             features = None
 
         # 5. Scale numeric columns before encoding so one-hot columns are
-        #    not accidentally scaled.
-        self._scaler.fit(work)
+        #    not accidentally scaled. When persisted scaler params were
+        #    provided at construction time, reuse them (inference-time
+        #    consistency) instead of re-fitting on this batch.
+        if self._scaler_params is None:
+            self._scaler.fit(work)
         work, scaling = self._scaler.transform(work)
 
         # 6. Encode categorical columns last.
@@ -166,3 +174,18 @@ class CSVTransformer:
             work.shape[1],
         )
         return result
+
+    def scaler_params(self) -> dict[str, object]:
+        """
+        Return the fitted scaler's serializable parameters.
+
+        Returns
+        -------
+        dict[str, object]
+            ``CSVScaler.params()`` output; empty dict when the scaler has
+            not been fitted yet.
+        """
+
+        if getattr(self._scaler, "_fitted", False):
+            return self._scaler.params()
+        return {}

@@ -7,6 +7,7 @@ so that no external ML dependency is required.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 import pandas as pd
@@ -28,6 +29,8 @@ class ScalingReport:
     method: str
     min_parameters: dict[str, float]
     max_parameters: dict[str, float]
+    mean_parameters: dict[str, float]
+    std_parameters: dict[str, float]
 
 
 class CSVScaler:
@@ -152,6 +155,8 @@ class CSVScaler:
             method=self._method,
             min_parameters=self._min_params,
             max_parameters=self._max_params,
+            mean_parameters=self._mean_params,
+            std_parameters=self._std_params,
         )
         logger.info(
             "Scaled %d columns with '%s'",
@@ -159,3 +164,50 @@ class CSVScaler:
             self._method,
         )
         return work, report
+
+    def params(self) -> dict[str, object]:
+        """
+        Return the fitted scaling parameters as a serializable mapping.
+
+        Returns
+        -------
+        dict[str, object]
+            Scaling method, column list, and per-column min/max/mean/std
+            parameters (empty when not fitted).
+        """
+
+        return {
+            "method": self._method,
+            "columns": list(self._columns),
+            "min": dict(self._min_params),
+            "max": dict(self._max_params),
+            "mean": dict(self._mean_params),
+            "std": dict(self._std_params),
+        }
+
+    @classmethod
+    def from_params(cls, params: Mapping[str, object]) -> CSVScaler:
+        """
+        Rebuild a fitted scaler from persisted parameters.
+
+        Parameters
+        ----------
+        params : Mapping[str, object]
+            Output of :meth:`params`.
+
+        Returns
+        -------
+        CSVScaler
+            A fitted scaler reproducing the original transform.
+        """
+
+        scaler = cls(
+            columns=tuple(params.get("columns") or ()),
+            method=params.get("method") or "standard",
+        )
+        scaler._min_params = dict(params.get("min") or {})
+        scaler._max_params = dict(params.get("max") or {})
+        scaler._mean_params = dict(params.get("mean") or {})
+        scaler._std_params = dict(params.get("std") or {})
+        scaler._fitted = True
+        return scaler

@@ -2,6 +2,31 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **Manual / n8n structured-feature inference fed raw values into a
+  model trained on scaled features** — the Disease Risk Score saturated
+  to 1.00 / HIGH / 100% confidence for any input (it was not a
+  placeholder; a real scaling mismatch). The model artifact now persists
+  the training scaler's parameters (`CSVScaler.params() / from_params()`,
+  mean/std included in `ScalingReport`, `TabularClassifier.set_scaler_params`
+  + joblib round-trip) and `run_prediction` — the single inference entry
+  point — applies them to raw feature values unless `preprocessed=True`.
+  The flag is threaded through `ClinicalCrew` / `AnalysisService.analyze` /
+  `analyze_csv` / the baseline study so already-pipeline-scaled inputs are
+  never double-scaled. `CSVTransformer` / `CSVPipeline` reuse the
+  persisted scaler instead of re-fitting on inference rows, and
+  `prepare_tabular_data` / `train()` carry the params into every artifact.
+  Live-verified: the reference patient now returns prediction `0` @ 62.8%
+  confidence (risk 0.63 / high) instead of the saturated 100%.
+  Tests: backend 223 (+2 in `test_prediction_service.py`).
+- **The API never invoked the CrewAI agents** — `AnalysisService.analyze`
+  hardcoded the LLM-free `crew.run_analysis()`, so agent reasoning never
+  ran even with `CREW_LLM_API_KEY` set. `analyze` now accepts
+  `use_llm: bool = True` and calls `crew.run()` (CrewAI LLM orchestration
+  when configured, deterministic fallback otherwise), matching the image
+  path; the baseline study forces `use_llm=False` for reproducibility.
+
 ### Added
 
 - **Doctor-friendly Clinical Assessment page** (`frontend/` + `backend/`):

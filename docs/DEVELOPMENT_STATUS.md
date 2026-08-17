@@ -561,6 +561,50 @@ unchanged.
 
 ---
 
+## Milestone 13.1 — Inference-time scaling + CrewAI LLM wiring (bug fixes)
+
+Follow-up fixing two production bugs found while verifying the Clinical
+Assessment page end-to-end.
+
+### Persisted scaler params (`backend/`)
+
+- [x] `ScalerReport` (`preprocessing/csv/scaler.py`) now carries
+      `mean_parameters` / `std_parameters`; `CSVScaler.params()` /
+      `from_params()` serialize + rebuild a fitted scaler
+- [x] `TabularClassifier` persists `scaler_params` in its joblib payload
+      (`set_scaler_params` / `scaler_params` / `save` / `load`)
+- [x] `prepare_tabular_data` returns `(features, labels, scaler_params)`;
+      `AnalysisService.train` stores them on the fitted model (central +
+      federated)
+- [x] `run_prediction` (single inference entry point) applies the
+      persisted scaler to raw feature values unless `preprocessed=True`
+- [x] `preprocessed` flag threaded through `ClinicalCrew` /
+      `AnalysisService.analyze` / `analyze_csv` / baseline study to avoid
+      double-scaling already-pipeline-scaled inputs
+- [x] `CSVTransformer` / `CSVPipeline` accept persisted `scaler_params`
+      (reuse training scaler instead of re-fitting on inference rows)
+- [x] Retrained `backend/artifacts/diabetes/global_model.joblib` with
+      scaler params; manual entry no longer saturates to 100% confidence
+
+### CrewAI LLM orchestration wiring (`backend/api`)
+
+- [x] `AnalysisService.analyze` gained `use_llm: bool = True` and calls
+      `crew.run()` (prefers CrewAI LLM orchestration when
+      `CREW_LLM_API_KEY` is set, deterministic fallback otherwise) instead
+      of always forcing the LLM-free `run_analysis()`
+- [x] Baseline study forces `use_llm=False` for reproducibility
+
+### Verification
+
+- [x] Backend suite **223 passing** (+2 scaling tests); frontend suite 58
+      (4 pre-existing smoke failures unrelated to this change)
+- [x] Lint clean (black / ruff) on all touched modules
+- [x] Live: manual structured entry for the reference patient now returns
+      prediction `0` @ **62.8%** confidence (risk 0.63 / high) instead of
+      the previous saturated 100%; CSV path unchanged (~71% confidence)
+
+---
+
 ## Milestone 6 — n8n orchestration (`n8n/`)
 
 ### Principles
@@ -886,5 +930,6 @@ prediction, and retrieval modules, per `docs/SOFTWARE_ARCHITECTURE.md`
       models/tests evaluation/tests federated/tests rag/tests
       examples/tests CrewAI/orchestrator/tests api/tests
       scripts/tests`)
-- [x] Frontend: 58 tests passing (from `frontend/`)
+- [x] Frontend: 58 tests passing (from `frontend/`); after Milestone 13.1
+      the core backend suite is 223 passing (scaling tests included)
 - [ ] Full test command documented in README/AGENTS (see `AGENTS.md` tooling note)

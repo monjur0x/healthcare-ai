@@ -2,83 +2,83 @@
 
 ## Current Milestone
 
-Milestone 13 follow-up — CSV uploads through the n8n end-to-end workflow —
-implementation complete and verified by tests; not yet committed (working
-tree has the uncommitted changes).
+Milestone 13.1 — two production bug fixes, implemented and verified by
+tests + live API checks; **not yet committed** (working tree has the
+uncommitted changes).
 
 ## Current Module
 
-`n8n/healthcare-endtoend.json` · `frontend/dashboard/client.py` ·
-`frontend/streamlit_app.py` (CSV Upload mode)
+`backend/preprocessing/csv/scaler.py` · `backend/models/csv/tabular.py` ·
+`backend/CrewAI/orchestrator/services.py` · `backend/api/services.py`
 
 ## Current Task
 
-Closed the backlog gap: CSV analysis previously went direct-to-FastAPI
-only; the n8n end-to-end workflow carried structured features only. Now
-the workflow orchestrates CSV analysis exactly like the feature path.
-
-1. **Workflow** (`n8n/healthcare-endtoend.json`) — added **IF: CSV
-   Input?** (true when the webhook `csv_b64` is a non-empty string) and
-   **HTTP: Analyze CSV** (POST `csv`/`patient`/`markers`/
-   `recommendations` → `/api/v1/analyze/csv`). Train-success and
-   skip-train paths converge on the IF; CSV and structured branches merge
-   back at the report-builder Code node; the CSV node's error output feeds
-   the existing error formatter. JSON validated (targets exist) + embedded
-   Code-node JS parses under node.
-2. **Client** (`frontend/dashboard/client.py`) — new
-   `analyze_csv_via_n8n()` (base64 `csv_b64` in the webhook payload,
-   `preset`/`train` forwarding); n8n report extraction refactored into
-   shared `_post_n8n_webhook()`.
-3. **Dashboard** (`frontend/streamlit_app.py`) — CSV Upload submit now
-   resolves the analysis route: n8n → `analyze_csv_via_n8n()`, direct →
-   `analyze_csv()`; caption updated (n8n now forwards the file).
-4. **Tests** — frontend suite **58 passing** (+4 client, +1 smoke).
-   Lint clean (ruff/black).
+1. **Inference-time scaling fix** — manual / n8n structured-feature input
+   was fed raw (unscaled) values into a model trained on scaled features,
+   so the Disease Risk Score always saturated to 1.00 / HIGH / 100%
+   (it was a real bug, not a placeholder). The model artifact now persists
+   the training scaler params (`CSVScaler.params()` / `from_params()`,
+   mean/std in `ScalingReport`, `TabularClassifier.set_scaler_params` +
+   joblib round-trip), `run_prediction` applies them to raw input unless
+   `preprocessed=True`, and the flag is threaded through `ClinicalCrew` /
+   `AnalysisService.analyze` / `analyze_csv` / the baseline study so
+   already-scaled inputs are never double-scaled.
+2. **CrewAI LLM wiring** — `AnalysisService.analyze` hardcoded the
+   LLM-free `crew.run_analysis()`; it now defaults `use_llm=True` and
+   calls `crew.run()` (LLM orchestration when `CREW_LLM_API_KEY` is set,
+   deterministic fallback otherwise). Baseline study forces
+   `use_llm=False`.
 
 ## Completed
 
-- Milestones 1–13 (incl. the Clinical Assessment rework) — committed +
-  pushed (`feat(api)`, `feat(frontend)`, `docs(ai)`).
-- CSV-through-n8n (this session, uncommitted):
-  - `n8n/healthcare-endtoend.json` — CSV branch (IF + HTTP node) + README
-    update (workflow steps, CSV uploads section, example payload note)
-  - `frontend/dashboard/client.py` — `analyze_csv_via_n8n()`,
-    `_post_n8n_webhook()` shared helper
-  - `frontend/dashboard/tests/test_client.py` — 3 new tests (base64 +
-    report parse, train/preset forwarding, workflow error)
-  - `frontend/dashboard/tests/test_app_smoke.py` — 1 new smoke test
-    (CSV upload via n8n route forwards bytes, no train when served
-    preset matches)
-  - `frontend/streamlit_app.py` — CSV submit routes via n8n when selected
-  - Docs: n8n/README.md, docs/BACKLOG.md (item checked off),
-    docs/CHANGELOG.md, docs/DEVELOPMENT_STATUS.md, `.ai/*`
-- Frontend suite **58 passing**; lint clean.
+- Milestones 1–13 + CSV-through-n8n follow-up — committed + pushed.
+- Milestone 13.1 (this session, uncommitted):
+  - `preprocessing/csv/scaler.py` — `ScalingReport` mean/std,
+    `params()` / `from_params()`
+  - `models/csv/tabular.py` — `scaler_params` persistence (save/load)
+  - `CrewAI/orchestrator/services.py` — `run_prediction` applies the
+    persisted scaler; `preprocessed` flag
+  - `CrewAI/orchestrator/crew.py` — `preprocessed` threaded into
+    `run_analysis`
+  - `api/services.py` — `prepare_tabular_data` returns
+    `(features, labels, scaler_params)`; `train()` stores them; `analyze`
+    gains `use_llm=True` (crew.run) + `preprocessed`; `analyze_csv`
+    passes `preprocessed=True` and reuses the persisted scaler
+  - `scripts/baseline_study.py` — `preprocessed=True`, `use_llm=False`
+  - Tests: +2 in `test_prediction_service.py` (scaling equivalence +
+    preprocessed skip); `test_services.py` unpacks the 3-tuple
+  - Retrained `backend/artifacts/diabetes/global_model.joblib` with
+    scaler params; backend restarted (port 8000)
+- Backend core suite **223 passing**; black/ruff clean on touched files.
+- Live-verified: reference patient (6/148/72/35/0/33.6/0.627/50) manual
+  entry now → prediction `0` @ **62.8%** confidence (risk 0.63 / high)
+  instead of the saturated 100%; CSV path ~71% (unchanged, no
+  double-scaling).
 
 ## Next Files (optional / backlog)
 
 - Commit the uncommitted changes (user's call).
-- Backlog candidates (pick one): patient persistence + history;
-  mortality/readmission models (Results page still "not estimated");
-  SHAP explainability; multimodal fusion so the assessment summary no
-  longer shows "image: Not provided"; scaler/encoder persistence for
-  inference-time consistency; local/open-source LLM provider for the crew.
+- Backlog candidates (pick one): fix 4 pre-existing frontend smoke-test
+  failures; patient persistence + history; mortality/readmission models;
+  SHAP explainability; encoder (categorical level map) persistence;
+  multimodal fusion; local/open-source LLM provider for the crew.
 
 ## Design Notes
 
-- n8n stays orchestration-only: the CSV branch only forwards the base64
-  bytes to the existing backend endpoint; parsing/preprocessing stay in
-  `backend/preprocessing/csv` (AGENTS.md architecture rules intact).
-- The CSV discriminator is `csv_b64` presence (string "is not empty"), not
-  `input_type`, because the dashboard already sends `input_type: "csv"`
-  for the structured-feature path too.
-- The `Code: Analyze & Build Report` node reads train metadata inside a
-  try/catch, so the CSV branch (which skips the train node) still builds
-  the success summary — unchanged behaviour, verified by the code-node
-  JS parse.
-- Lint/tests: frontend from `frontend/`; never ruff from the repo root.
+- Scaling belongs at the inference boundary (`run_prediction`), not in
+  the pipeline re-fit: the CSV path preprocesses once with the persisted
+  scaler and marks its features `preprocessed=True`; raw manual/n8n input
+  flows through unscaled and gets scaled exactly once.
+- `use_llm` defaults to `True` for `analyze` (matches `analyze_image`);
+  `crew.run()` already falls back to the deterministic path when no
+  `CREW_LLM_API_KEY` is configured, so the default is safe offline.
+- The 4 frontend smoke failures are pre-existing on `main` (verified by
+  stashing the working tree) — recorded in BACKLOG, not fixed here.
+- Lint/tests: backend from `backend/`; frontend from `frontend/`; never
+  ruff from the repo root.
 
 ## Status
 
-Milestones 1–13 committed/pushed. The CSV-through-n8n follow-up is
-**uncommitted** (5 modified files). Frontend `pytest -q` from `frontend/`
-= 58 passed.
+Milestones 1–13 committed/pushed. Milestone 13.1 is **uncommitted**
+(10 modified files). Backend `pytest -q` (core suite) = 223 passed;
+frontend = 58 passed with 4 pre-existing smoke failures.
