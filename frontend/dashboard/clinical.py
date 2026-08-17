@@ -13,6 +13,8 @@ derivation reads real report fields (nothing is fabricated here).
 
 from __future__ import annotations
 
+import math
+
 from collections.abc import Mapping, Sequence
 
 PATIENT_INFO = {
@@ -146,56 +148,177 @@ FEATURE_GROUPS: dict[str, set[str]] = {
     "Medical History": MEDICAL_HISTORY,
 }
 
-#: Doctor-friendly labels for the more cryptic model column names.
+#: Doctor-friendly labels for the model column names. Raw dataset column
+#: names are never shown to doctors; unknown names fall back to a
+#: Title-cased version of the normalized name.
 DISPLAY_LABELS: dict[str, str] = {
-    "trestbps": "Resting Blood Pressure (trestbps)",
-    "chol": "Cholesterol (chol)",
-    "thalch": "Max Heart Rate (thalch)",
-    "exang": "Exercise-Induced Angina (exang)",
-    "oldpeak": "ST Depression (oldpeak)",
-    "restecg": "Resting ECG (restecg)",
-    "cp": "Chest Pain Type (cp)",
-    "fbs": "Fasting Blood Sugar >120 (fbs)",
-    "slope": "ST Slope (slope)",
-    "ca": "Major Vessels Count (ca)",
-    "thal": "Thalassemia (thal)",
-    "sc": "Serum Creatinine (sc)",
-    "bu": "Blood Urea (bu)",
-    "bgr": "Random Blood Glucose (bgr)",
-    "pcv": "Packed Cell Volume (pcv)",
-    "rc": "Red Blood Cells (rc)",
-    "wc": "White Blood Cells (wc)",
-    "hemo": "Hemoglobin (hemo)",
-    "al": "Albumin (al)",
-    "su": "Sugar in Urine (su)",
-    "sg": "Specific Gravity (sg)",
-    "bp": "Blood Pressure (bp)",
-    "sbp_mean": "Systolic BP Mean (sbp_mean)",
-    "sbp_max": "Systolic BP Max (sbp_max)",
-    "sbp_min": "Systolic BP Min (sbp_min)",
-    "dbp_mean": "Diastolic BP Mean (dbp_mean)",
-    "dbp_max": "Diastolic BP Max (dbp_max)",
-    "dbp_min": "Diastolic BP Min (dbp_min)",
-    "map_mean": "Mean Arterial Pressure (map_mean)",
-    "hr_mean": "Heart Rate Mean (hr_mean)",
-    "hr_max": "Heart Rate Max (hr_max)",
-    "hr_min": "Heart Rate Min (hr_min)",
-    "spo2_mean": "SpO₂ Mean (spo2_mean)",
-    "spo2_min": "SpO₂ Min (spo2_min)",
-    "spo2_max": "SpO₂ Max (spo2_max)",
-    "respiratory_rate_mean": "Resp. Rate Mean (respiratory_rate_mean)",
-    "temp_celsius_mean": "Temperature Mean (temp_celsius_mean)",
-    "pao2_fio2_ratio": "PaO₂/FiO₂ Ratio (pao2_fio2_ratio)",
-    "lactate_mmol": "Lactate mmol/L (lactate_mmol)",
-    "platelet_count": "Platelet Count (platelet_count)",
-    "bilirubin_total": "Total Bilirubin (bilirubin_total)",
-    "ph_arterial": "Arterial pH (ph_arterial)",
-    "inr": "INR (inr)",
-    "skinthickness": "Skin Thickness (skinthickness)",
-    "insulin": "Insulin (insulin)",
-    "diabetespedigreefunction": "Diabetes Pedigree Function (diabetespedigreefunction)",
-    "pregnancies": "Pregnancies (pregnancies)",
+    # Shared demographics
+    "age": "Age",
+    "sex": "Sex",
+    "gender": "Gender",
+    "ethnicity": "Ethnicity",
+    "insurance": "Insurance",
+    # PIMA diabetes
+    "pregnancies": "Pregnancies",
+    "glucose": "Glucose",
+    "bloodpressure": "Blood Pressure",
+    "skinthickness": "Skin Thickness",
+    "insulin": "Insulin",
+    "bmi": "BMI",
+    "diabetespedigreefunction": "Diabetes Pedigree Function",
+    # UCI heart disease
+    "trestbps": "Resting Blood Pressure",
+    "chol": "Cholesterol",
+    "thalch": "Max Heart Rate",
+    "exang": "Exercise-Induced Angina",
+    "oldpeak": "ST Depression",
+    "restecg": "Resting ECG",
+    "cp": "Chest Pain Type",
+    "fbs": "Fasting Blood Sugar >120",
+    "slope": "ST Slope",
+    "ca": "Major Vessels Count",
+    "thal": "Thalassemia",
+    # UCI chronic kidney disease
+    "sc": "Serum Creatinine",
+    "bu": "Blood Urea",
+    "bgr": "Random Blood Glucose",
+    "pcv": "Packed Cell Volume",
+    "rc": "Red Blood Cells",
+    "wc": "White Blood Cells",
+    "hemo": "Hemoglobin",
+    "al": "Albumin",
+    "su": "Sugar in Urine",
+    "sg": "Specific Gravity",
+    "rbc": "Red Blood Cells",
+    "pc": "Pus Cells",
+    "pcc": "Pus Cell Clumps",
+    "ba": "Bacteria",
+    "sod": "Serum Sodium",
+    "pot": "Serum Potassium",
+    "appet": "Appetite",
+    "pe": "Pedal Edema",
+    "ane": "Anemia",
+    "bp": "Blood Pressure",
+    "htn": "Hypertension",
+    "dm": "Diabetes Mellitus",
+    "cad": "Coronary Artery Disease",
+    # Sepsis ICU (synthetic)
+    "sbp_mean": "Systolic BP Mean",
+    "sbp_max": "Systolic BP Max",
+    "sbp_min": "Systolic BP Min",
+    "dbp_mean": "Diastolic BP Mean",
+    "dbp_max": "Diastolic BP Max",
+    "dbp_min": "Diastolic BP Min",
+    "map_mean": "Mean Arterial Pressure",
+    "hr_mean": "Heart Rate Mean",
+    "hr_max": "Heart Rate Max",
+    "hr_min": "Heart Rate Min",
+    "spo2_mean": "SpO₂ Mean",
+    "spo2_min": "SpO₂ Min",
+    "spo2_max": "SpO₂ Max",
+    "respiratory_rate_mean": "Resp. Rate Mean",
+    "respiratory_rate_max": "Resp. Rate Max",
+    "respiratory_rate_min": "Resp. Rate Min",
+    "temp_celsius_mean": "Temperature Mean",
+    "temp_celsius_max": "Temperature Max",
+    "temp_celsius_min": "Temperature Min",
+    "gcs_total": "Glasgow Coma Scale",
+    "lactate_mmol": "Lactate",
+    "platelet_count": "Platelet Count",
+    "bilirubin_total": "Total Bilirubin",
+    "ph_arterial": "Arterial pH",
+    "inr": "INR",
+    "fio2_percent": "FiO₂",
+    "pao2_fio2_ratio": "PaO₂/FiO₂ Ratio",
+    "sofa_score": "SOFA Score",
+    "apache_iv": "APACHE IV Score",
+    "qsofa": "qSOFA Score",
+    "sirs_criteria": "SIRS Criteria Count",
+    "vasopressors_flag": "Vasopressors Required",
+    "mechanical_ventilation": "Mechanical Ventilation",
+    "antibiotics_24h": "Antibiotics Within 24h",
+    "insulin_infusion_flag": "Insulin Infusion",
+    "fluids_ml_24h": "IV Fluids (24h)",
+    "sedation_score": "Sedation Score",
+    "vasopressor_dose_mcg_kg_min": "Vasopressor Dose",
+    "readmission_30day": "Readmission Within 30 Days",
+    # General / fallback-friendly
+    "cholesterol": "Cholesterol",
+    "creatinine": "Creatinine",
+    "sodium": "Sodium",
+    "potassium": "Potassium",
+    "chloride": "Chloride",
+    "bicarbonate": "Bicarbonate",
+    "hemoglobin": "Hemoglobin",
+    "hematocrit": "Hematocrit",
+    "diabetes": "Diabetes",
+    "hypertension": "Hypertension",
+    "chf": "Congestive Heart Failure",
+    "copd": "COPD",
+    "chronic_kidney_disease": "Chronic Kidney Disease",
+    "liver_disease": "Liver Disease",
+    "immunosuppression": "Immunosuppression",
+    "atrial_fibrillation": "Atrial Fibrillation",
+    "cancer_active": "Active Cancer",
+    "smoking": "Smoking",
 }
+
+#: Verified units for the documented datasets. Only units the project
+#: data / documentation supports are listed; anything else is left blank
+#: rather than guessed.
+FEATURE_UNITS: dict[str, str] = {
+    "pregnancies": "count",
+    "glucose": "mg/dL",
+    "bloodpressure": "mmHg",
+    "skinthickness": "mm",
+    "insulin": "µU/mL",
+    "bmi": "kg/m²",
+    "age": "years",
+    "trestbps": "mmHg",
+    "chol": "mg/dL",
+    "thalch": "bpm",
+    "bp": "mmHg",
+    "sbp_mean": "mmHg",
+    "sbp_max": "mmHg",
+    "sbp_min": "mmHg",
+    "dbp_mean": "mmHg",
+    "dbp_max": "mmHg",
+    "dbp_min": "mmHg",
+    "map_mean": "mmHg",
+    "hr_mean": "bpm",
+    "hr_max": "bpm",
+    "hr_min": "bpm",
+    "spo2_mean": "%",
+    "spo2_min": "%",
+    "spo2_max": "%",
+    "respiratory_rate_mean": "breaths/min",
+    "respiratory_rate_max": "breaths/min",
+    "respiratory_rate_min": "breaths/min",
+    "temp_celsius_mean": "°C",
+    "temp_celsius_max": "°C",
+    "temp_celsius_min": "°C",
+    "lactate_mmol": "mmol/L",
+    "sod": "mEq/L",
+    "pot": "mEq/L",
+    "bgr": "mg/dL",
+    "bu": "mg/dL",
+    "sc": "mg/dL",
+    "hemo": "g/dL",
+}
+
+#: Feature names that must be whole numbers (counts / scores).
+INTEGER_FEATURES = frozenset(
+    {
+        "pregnancies",
+        "ca",
+        "wc",
+        "rc",
+        "gcs_total",
+        "sofa_score",
+        "qsofa",
+        "sirs_criteria",
+    }
+)
 
 #: Feature names that are binary flags; rendered as a checkbox in the form.
 FLAG_FEATURES = frozenset(
@@ -359,6 +482,41 @@ def feature_bounds(name: str) -> tuple[float, float] | None:
     return BOUNDED_FEATURES.get(normalize_feature_name(name))
 
 
+def feature_unit(name: str) -> str | None:
+    """
+    Verified display unit for a feature, when known.
+
+    Parameters
+    ----------
+    name : str
+        Model feature column name.
+
+    Returns
+    -------
+    str | None
+        Unit string (e.g. ``"mg/dL"``), or None when the unit is not
+        verified by the project data / documentation.
+    """
+    return FEATURE_UNITS.get(normalize_feature_name(name))
+
+
+def is_integer_feature(name: str) -> bool:
+    """
+    Whether a feature must be a whole number (counts / scores).
+
+    Parameters
+    ----------
+    name : str
+        Model feature column name.
+
+    Returns
+    -------
+    bool
+        True for known integer columns.
+    """
+    return normalize_feature_name(name) in INTEGER_FEATURES
+
+
 def parse_blood_pressure(raw: str) -> float | None:
     """
     Parse a blood-pressure entry into the model's ``bloodpressure`` value.
@@ -436,6 +594,117 @@ def build_analyze_payload(
     if recommendations:
         payload["recommendations"] = list(recommendations)
     return payload
+
+
+def validate_feature_values(
+    values: Mapping[str, float | None],
+    schema: Sequence[str],
+    patient_age: int | None = None,
+) -> list[str]:
+    """
+    Validate entered feature values against the model schema.
+
+    Checks required fields, numeric validity, integer-only features, and
+    documented bounds. The backend remains the final authority for
+    validation; this pass only gives the doctor clear, early messages.
+
+    Parameters
+    ----------
+    values : Mapping[str, float | None]
+        Feature name to entered value (``None`` marks an unparseable
+        entry such as an invalid blood-pressure string).
+    schema : Sequence[str]
+        Feature columns the selected model requires.
+    patient_age : int | None
+        Patient-context age (fills the model ``age`` feature when the
+        schema requires it).
+
+    Returns
+    -------
+    list[str]
+        Human-readable validation messages (empty when valid).
+    """
+    errors: list[str] = []
+    for name in schema:
+        normalized = normalize_feature_name(name)
+        label = feature_label(name)
+        if normalized == "age":
+            if patient_age is None or patient_age <= 0:
+                errors.append("Patient age is required for this assessment type.")
+                continue
+            bounds = feature_bounds(name)
+            if bounds:
+                low, high = bounds
+                if patient_age < low or patient_age > high:
+                    errors.append(f"{label} must be between {low:g} and {high:g}.")
+            continue
+        value = values.get(name)
+        if value is None:
+            errors.append(f"{label} is required.")
+            continue
+        if not math.isfinite(float(value)):
+            errors.append(f"{label} must be a valid number.")
+            continue
+        if is_integer_feature(name) and float(value) != float(int(float(value))):
+            errors.append(f"{label} must be a whole number.")
+        bounds = feature_bounds(name)
+        if bounds:
+            low, high = bounds
+            if value < low or value > high:
+                errors.append(f"{label} must be between {low:g} and {high:g}.")
+    return errors
+
+
+def assessment_summary(
+    patient: Mapping[str, object],
+    preset_label: str,
+    schema: Sequence[str],
+    values: Mapping[str, float | None],
+    notes_provided: bool,
+    patient_age: int | None = None,
+) -> list[tuple[str, str]]:
+    """
+    Build the review-before-analysis summary rows.
+
+    The feature count is computed from the actual model schema, never
+    hardcoded.
+
+    Parameters
+    ----------
+    patient : Mapping[str, object]
+        Patient context (``name``, ``id``, ``age``, ``notes``).
+    preset_label : str
+        Doctor-friendly label of the selected assessment type.
+    schema : Sequence[str]
+        Feature columns the selected model requires.
+    values : Mapping[str, float | None]
+        Entered feature values (``None`` marks unparseable entries).
+    notes_provided : bool
+        Whether optional clinical notes were entered.
+    patient_age : int | None
+        Patient-context age (counted as entered when the model requires
+        ``age``).
+
+    Returns
+    -------
+    list[tuple[str, str]]
+        ``(label, value)`` rows for the summary.
+    """
+    entered = 0
+    for name in schema:
+        if normalize_feature_name(name) == "age":
+            if patient_age is not None and patient_age > 0:
+                entered += 1
+        elif values.get(name) is not None:
+            entered += 1
+    return [
+        ("Patient", str(patient.get("name") or "Unknown")),
+        ("Patient ID", str(patient.get("id") or "Unknown")),
+        ("Assessment", preset_label),
+        ("Clinical data", f"{entered} / {len(schema)} required features"),
+        ("Medical image", "Not provided"),
+        ("Clinical notes", "Provided" if notes_provided else "Not provided"),
+    ]
 
 
 def analysis_stages(report: Mapping[str, object]) -> list[dict[str, object]]:
@@ -636,14 +905,18 @@ def output_availability(report: Mapping[str, object]) -> dict[str, bool]:
 __all__ = [
     "RESEARCH_OUTPUTS",
     "analysis_stages",
+    "assessment_summary",
     "build_analyze_payload",
     "explanation_sections",
     "feature_bounds",
     "feature_group",
     "feature_label",
+    "feature_unit",
     "group_features",
     "is_flag_feature",
+    "is_integer_feature",
     "normalize_feature_name",
     "output_availability",
     "parse_blood_pressure",
+    "validate_feature_values",
 ]

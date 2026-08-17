@@ -45,12 +45,17 @@ import streamlit as st
 from dashboard.client import APIConfig, HealthcareAPIClient, HealthcareAPIError
 from dashboard.clinical import (
     analysis_stages,
+    assessment_summary,
     explanation_sections,
     feature_bounds,
     feature_label,
+    feature_unit,
     group_features,
     is_flag_feature,
+    is_integer_feature,
+    normalize_feature_name,
     parse_blood_pressure,
+    validate_feature_values,
 )
 
 DEFAULT_BACKEND_URL = "http://localhost:8000"
@@ -60,6 +65,21 @@ IMAGE_TYPES = ["png", "jpg", "jpeg"]
 ROUTE_AUTOMATIC = "Automatic (recommended)"
 ROUTE_N8N = "Via n8n workflow"
 ROUTE_DIRECT = "Direct to FastAPI"
+
+#: Clinical-safety disclaimer shown near the assessment action and results.
+CLINICAL_DISCLAIMER = (
+    "AI-assisted clinical decision support. Results should be reviewed "
+    "by a qualified clinician."
+)
+
+#: Doctor-friendly labels for the assessment types (backed by the presets
+#: reported by the backend).
+ASSESSMENT_LABELS = {
+    "diabetes": "Diabetes Risk",
+    "heart": "Heart Disease Risk",
+    "kidney": "Chronic Kidney Disease Risk",
+    "sepsis": "Sepsis Risk",
+}
 
 
 def build_client(base_url: str, api_token: str) -> HealthcareAPIClient:
@@ -104,6 +124,74 @@ def fetch_model_info(client: HealthcareAPIClient) -> dict[str, Any]:
         return client.model_info()
     except (HealthcareAPIError, httpx.HTTPError):
         return {}
+
+
+def fetch_presets_info(client: HealthcareAPIClient) -> list[dict[str, Any]]:
+    """
+    Fetch the named dataset presets, returning an empty list on error.
+
+    Parameters
+    ----------
+    client : HealthcareAPIClient
+        Backend client.
+
+    Returns
+    -------
+    list[dict[str, Any]]
+        ``PresetInfo`` payloads or ``[]`` when the backend does not
+        expose them (older backend / unreachable).
+    """
+    try:
+        return client.presets()
+    except (HealthcareAPIError, httpx.HTTPError):
+        return []
+
+
+def assessment_type_label(preset_name: str) -> str:
+    """
+    Doctor-friendly label for a preset name.
+
+    Parameters
+    ----------
+    preset_name : str
+        Backend preset name (``"diabetes"`` / ...).
+
+    Returns
+    -------
+    str
+        Known label or a Title-cased fallback.
+    """
+    return ASSESSMENT_LABELS.get(preset_name, preset_name.replace("_", " ").title())
+
+
+def model_matches_preset(model: dict[str, Any], preset_info: dict[str, Any]) -> bool:
+    """
+    Whether the currently served model already corresponds to a preset.
+
+    When the served model records its ``preset`` it is authoritative;
+    otherwise the feature schemas are compared as a fallback (e.g. for a
+    model loaded from ``API_MODEL_PATH`` whose preset is unknown).
+
+    Parameters
+    ----------
+    model : dict[str, Any]
+        ``ModelInfo`` payload.
+    preset_info : dict[str, Any]
+        ``PresetInfo`` payload for the selected assessment type.
+
+    Returns
+    -------
+    bool
+        True when the served model already matches the preset.
+    """
+    served_preset = model.get("preset")
+    if served_preset:
+        return served_preset == preset_info["name"]
+    served_features = model.get("feature_names")
+    schema = preset_info.get("feature_names")
+    if served_features and schema:
+        return list(served_features) == list(schema)
+    return False
 
 
 def resolve_route(
@@ -255,6 +343,7 @@ def render_clinical_results(
     st.subheader("Clinical Results")
     if subtitle:
         st.caption(subtitle)
+    st.caption(CLINICAL_DISCLAIMER)
     route_label = (
         "Orchestrated through the n8n end-to-end workflow"
         if route == "n8n"
@@ -365,13 +454,14 @@ def render_clinical_results(
 # ---------------------------------------------------------------------------
 
 
-def feature_widget(name: str) -> float:
+def feature_widget(name: str) -> float | None:
     """
     Render the appropriate input widget for a model feature.
 
     Binary flag features become checkboxes, ``sex`` / ``gender`` become a
-    two-option selector, bounded features get sensible ranges, and the
-    rest are plain numeric inputs.
+    two-option selector, bounded features get sensible ranges, integer
+    features step by whole numbers, and the rest are plain numeric
+    inputs. Verified units are shown in the label.
 
     Parameters
     ----------
@@ -380,10 +470,14 @@ def feature_widget(name: str) -> float:
 
     Returns
     -------
-    float
-        The entered value.
+    float | None
+        The entered value, or None when the entry could not be parsed
+        (e.g. an invalid blood-pressure string).
     """
     label = feature_label(name)
+    unit = feature_unit(name)
+    if unit:
+        label = f"{label} ({unit})"
     key = f"feature_{name}"
     if name == "bloodpressure":
         return _blood_pressure_widget(label, key)
@@ -399,6 +493,7 @@ def feature_widget(name: str) -> float:
             )
         )
     bounds = feature_bounds(name)
+    integer = is_integer_feature(name)
     if bounds:
         low, high = bounds
         return st.number_input(
@@ -407,7 +502,7 @@ def feature_widget(name: str) -> float:
             max_value=high,
             value=low,
             step=1.0,
-            format="%.1f",
+            format="%d" if integer else "%.1f",
             key=key,
         )
     return st.number_input(
@@ -415,12 +510,12 @@ def feature_widget(name: str) -> float:
         min_value=0.0,
         value=0.0,
         step=1.0,
-        format="%.2f",
+        format="%d" if integer else "%.2f",
         key=key,
     )
 
 
-def _blood_pressure_widget(label: str, key: str) -> float:
+def _blood_pressure_widget(label: str, key: str) -> float | None:
     """
     Render a systolic/diastolic blood-pressure entry.
 
@@ -437,8 +532,10 @@ def _blood_pressure_widget(label: str, key: str) -> float:
 
     Returns
     -------
-    float
-        The parsed value (diastolic for ``SYS/DIA`` input).
+    float | None
+        The parsed value (diastolic for ``SYS/DIA`` input), or None when
+        the entry is invalid (the caller reports it; nothing is silently
+        substituted).
     """
     raw = st.text_input(
         label,
@@ -447,43 +544,42 @@ def _blood_pressure_widget(label: str, key: str) -> float:
         help="Enter as SYS/DIA, e.g. 120/90, or a single value. The "
         "model's Blood Pressure feature uses the diastolic reading.",
     )
-    value = parse_blood_pressure(raw)
-    if value is None:
-        st.error(
-            "Blood Pressure must be SYS/DIA (e.g. 120/90) or a single "
-            "positive number."
-        )
-        return 80.0
-    return value
+    return parse_blood_pressure(raw)
 
 
-def render_feature_groups(feature_names: list[str]) -> dict[str, float]:
+def render_feature_groups(feature_names: list[str]) -> dict[str, float | None]:
     """
     Render the clinical inputs grouped per the research specification.
+
+    The patient-context ``age`` feature is excluded here; it is collected
+    once in the Patient Context section and mapped to the model feature
+    in a single well-defined place on submission.
 
     Parameters
     ----------
     feature_names : list[str]
-        Model feature columns reported by ``/api/v1/model``.
+        Model feature columns reported by the backend for the selected
+        assessment type.
 
     Returns
     -------
-    dict[str, float]
-        Feature name to entered value.
+    dict[str, float | None]
+        Feature name to entered value (None marks unparseable entries).
     """
-    values: dict[str, float] = {}
-    for group, names in group_features(feature_names):
+    names = [name for name in feature_names if normalize_feature_name(name) != "age"]
+    values: dict[str, float | None] = {}
+    for group, grouped_names in group_features(names):
         if group == "Additional Model Features":
             with st.expander("Additional model features"):
-                _render_group_inputs(group, names, values)
+                _render_group_inputs(group, grouped_names, values)
         else:
             st.markdown(f"**{group}**")
-            _render_group_inputs(group, names, values)
+            _render_group_inputs(group, grouped_names, values)
     return values
 
 
 def _render_group_inputs(
-    group: str, names: list[str], values: dict[str, float]
+    group: str, names: list[str], values: dict[str, float | None]
 ) -> None:
     """
     Render the inputs of one feature group in a multi-column grid.
@@ -494,7 +590,7 @@ def _render_group_inputs(
         Group label (unused, kept for clarity).
     names : list[str]
         Feature names in the group.
-    values : dict[str, float]
+    values : dict[str, float | None]
         Output mapping to fill.
     """
     columns = st.columns(min(len(names), 3))
@@ -573,24 +669,81 @@ def run_assessment_tab(client: HealthcareAPIClient) -> None:
     """Render the Clinical Assessment page and run the analysis."""
     st.header("Clinical Assessment")
     st.caption(
-        "Enter the available clinical information. Only fields used by the "
-        "current model are shown. The analysis runs through the "
-        "FastAPI / n8n workflow and returns a structured clinical report."
+        "Enter the clinical information for a model-specific risk "
+        "assessment. Only the measurements the selected model actually "
+        "uses are shown; the analysis runs through the FastAPI / n8n "
+        "workflow and returns a structured clinical decision-support "
+        "report."
     )
 
     model = fetch_model_info(client)
-    feature_names = model.get("feature_names") or []
+    presets = fetch_presets_info(client)
 
-    if not feature_names:
-        st.info(
-            "No tabular model with known features is configured. You can "
-            "still run an analysis — the report will contain clinical "
-            "evidence without a prediction. (Train a model via the API or "
-            "set API_MODEL_PATH.)"
+    selected: str | None = None
+    schema: list[str] = []
+    need_train = False
+    if presets:
+        names = [item["name"] for item in presets]
+        served_preset = model.get("preset")
+        default_index = names.index(served_preset) if served_preset in names else 0
+        st.markdown("#### Assessment Type")
+        selected = st.selectbox(
+            "Select the clinical condition to assess",
+            options=names,
+            index=default_index,
+            format_func=assessment_type_label,
+            help="The form shows exactly the measurements the selected "
+            "model requires.",
+        )
+        preset_info = next(item for item in presets if item["name"] == selected)
+        schema = list(preset_info.get("feature_names") or [])
+        if not schema:
+            st.info(
+                f"No trained model is available for "
+                f"**{assessment_type_label(selected)}** yet. Train it first "
+                f"(POST /api/v1/train with preset='{selected}', or via the "
+                "runner) so the dashboard can show its required measurements."
+            )
+            return
+        need_train = not model_matches_preset(model, preset_info)
+        if need_train:
+            st.caption(
+                f"This assessment uses the **{assessment_type_label(selected)}** "
+                "model. Running it will train/serve that model first; the "
+                "currently served model is replaced for subsequent analyses."
+            )
+    else:
+        schema = list(model.get("feature_names") or [])
+        if not schema:
+            st.info(
+                "No tabular model with known features is configured. You can "
+                "still run an analysis — the report will contain clinical "
+                "evidence without a prediction. (Train a model via the API or "
+                "set API_MODEL_PATH.)"
+            )
+            return
+
+    input_mode = st.radio(
+        "Input method",
+        options=["Manual Entry", "CSV Upload"],
+        index=0,
+        horizontal=True,
+        key="assessment_input_mode",
+    )
+    if input_mode == "CSV Upload":
+        st.caption(
+            "Upload a CSV file whose columns match the model feature names "
+            "(the first row is analyzed). CSV analysis is sent directly to "
+            "the FastAPI backend — the n8n workflow currently handles "
+            "structured feature input only."
         )
 
     with st.form("assessment_form"):
         st.markdown("**Patient context**")
+        st.caption(
+            "Patient identification and audit metadata. It is never sent to "
+            "the ML model as a feature."
+        )
         context_left, context_right = st.columns(2)
         patient_name = context_left.text_input(
             "Patient name", value="Patient", key="patient_name"
@@ -598,11 +751,68 @@ def run_assessment_tab(client: HealthcareAPIClient) -> None:
         patient_id = context_right.text_input(
             "Patient ID", value="patient-1", key="patient_id"
         )
+        patient_age = st.number_input(
+            "Age (years)",
+            min_value=0,
+            max_value=120,
+            value=45,
+            step=1,
+            key="patient_age",
+        )
+        st.divider()
+
+        csv_file = None
+        feature_values: dict[str, float | None] = {}
+        if input_mode == "CSV Upload":
+            st.markdown("**Clinical data (CSV)**")
+            csv_file = st.file_uploader(
+                "Clinical data CSV",
+                type=["csv"],
+                key="assessment_csv",
+            )
+        else:
+            st.markdown("**Clinical measurements**")
+            st.caption(
+                "All fields are required by the selected model. Units are "
+                "shown where verified by the dataset; unverified units are "
+                "left unspecified."
+            )
+            feature_values = render_feature_groups(schema)
+        st.divider()
+
+        st.markdown("**Optional clinical notes**")
         notes = st.text_area(
             "Clinical notes (optional)", value="", height=70, key="patient_notes"
         )
-        feature_values = render_feature_groups(feature_names)
-        submitted = st.form_submit_button("Analyze Patient", type="primary")
+        st.divider()
+
+        st.markdown("**Assessment summary**")
+        summary_rows = assessment_summary(
+            patient={"name": patient_name, "id": patient_id},
+            preset_label=assessment_type_label(selected or "current model"),
+            schema=schema,
+            values=feature_values,
+            notes_provided=bool(notes.strip()),
+            patient_age=int(patient_age),
+        )
+        if input_mode == "CSV Upload":
+            summary_rows = [
+                (
+                    (label, "CSV upload" if csv_file is not None else "Not uploaded")
+                    if label == "Clinical data"
+                    else (label, value)
+                )
+                for label, value in summary_rows
+            ]
+        for label, value in summary_rows:
+            st.markdown(f"- **{label}**: {value}")
+        st.caption(
+            "Medical image analysis is a separate workflow (Imaging tab); "
+            "multimodal fusion is not implemented, so no image is combined "
+            "with this assessment."
+        )
+        st.caption(CLINICAL_DISCLAIMER)
+        submitted = st.form_submit_button("Run Clinical Assessment", type="primary")
 
     if not submitted:
         return
@@ -610,11 +820,50 @@ def run_assessment_tab(client: HealthcareAPIClient) -> None:
     patient = {
         "name": patient_name,
         "id": patient_id,
-        "age": int(feature_values.get("age", 0)),
+        "age": int(patient_age),
         "notes": notes,
     }
-    st.session_state["assessment_patient"] = patient
-    features = dict(feature_values)
+
+    if input_mode == "CSV Upload":
+        if csv_file is None:
+            st.error("Please upload a CSV file before running the assessment.")
+            return
+        try:
+            with st.spinner("Running the clinical analysis pipeline…"):
+                report = client.analyze_csv(patient=patient, csv=csv_file.getvalue())
+        except HealthcareAPIError as error:
+            st.error(str(error))
+            return
+        except httpx.HTTPError as error:
+            st.error(f"Could not reach the analysis backend: {error}")
+            return
+        st.session_state["clinical_report"] = report
+        st.session_state["report_route"] = "direct"
+        render_clinical_results(
+            report,
+            "direct",
+            subtitle=f"Patient {patient_id}",
+            download_key="download_assessment_csv",
+        )
+        st.caption(CLINICAL_DISCLAIMER)
+        return
+
+    errors = validate_feature_values(
+        feature_values, schema, patient_age=int(patient_age)
+    )
+    if errors:
+        st.error("Please correct the following before running the assessment:")
+        for message in errors:
+            st.error(f"- {message}")
+        return
+
+    features = {
+        name: float(value)
+        for name, value in feature_values.items()
+        if value is not None
+    }
+    if "age" in schema:
+        features["age"] = float(patient_age)
     markers = dict(features) if features else None
     route = resolve_route(
         client,
@@ -625,14 +874,20 @@ def run_assessment_tab(client: HealthcareAPIClient) -> None:
     try:
         with st.spinner("Running the clinical analysis pipeline…"):
             if route == "n8n":
+                n8n_kwargs: dict[str, Any] = {}
+                if need_train and selected is not None:
+                    n8n_kwargs = {"preset": selected, "train": True}
                 report = client.analyze_via_n8n(
                     st.session_state.get("n8n_base_url", DEFAULT_N8N_URL),
                     patient=patient,
                     features=features,
                     markers=markers,
                     input_type="csv",
+                    **n8n_kwargs,
                 )
             else:
+                if need_train and selected is not None:
+                    client.train(selected, model="mlp")
                 report = client.analyze(
                     patient=patient,
                     features=features,
@@ -660,6 +915,7 @@ def run_assessment_tab(client: HealthcareAPIClient) -> None:
         subtitle=f"Patient {patient_id}",
         download_key="download_assessment",
     )
+    st.caption(CLINICAL_DISCLAIMER)
 
 
 def run_imaging_tab(client: HealthcareAPIClient) -> None:

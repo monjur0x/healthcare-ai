@@ -75,12 +75,35 @@ IMAGE_MODEL = {
     "feature_names": None,
 }
 
+PRESETS = [
+    {
+        "name": "diabetes",
+        "dataset": "diabetes.csv",
+        "target": "Outcome",
+        "available": True,
+        "feature_names": ["glucose", "bmi", "age"],
+        "classes": ["0", "1"],
+    },
+    {
+        "name": "heart",
+        "dataset": "heart_disease_uci.csv",
+        "target": "num",
+        "available": True,
+        "feature_names": ["trestbps", "chol", "age"],
+        "classes": ["0", "1"],
+    },
+]
+
 
 @pytest.fixture()
 def app() -> AppTest:
     app = AppTest.from_file(APP_PATH, default_timeout=30)
     app.run()
     return app
+
+
+def _route_radio(app: AppTest):
+    return next(radio for radio in app.radio if ROUTE_DIRECT in radio.options)
 
 
 def _texts(app: AppTest) -> list[str]:
@@ -129,7 +152,7 @@ def test_assessment_form_submission_renders_results(monkeypatch):
 
     app = AppTest.from_file(APP_PATH, default_timeout=30)
     app.run()
-    app.radio[0].set_value(ROUTE_DIRECT).run()
+    _route_radio(app).set_value(ROUTE_DIRECT).run()
 
     app.button[0].click().run()
 
@@ -171,7 +194,7 @@ def test_n8n_route_uses_webhook(monkeypatch):
 
     app = AppTest.from_file(APP_PATH, default_timeout=30)
     app.run()
-    app.radio[0].set_value(ROUTE_N8N).run()
+    _route_radio(app).set_value(ROUTE_N8N).run()
 
     app.button[0].click().run()
 
@@ -195,6 +218,7 @@ def test_unconfigured_model_is_graceful(monkeypatch):
             "model_name": None,
             "classes": None,
             "feature_names": None,
+            "preset": None,
         },
     )
 
@@ -216,9 +240,6 @@ def test_unconfigured_model_is_graceful(monkeypatch):
 
     app = AppTest.from_file(APP_PATH, default_timeout=30)
     app.run()
-    app.radio[0].set_value(ROUTE_DIRECT).run()
-
-    app.button[0].click().run()
 
     assert len(app.exception) == 0
     text = " ".join(_texts(app))
@@ -265,7 +286,7 @@ def test_imaging_upload_analyzes_image(monkeypatch):
     uploader = app.get("file_uploader")[0]
     uploader.set_value(("scan.png", buffer.getvalue(), "image/png")).run()
 
-    app.button[1].click().run()
+    app.button[0].click().run()
 
     assert len(app.exception) == 0
     text = " ".join(_texts(app))
@@ -276,3 +297,117 @@ def test_imaging_upload_analyzes_image(monkeypatch):
 def test_results_tab_prompts_before_first_analysis(app):
     text = " ".join(_texts(app))
     assert "No analysis has been run yet" in text
+
+
+def _number_labels(app: AppTest) -> list[str]:
+    return [element.label for element in app.number_input]
+
+
+def test_assessment_type_selector_adapts_form(monkeypatch):
+    import dashboard.client as client_module
+
+    monkeypatch.setattr(
+        client_module.HealthcareAPIClient, "model_info", lambda self: TABULAR_MODEL
+    )
+    monkeypatch.setattr(
+        client_module.HealthcareAPIClient, "presets", lambda self: PRESETS
+    )
+
+    app = AppTest.from_file(APP_PATH, default_timeout=30)
+    app.run()
+
+    assert len(app.exception) == 0
+    text = " ".join(_texts(app))
+    assert "Assessment Type" in text
+    assert "Glucose (mg/dL)" in _number_labels(app)
+    assert "Resting Blood Pressure (mmHg)" not in _number_labels(app)
+
+    app.selectbox[0].set_value("heart").run()
+
+    assert "Resting Blood Pressure (mmHg)" in _number_labels(app)
+    assert "Glucose (mg/dL)" not in _number_labels(app)
+    text = " ".join(_texts(app))
+    assert "train/serve that model first" in text
+
+
+def test_assessment_train_on_demand_for_other_preset(monkeypatch):
+    import dashboard.client as client_module
+
+    monkeypatch.setattr(
+        client_module.HealthcareAPIClient, "model_info", lambda self: TABULAR_MODEL
+    )
+    monkeypatch.setattr(
+        client_module.HealthcareAPIClient, "presets", lambda self: PRESETS
+    )
+    calls: dict[str, object] = {}
+
+    def fake_train(self, preset, model="mlp"):
+        calls["train"] = preset
+        return {"status": "ok"}
+
+    def fake_analyze(
+        self,
+        patient,
+        features,
+        markers=None,
+        recommendations=None,
+        input_type="csv",
+    ):
+        calls["features"] = features
+        calls["patient"] = patient
+        return REPORT
+
+    monkeypatch.setattr(client_module.HealthcareAPIClient, "train", fake_train)
+    monkeypatch.setattr(client_module.HealthcareAPIClient, "analyze", fake_analyze)
+
+    app = AppTest.from_file(APP_PATH, default_timeout=30)
+    app.run()
+    _route_radio(app).set_value(ROUTE_DIRECT).run()
+    app.selectbox[0].set_value("heart").run()
+    app.button[0].click().run()
+
+    assert len(app.exception) == 0
+    assert calls["train"] == "heart"
+    assert "trestbps" in calls["features"]
+    assert calls["features"]["age"] == 45.0
+    assert calls["patient"]["name"] == "Patient"
+    assert calls["patient"]["age"] == 45
+    assert "name" not in calls["features"]
+    assert "id" not in calls["features"]
+
+
+def test_assessment_csv_upload_analyzes(monkeypatch):
+    import dashboard.client as client_module
+
+    monkeypatch.setattr(
+        client_module.HealthcareAPIClient, "model_info", lambda self: TABULAR_MODEL
+    )
+    monkeypatch.setattr(
+        client_module.HealthcareAPIClient, "presets", lambda self: PRESETS
+    )
+    calls: dict[str, object] = {}
+
+    def fake_analyze_csv(self, patient, csv, markers=None, recommendations=None):
+        calls["patient"] = patient
+        calls["csv"] = csv
+        return REPORT
+
+    monkeypatch.setattr(
+        client_module.HealthcareAPIClient, "analyze_csv", fake_analyze_csv
+    )
+
+    app = AppTest.from_file(APP_PATH, default_timeout=30)
+    app.run()
+    app.radio[0].set_value("CSV Upload").run()
+
+    uploader = app.get("file_uploader")[0]
+    uploader.set_value(("data.csv", b"glucose,bmi,age\n150,25,45\n", "text/csv")).run()
+
+    app.button[0].click().run()
+
+    assert len(app.exception) == 0
+    assert calls["csv"] == b"glucose,bmi,age\n150,25,45\n"
+    assert calls["patient"]["name"] == "Patient"
+    text = " ".join(_texts(app))
+    assert "Clinical Results" in text
+    assert "directly to the FastAPI backend" in text

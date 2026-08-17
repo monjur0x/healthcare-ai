@@ -348,6 +348,126 @@ def test_n8n_health_true_when_healthz_ok():
         client.close()
 
 
+def test_presets_parses_schemas():
+    payload = [
+        {
+            "name": "diabetes",
+            "dataset": "diabetes.csv",
+            "target": "Outcome",
+            "available": True,
+            "feature_names": ["glucose", "bmi", "age"],
+            "classes": ["0", "1"],
+        }
+    ]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/api/v1/presets"
+        return httpx.Response(200, json=payload)
+
+    client = _client(handler)
+    try:
+        result = client.presets()
+    finally:
+        client.close()
+    assert result[0]["name"] == "diabetes"
+    assert result[0]["feature_names"] == ["glucose", "bmi", "age"]
+
+
+def test_train_posts_preset():
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["json"] = json.loads(request.content)
+        return httpx.Response(
+            200,
+            json={
+                "model_path": "/tmp/diabetes/global_model.joblib",
+                "dataset": "diabetes.csv",
+                "target": "Outcome",
+                "accuracy": 0.82,
+                "roc_auc": 0.91,
+                "f1": 0.78,
+                "federated": False,
+                "federated_metrics": None,
+            },
+        )
+
+    client = _client(handler)
+    try:
+        result = client.train("diabetes", model="mlp")
+    finally:
+        client.close()
+    assert captured["json"] == {"preset": "diabetes", "model": "mlp"}
+    assert result["accuracy"] == 0.82
+
+
+def test_analyze_csv_base64_encodes_and_parses():
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/api/v1/analyze/csv"
+        captured["json"] = json.loads(request.content)
+        return httpx.Response(200, json=_report())
+
+    client = _client(handler)
+    try:
+        result = client.analyze_csv(
+            patient={"id": "p-csv", "name": "P"},
+            csv=b"glucose,bmi,age\n150.0,25.0,55\n",
+        )
+    finally:
+        client.close()
+    assert captured["json"]["patient"]["id"] == "p-csv"
+    assert captured["json"]["csv"] == base64.b64encode(
+        b"glucose,bmi,age\n150.0,25.0,55\n"
+    ).decode("ascii")
+    assert captured["json"]["input_type"] == "csv"
+    assert "markers" not in captured["json"]
+    assert result["prediction"]["predicted_class"] == "1"
+
+
+def test_analyze_via_n8n_includes_train_and_preset_when_requested():
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["json"] = json.loads(request.content)
+        return httpx.Response(200, json={"status": "success", "report": _report()})
+
+    client = _client(handler)
+    try:
+        client.analyze_via_n8n(
+            n8n_base_url="http://n8n:5678",
+            patient={"id": "p-1"},
+            features={"glucose": 148.0},
+            preset="heart",
+            train=True,
+        )
+    finally:
+        client.close()
+    assert captured["json"]["train"] is True
+    assert captured["json"]["preset"] == "heart"
+
+
+def test_analyze_via_n8n_omits_train_preset_when_unset():
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["json"] = json.loads(request.content)
+        return httpx.Response(200, json={"status": "success", "report": _report()})
+
+    client = _client(handler)
+    try:
+        client.analyze_via_n8n(
+            n8n_base_url="http://n8n:5678",
+            patient={"id": "p-1"},
+            features={"glucose": 148.0},
+        )
+    finally:
+        client.close()
+    assert "train" not in captured["json"]
+    assert "preset" not in captured["json"]
+
+
 def test_n8n_health_false_when_unreachable():
     def handler(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("connection refused")

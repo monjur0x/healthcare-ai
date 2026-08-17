@@ -118,9 +118,40 @@ class HealthcareAPIClient:
         -------
         dict[str, Any]
             ``ModelInfo`` payload with ``available``, ``model_type``,
-            ``model_name``, ``classes``, and ``feature_names``.
+            ``model_name``, ``classes``, ``feature_names``, and ``preset``.
         """
         return self._get_json("/api/v1/model")
+
+    def presets(self) -> list[dict[str, Any]]:
+        """
+        Describe the named dataset presets and their feature schemas.
+
+        Returns
+        -------
+        list[dict[str, Any]]
+            ``PresetInfo`` payloads ordered by name, each with
+            ``available`` / ``feature_names`` / ``classes``.
+        """
+        return self._get_json("/api/v1/presets")
+
+    def train(self, preset: str, model: str = "mlp") -> dict[str, Any]:
+        """
+        Train (or retrain) a preset model and serve it immediately.
+
+        Parameters
+        ----------
+        preset : str
+            Dataset preset name (``"diabetes"`` / ``"heart"`` / ...).
+        model : str
+            Model family to fit (``"mlp"`` or ``"logistic"``).
+
+        Returns
+        -------
+        dict[str, Any]
+            ``TrainResponse`` payload with artifact path and hold-out
+            metrics.
+        """
+        return self._post_json("/api/v1/train", {"preset": preset, "model": model})
 
     def predict(self, features: Mapping[str, float]) -> dict[str, Any]:
         """
@@ -201,6 +232,8 @@ class HealthcareAPIClient:
         recommendations: list[str] | None = None,
         input_type: str = "csv",
         webhook: str = N8N_ANALYZE_WEBHOOK,
+        preset: str | None = None,
+        train: bool = False,
     ) -> dict[str, Any]:
         """
         Run the clinical analysis through the n8n end-to-end webhook.
@@ -224,6 +257,11 @@ class HealthcareAPIClient:
             Data modality analyzed (``"csv"`` / ``"image"`` / ...).
         webhook : str
             n8n webhook path to call (defaults to the end-to-end workflow).
+        preset : str | None
+            When given, the workflow trains this preset before analyzing.
+        train : bool
+            When true (and ``preset`` is set), the workflow trains the
+            preset model before the analysis step.
 
         Returns
         -------
@@ -239,7 +277,13 @@ class HealthcareAPIClient:
         response = self._client.post(
             f"{n8n_base_url.rstrip('/')}/webhook/{webhook}",
             json=self._analyze_payload(
-                patient, features, markers, recommendations, input_type
+                patient,
+                features,
+                markers,
+                recommendations,
+                input_type,
+                preset=preset,
+                train=train,
             ),
         )
         self._raise_for_error(response)
@@ -297,6 +341,8 @@ class HealthcareAPIClient:
         markers: Mapping[str, float] | None,
         recommendations: list[str] | None,
         input_type: str,
+        preset: str | None = None,
+        train: bool = False,
     ) -> dict[str, Any]:
         """Build the shared ``/api/v1/analyze`` request body."""
         payload: dict[str, Any] = {
@@ -308,6 +354,10 @@ class HealthcareAPIClient:
             payload["markers"] = dict(markers)
         if recommendations is not None:
             payload["recommendations"] = list(recommendations)
+        if train:
+            payload["train"] = True
+        if preset:
+            payload["preset"] = preset
         return payload
 
     def analyze_image(
@@ -345,6 +395,49 @@ class HealthcareAPIClient:
         if recommendations is not None:
             payload["recommendations"] = list(recommendations)
         return self._post_json("/api/v1/analyze/image", payload)
+
+    def analyze_csv(
+        self,
+        patient: Mapping[str, Any],
+        csv: bytes,
+        markers: Mapping[str, float] | None = None,
+        recommendations: list[str] | None = None,
+        input_type: str = "csv",
+    ) -> dict[str, Any]:
+        """
+        Run the clinical analysis on an uploaded CSV and return the report.
+
+        The raw CSV bytes are sent as-is; all parsing and preprocessing
+        happens on the backend (``preprocessing.csv.CSVPipeline``).
+
+        Parameters
+        ----------
+        patient : Mapping[str, Any]
+            Patient context (``name``, ``id``, ``age``, ``notes``).
+        csv : bytes
+            Raw UTF-8 CSV file bytes.
+        markers : Mapping[str, float] | None
+            Optional raw clinical markers for the risk assessment.
+        recommendations : list[str] | None
+            Recommendation strings for the report.
+        input_type : str
+            Data modality analyzed (default ``"csv"``).
+
+        Returns
+        -------
+        dict[str, Any]
+            ``ClinicalReport`` payload.
+        """
+        payload: dict[str, Any] = {
+            "patient": dict(patient),
+            "csv": base64.b64encode(csv).decode("ascii"),
+            "input_type": input_type,
+        }
+        if markers is not None:
+            payload["markers"] = dict(markers)
+        if recommendations is not None:
+            payload["recommendations"] = list(recommendations)
+        return self._post_json("/api/v1/analyze/csv", payload)
 
     def _get_json(self, path: str) -> dict[str, Any]:
         response = self._client.get(path)

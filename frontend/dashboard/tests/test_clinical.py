@@ -7,16 +7,20 @@ from __future__ import annotations
 
 from dashboard.clinical import (
     analysis_stages,
+    assessment_summary,
     build_analyze_payload,
     explanation_sections,
     feature_bounds,
     feature_group,
     feature_label,
+    feature_unit,
     group_features,
     is_flag_feature,
+    is_integer_feature,
     normalize_feature_name,
     output_availability,
     parse_blood_pressure,
+    validate_feature_values,
 )
 
 REPORT = {
@@ -89,9 +93,12 @@ def test_group_features_orders_and_falls_back():
 
 
 def test_feature_label_humanizes():
-    assert feature_label("trestbps").startswith("Resting Blood Pressure")
+    assert feature_label("trestbps") == "Resting Blood Pressure"
     assert feature_label("glucose") == "Glucose"
     assert feature_label("heart_rate") == "Heart Rate"
+    assert feature_label("diabetespedigreefunction") == "Diabetes Pedigree Function"
+    assert feature_label("skinthickness") == "Skin Thickness"
+    assert "skinthickness" not in feature_label("skinthickness")
 
 
 def test_flag_and_bounds_detection():
@@ -102,6 +109,87 @@ def test_flag_and_bounds_detection():
     assert feature_bounds("age") == (0.0, 120.0)
     assert feature_bounds("spo2_mean") == (0.0, 100.0)
     assert feature_bounds("glucose") is None
+
+
+def test_units_are_verified_only():
+    assert feature_unit("glucose") == "mg/dL"
+    assert feature_unit("bloodpressure") == "mmHg"
+    assert feature_unit("bmi") == "kg/m²"
+    assert feature_unit("skinthickness") == "mm"
+    assert feature_unit("insulin") == "µU/mL"
+    assert feature_unit("pregnancies") == "count"
+    assert feature_unit("age") == "years"
+    assert feature_unit("trestbps") == "mmHg"
+    assert feature_unit("lactate_mmol") == "mmol/L"
+    assert feature_unit("diabetespedigreefunction") is None
+    assert feature_unit("unknown_column") is None
+
+
+def test_integer_feature_detection():
+    assert is_integer_feature("pregnancies")
+    assert is_integer_feature("sofa_score")
+    assert not is_integer_feature("glucose")
+    assert not is_integer_feature("bmi")
+
+
+def test_validate_feature_values_accepts_valid():
+    values = {"glucose": 148.0, "bmi": 27.3, "pregnancies": 5.0}
+    errors = validate_feature_values(values, ["glucose", "bmi", "pregnancies"])
+    assert errors == []
+
+
+def test_validate_feature_values_flags_missing_and_age():
+    errors = validate_feature_values(
+        {"glucose": 148.0}, ["glucose", "age"], patient_age=0
+    )
+    assert any("age is required" in error for error in errors)
+
+
+def test_validate_feature_values_flags_non_integer_and_none():
+    errors = validate_feature_values(
+        {"pregnancies": 2.5, "glucose": None}, ["pregnancies", "glucose"]
+    )
+    assert any("Pregnancies must be a whole number" in error for error in errors)
+    assert any("Glucose is required" in error for error in errors)
+
+
+def test_validate_feature_values_flags_bounds():
+    errors = validate_feature_values({"age": 130.0}, ["age"], patient_age=130)
+    assert any("must be between" in error for error in errors)
+
+
+def test_assessment_summary_counts_from_schema():
+    rows = dict(
+        assessment_summary(
+            patient={"name": "John Doe", "id": "P-001"},
+            preset_label="Diabetes Risk",
+            schema=["glucose", "bmi", "age"],
+            values={"glucose": 148.0, "bmi": 27.3},
+            notes_provided=True,
+            patient_age=52,
+        )
+    )
+    assert rows["Patient"] == "John Doe"
+    assert rows["Patient ID"] == "P-001"
+    assert rows["Assessment"] == "Diabetes Risk"
+    assert rows["Clinical data"] == "3 / 3 required features"
+    assert rows["Medical image"] == "Not provided"
+    assert rows["Clinical notes"] == "Provided"
+
+
+def test_assessment_summary_notes_absent():
+    rows = dict(
+        assessment_summary(
+            patient={"name": "John Doe", "id": "P-001"},
+            preset_label="Heart Risk",
+            schema=["glucose", "age"],
+            values={"glucose": 148.0},
+            notes_provided=False,
+            patient_age=0,
+        )
+    )
+    assert rows["Clinical data"] == "1 / 2 required features"
+    assert rows["Clinical notes"] == "Not provided"
 
 
 def test_parse_blood_pressure_uses_diastolic():
