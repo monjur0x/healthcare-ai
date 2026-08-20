@@ -100,6 +100,7 @@ flowchart TB
         T3["Imaging"]
         T4["Results"]
         T5["System Status"]
+        T6["Federation"]
     end
 
     R --> T2
@@ -118,7 +119,7 @@ flowchart TB
 | Federated learning | `backend/federated/` | Flower FedAvg with opt-in DP (Opacus) + secure aggregation |
 | Models | `backend/models/` | Tabular (sklearn / PyTorch MLP) + image CNN classifiers |
 | Preprocessing | `backend/preprocessing/` | CSV pipeline + image pipeline |
-| Streamlit dashboard | `frontend/streamlit_app.py` | Doctor-facing CDS UI (Overview / Assessment / Imaging / Results / System Status) |
+| Streamlit dashboard | `frontend/streamlit_app.py` | Doctor-facing CDS UI (Overview / Assessment / Imaging / Results / System Status / Federation) |
 | n8n automation | `n8n/healthcare-endtoend.json` | One workflow: train → analyze → respond |
 | Datasets | `~/dataset/` | `diabetes.csv`, `heart_disease_uci.csv`, `kidney_disease.csv`, `sepsis_icu_synthetic.csv`, brain-tumor MRI |
 
@@ -185,6 +186,13 @@ cd frontend
 
 The sidebar configures the backend URL, optional API token, n8n URL, and
 the analysis route (n8n when reachable, else direct FastAPI).
+
+The **Federation** tab inspects the multi-hospital model registry
+(distributed runs, per-condition versioned global models, per-round
+accuracy chart) and can trigger new distributed Flower training with
+optional secure aggregation and DP-SGD. It reads the
+`/api/v1/federation/*` endpoints; when no distributed run has been
+recorded yet, the tab shows a guidance message instead of failing.
 
 **5. n8n** — one workflow drives the whole lifecycle:
 

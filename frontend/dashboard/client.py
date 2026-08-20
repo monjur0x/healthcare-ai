@@ -134,6 +134,130 @@ class HealthcareAPIClient:
         """
         return self._get_json("/api/v1/presets")
 
+    def federation_status(self) -> dict[str, Any]:
+        """
+        Summarize the federation model registry.
+
+        Returns
+        -------
+        dict[str, Any]
+            ``FederationStatus`` payload with ``registry_path``,
+            ``n_runs``, ``n_models``, and per-preset ``presets`` (each
+            carrying the latest registered model).
+        """
+        return self._get_json("/api/v1/federation/status")
+
+    def federation_runs(self, preset: str | None = None) -> list[dict[str, Any]]:
+        """
+        List federation runs, newest first.
+
+        Parameters
+        ----------
+        preset : str | None
+            Restrict to a preset when given.
+
+        Returns
+        -------
+        list[dict[str, Any]]
+            ``FederationRun`` payloads.
+        """
+        path = "/api/v1/federation/runs"
+        if preset:
+            path += f"?preset={preset}"
+        return self._get_json(path)
+
+    def federation_models(self, preset: str | None = None) -> list[dict[str, Any]]:
+        """
+        List registered global models, newest first.
+
+        Parameters
+        ----------
+        preset : str | None
+            Restrict to a preset when given.
+
+        Returns
+        -------
+        list[dict[str, Any]]
+            ``FederationModel`` payloads.
+        """
+        path = "/api/v1/federation/models"
+        if preset:
+            path += f"?preset={preset}"
+        return self._get_json(path)
+
+    def federation_rounds(self, run_id: str) -> list[dict[str, Any]]:
+        """
+        Return the per-round metrics of a specific run.
+
+        Parameters
+        ----------
+        run_id : str
+            The run id.
+
+        Returns
+        -------
+        list[dict[str, Any]]
+            ``FederationRound`` payloads in round order.
+        """
+        return self._get_json(f"/api/v1/federation/runs/{run_id}/rounds")
+
+    def train_distributed(
+        self,
+        preset: str,
+        clients: int = 3,
+        rounds: int = 3,
+        secure_aggregation: bool = False,
+        differential_privacy: bool = False,
+        noise_multiplier: float = 1.1,
+        max_grad_norm: float = 1.0,
+        privacy_delta: float = 1e-5,
+    ) -> dict[str, Any]:
+        """
+        Train a preset through the distributed Flower gRPC deployment.
+
+        Parameters
+        ----------
+        preset : str
+            Dataset preset to federate.
+        clients : int
+            Number of hospital client processes.
+        rounds : int
+            Number of federated rounds.
+        secure_aggregation : bool
+            Mask client updates with the pairwise one-time-pad aggregator.
+        differential_privacy : bool
+            Apply Opacus DP-SGD on each hospital client.
+        noise_multiplier : float
+            DP-SGD noise multiplier.
+        max_grad_norm : float
+            DP-SGD gradient clipping norm.
+        privacy_delta : float
+            Privacy delta for the epsilon audit.
+
+        Returns
+        -------
+        dict[str, Any]
+            ``TrainResponse`` payload including ``federated_metrics``.
+        """
+        payload: dict[str, Any] = {
+            "preset": preset,
+            "federated": True,
+            "distributed": True,
+            "clients": clients,
+            "rounds": rounds,
+            "secure_aggregation": secure_aggregation,
+            "differential_privacy": differential_privacy,
+        }
+        if differential_privacy:
+            payload.update(
+                {
+                    "noise_multiplier": noise_multiplier,
+                    "max_grad_norm": max_grad_norm,
+                    "privacy_delta": privacy_delta,
+                }
+            )
+        return self._post_json("/api/v1/train", payload)
+
     def train(self, preset: str, model: str = "mlp") -> dict[str, Any]:
         """
         Train (or retrain) a preset model and serve it immediately.

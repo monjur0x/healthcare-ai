@@ -24,6 +24,8 @@ Pages
 - Results — the six research outputs rendered doctor-friendly.
 - System Status — live checks of FastAPI, the ML model, RAG, the CrewAI
   crew, and n8n.
+- Federation — the multi-hospital registry: run overview, per-condition
+  global models, distributed training trigger, and per-run round charts.
 
 Run from the repository root (or from ``frontend/``):
 
@@ -80,6 +82,9 @@ ASSESSMENT_LABELS = {
     "kidney": "Chronic Kidney Disease Risk",
     "sepsis": "Sepsis Risk",
 }
+
+#: Known dataset presets (fallback when the backend registry is empty).
+PRESET_PRESETS: tuple[str, ...] = ("diabetes", "heart", "kidney", "sepsis")
 
 
 def build_client(base_url: str, api_token: str) -> HealthcareAPIClient:
@@ -145,6 +150,27 @@ def fetch_presets_info(client: HealthcareAPIClient) -> list[dict[str, Any]]:
         return client.presets()
     except (HealthcareAPIError, httpx.HTTPError):
         return []
+
+
+def fetch_federation_status(client: HealthcareAPIClient) -> dict[str, Any]:
+    """
+    Fetch the federation registry overview, returning an empty dict on error.
+
+    Parameters
+    ----------
+    client : HealthcareAPIClient
+        Backend client.
+
+    Returns
+    -------
+    dict[str, Any]
+        ``FederationStatus`` payload or ``{}`` when the backend does not
+        expose the endpoint (older backend / unreachable).
+    """
+    try:
+        return client.federation_status()
+    except (HealthcareAPIError, httpx.HTTPError):
+        return {}
 
 
 def assessment_type_label(preset_name: str) -> str:
@@ -692,8 +718,7 @@ def run_assessment_tab(client: HealthcareAPIClient) -> None:
             options=names,
             index=default_index,
             format_func=assessment_type_label,
-            help="The form shows exactly the measurements the selected "
-            "model requires.",
+            help="The form shows exactly the measurements the selected model requires.",
         )
         preset_info = next(item for item in presets if item["name"] == selected)
         schema = list(preset_info.get("feature_names") or [])
@@ -1166,6 +1191,195 @@ def run_system_status_tab(client: HealthcareAPIClient, n8n_base_url: str) -> Non
 # ---------------------------------------------------------------------------
 
 
+def run_federation_tab(client: HealthcareAPIClient) -> None:
+    """Render the federation registry overview and distributed training."""
+    st.header("Federated Learning")
+    st.caption(
+        "Multi-hospital federation overview: distributed Flower gRPC runs, "
+        "versioned global models, and per-round metrics from the SQLite "
+        "model registry."
+    )
+
+    status = fetch_federation_status(client)
+    if not status:
+        st.info(
+            "The federation registry is not reachable. Start the backend "
+            "and run a distributed training (POST /api/v1/train with "
+            "`distributed: true`) to populate it."
+        )
+        return
+
+    st.markdown("### Registry overview")
+    overview_left, overview_middle, overview_right = st.columns(3)
+    overview_left.metric("Federation runs", status.get("n_runs", 0))
+    overview_middle.metric("Registered models", status.get("n_models", 0))
+    overview_right.caption("Registry")
+    overview_right.caption(str(status.get("registry_path") or "not configured"))
+
+    st.markdown("### Models by condition")
+    presets = status.get("presets") or []
+    available_presets = [preset for preset in presets if preset.get("available")]
+    if not available_presets:
+        st.info("No federated global model has been registered yet.")
+    else:
+        rows = []
+        for preset in available_presets:
+            model = preset.get("latest_model") or {}
+            rows.append(
+                {
+                    "Condition": ASSESSMENT_LABELS.get(
+                        preset.get("name"), preset.get("name", "")
+                    ),
+                    "Version": int(model.get("version", 0)),
+                    "Accuracy": model.get("accuracy"),
+                    "ROC-AUC": model.get("roc_auc"),
+                    "DP epsilon": model.get("epsilon"),
+                    "Secure aggregation": (
+                        "on" if model.get("secure_aggregation") else "off"
+                    ),
+                    "Differential privacy": (
+                        "on" if model.get("differential_privacy") else "off"
+                    ),
+                }
+            )
+        st.dataframe(
+            rows,
+            use_container_width=True,
+            hide_index=True,
+        )
+
+    st.divider()
+    st.markdown("### Distributed training")
+    st.caption(
+        "Run a new federated round across hospital client processes "
+        "(server + one process per hospital on this machine, over gRPC)."
+    )
+    train_left, train_middle, train_right = st.columns(3)
+    fed_preset = train_left.selectbox(
+        "Condition",
+        options=[item["name"] for item in presets] if presets else list(PRESET_PRESETS),
+        format_func=assessment_type_label,
+        key="fed_preset",
+    )
+    fed_clients = train_middle.number_input(
+        "Hospital clients",
+        min_value=2,
+        max_value=8,
+        value=3,
+        step=1,
+        key="fed_clients",
+    )
+    fed_rounds = train_right.number_input(
+        "Rounds",
+        min_value=1,
+        max_value=10,
+        value=3,
+        step=1,
+        key="fed_rounds",
+    )
+    privacy_left, privacy_right = st.columns(2)
+    fed_secure = privacy_left.checkbox(
+        "Secure aggregation",
+        value=False,
+        help="Mask client updates with the pairwise one-time-pad aggregator.",
+        key="fed_secure",
+    )
+    fed_dp = privacy_right.checkbox(
+        "Differential privacy (DP-SGD)",
+        value=False,
+        help="Clients train with Opacus DP-SGD; the run reports epsilon.",
+        key="fed_dp",
+    )
+
+    if st.button(
+        "Run distributed training",
+        type="primary",
+        key="run_federation",
+        help="Launches the distributed Flower server + hospital clients.",
+    ):
+        try:
+            with st.spinner(
+                f"Running {fed_rounds} federated rounds across "
+                f"{fed_clients} hospital processes…"
+            ):
+                response = client.train_distributed(
+                    preset=fed_preset,
+                    clients=int(fed_clients),
+                    rounds=int(fed_rounds),
+                    secure_aggregation=fed_secure,
+                    differential_privacy=fed_dp,
+                )
+        except (HealthcareAPIError, httpx.HTTPError) as error:
+            st.error(str(error))
+            return
+        st.success("Distributed training completed.")
+        metrics = response.get("federated_metrics") or {}
+        st.markdown("**Run result**")
+        st.markdown(
+            f"- Run id: `{metrics.get('run_id', '—')}` · version "
+            f"{metrics.get('version', '—')}"
+        )
+        st.markdown(f"- Hold-out accuracy: **{metrics.get('accuracy', '—')}**")
+        if metrics.get("roc_auc") is not None:
+            st.markdown(f"- Hold-out ROC-AUC: **{metrics.get('roc_auc'):.3f}**")
+        if metrics.get("epsilon") is not None:
+            st.markdown(f"- Worst-case DP epsilon: **{metrics.get('epsilon'):.3f}**")
+
+    st.divider()
+    st.markdown("### Recent runs")
+    try:
+        runs = client.federation_runs()
+    except (HealthcareAPIError, httpx.HTTPError):
+        runs = []
+    if not runs:
+        st.caption("No distributed runs recorded yet.")
+    else:
+        run_labels = {
+            run["run_id"]: (
+                f"{run['run_id']} — "
+                f"{ASSESSMENT_LABELS.get(run.get('preset'), run.get('preset', ''))}"
+            )
+            for run in runs
+        }
+        selected_run = st.selectbox(
+            "Run",
+            options=[run["run_id"] for run in runs],
+            format_func=lambda run_id: run_labels.get(run_id, run_id),
+            key="fed_run_select",
+        )
+        run = next((item for item in runs if item["run_id"] == selected_run), None)
+        if run is not None:
+            st.markdown(
+                f"- **Status**: {run.get('status')} · "
+                f"**Hospitals**: {run.get('n_hospitals')} · "
+                f"**Rounds**: {run.get('n_rounds')}"
+            )
+            st.markdown(
+                f"- Secure aggregation: "
+                f"**{'on' if run.get('secure_aggregation') else 'off'}**"
+                f" · Differential privacy: "
+                f"**{'on' if run.get('differential_privacy') else 'off'}**"
+            )
+            try:
+                rounds = client.federation_rounds(run["run_id"])
+            except (HealthcareAPIError, httpx.HTTPError):
+                rounds = []
+            if rounds:
+                chart = [
+                    {
+                        "Round": round_info.get("round_index", 0),
+                        "Accuracy": round_info.get("accuracy"),
+                    }
+                    for round_info in rounds
+                ]
+                st.line_chart(
+                    chart,
+                    x="Round",
+                    y="Accuracy",
+                    color="#1b5e20",
+                )
+
+
 def render_sidebar() -> tuple[HealthcareAPIClient, str, str]:
     """
     Render the sidebar configuration and return (client, n8n URL, route).
@@ -1226,14 +1440,17 @@ def main() -> None:
 
     client, n8n_base_url, _route = render_sidebar()
 
-    tab_overview, tab_assessment, tab_imaging, tab_results, tab_status = st.tabs(
-        [
-            "Overview",
-            "Clinical Assessment",
-            "Imaging",
-            "Results",
-            "System Status",
-        ]
+    tab_overview, tab_assessment, tab_imaging, tab_results, tab_status, tab_fed = (
+        st.tabs(
+            [
+                "Overview",
+                "Clinical Assessment",
+                "Imaging",
+                "Results",
+                "System Status",
+                "Federation",
+            ]
+        )
     )
     with tab_overview:
         run_overview_tab(client, n8n_base_url)
@@ -1245,6 +1462,8 @@ def main() -> None:
         run_results_tab()
     with tab_status:
         run_system_status_tab(client, n8n_base_url)
+    with tab_fed:
+        run_federation_tab(client)
 
 
 if __name__ == "__main__":
