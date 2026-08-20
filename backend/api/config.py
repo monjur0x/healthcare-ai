@@ -47,7 +47,8 @@ class APISettings(BaseSettings):
     IMAGE_MODEL_PATH: str = ""
 
     #: Path to a directory of ``.txt`` / ``.md`` knowledge documents for
-    #: RAG. Empty uses a small built-in medical corpus.
+    #: RAG. Empty uses the repository's bundled medical corpus
+    #: (``backend/rag/corpus/``).
     CORPUS_DIR: str = ""
 
     #: Base directory where ``/api/v1/train`` writes trained model

@@ -54,7 +54,7 @@ from preprocessing.csv import CSVPipeline
 from preprocessing.image import ImagePipeline
 from preprocessing.logger import get_logger
 from rag import RAGPipeline
-from rag.documents import Document
+from rag.corpus import load_bundled_corpus, load_documents
 
 from .config import APISettings
 from .config import settings as default_settings
@@ -251,13 +251,14 @@ def load_image_model(path: str | Path) -> ImageClassifier:
 
 def build_rag_pipeline(corpus_dir: str | Path | None = None) -> RAGPipeline:
     """
-    Build an ingested RAG pipeline from a corpus directory or a default corpus.
+    Build an ingested RAG pipeline from a corpus directory or the bundled corpus.
 
     Parameters
     ----------
     corpus_dir : str | Path | None
         Directory of ``.txt`` / ``.md`` documents. When None (or empty),
-        a small built-in medical corpus is ingested.
+        the repository's bundled medical corpus (``rag/corpus/``) is
+        ingested.
 
     Returns
     -------
@@ -273,11 +274,7 @@ def build_rag_pipeline(corpus_dir: str | Path | None = None) -> RAGPipeline:
     pipeline = RAGPipeline()
     if corpus_dir:
         directory = Path(corpus_dir)
-        documents = [
-            Document(id=path.name, text=path.read_text(encoding="utf-8"))
-            for path in sorted(directory.rglob("*"))
-            if path.is_file() and path.suffix.lower() in {".txt", ".md"}
-        ]
+        documents = load_documents(directory)
         if not documents:
             raise ServiceUnavailableError(
                 f"No .txt/.md documents found under {directory}."
@@ -285,10 +282,18 @@ def build_rag_pipeline(corpus_dir: str | Path | None = None) -> RAGPipeline:
         pipeline.ingest_documents(documents)
         logger.info("Ingested %d documents from %s", len(documents), directory)
     else:
-        pipeline.ingest_texts(DEFAULT_CORPUS)
-        logger.info(
-            "Ingested the built-in medical corpus (%d texts)", len(DEFAULT_CORPUS)
-        )
+        documents = load_bundled_corpus()
+        if documents:
+            pipeline.ingest_documents(documents)
+            logger.info(
+                "Ingested the bundled medical corpus (%d documents)", len(documents)
+            )
+        else:
+            pipeline.ingest_texts(DEFAULT_CORPUS)
+            logger.info(
+                "Bundled corpus unavailable; ingested the built-in fallback (%d texts)",
+                len(DEFAULT_CORPUS),
+            )
     return pipeline
 
 

@@ -9,6 +9,7 @@ storage backends are swappable behind narrow interfaces.
 
 from .chunker import TextChunker
 from .config import RAGSettings, settings
+from .corpus import BUNDLED_CORPUS_DIR, load_bundled_corpus, load_documents
 from .documents import Chunk, Document, RetrievalResult
 from .embedder import (
     Embedder,
@@ -29,6 +30,7 @@ from .store import VectorStore, build_vector_store
 from .store_chroma import ChromaVectorStore
 
 __all__ = [
+    "BUNDLED_CORPUS_DIR",
     "ChromaVectorStore",
     "Chunk",
     "Document",
@@ -46,6 +48,8 @@ __all__ = [
     "VectorStore",
     "build_embedder",
     "build_vector_store",
+    "load_bundled_corpus",
+    "load_documents",
     "rag_quality_metrics",
     "retrieval_metrics",
     "settings",

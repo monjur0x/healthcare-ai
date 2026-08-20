@@ -115,7 +115,7 @@ flowchart TB
 | --------- | ----------- | ------- |
 | FastAPI backend | `backend/api/main.py` | Train / predict / retrieve / analyze |
 | Multi-agent crew | `backend/CrewAI/orchestrator/` | Deterministic tool pipeline + LLM agents; merged clinical report |
-| RAG | `backend/rag/` | TF-IDF (default) or dense embedding + in-memory / ChromaDB store |
+| RAG | `backend/rag/` | TF-IDF (default) or dense embedding + in-memory / ChromaDB store; bundled medical corpus in `backend/rag/corpus/` |
 | Federated learning | `backend/federated/` | Flower FedAvg with opt-in DP (Opacus) + secure aggregation |
 | Models | `backend/models/` | Tabular (sklearn / PyTorch MLP) + image CNN classifiers |
 | Preprocessing | `backend/preprocessing/` | CSV pipeline + image pipeline |
@@ -246,7 +246,8 @@ Environment variables (all optional, see `backend/.env.example`):
 
 - `API_MODEL_PATH` — path to a persisted tabular model
 - `API_IMAGE_MODEL_PATH` — path to a persisted image CNN
-- `API_CORPUS_DIR` — RAG knowledge directory of `.txt`/`.md`
+- `API_CORPUS_DIR` — RAG knowledge directory of `.txt`/`.md` (empty uses
+  the bundled medical corpus in `backend/rag/corpus/`)
 - `API_DATASET_DIR` / `DATASET_DIR` — dataset directory
 - `API_ARTIFACTS_DIR` — where trained models are written
 - `API_TOKEN` — optional bearer token
