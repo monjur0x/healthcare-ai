@@ -14,21 +14,18 @@ SQLite model registry for versioned global models.
 
 ## Current Task
 
-Phase 1 — multi-hospital federated, verified end to end:
+Phase 1 follow-up — resolve per-slice feature drift (hold-out and client
+alignment):
 
-1. `preprocessing/loader.py` — canonical `load_classification_frame`
-   (CSV → engineered features + encoded labels); API and hospitals share it.
-2. `federated/hospitals.py` — `HospitalConfig` + `build_hospital_sites`
-   (partitions a preset into per-hospital local CSVs) + `load_hospital_dataset`.
-3. `federated/distributed.py` — `DistributedFedAvg` (FedAvg strategy
-   keeping the pairwise OTP secure-aggregation semantics), `ModelSpec`,
-   `run_distributed_server`, `run_hospital_client` (Flower gRPC).
-4. `federated/registry.py` — SQLite `ModelRegistry` (runs, rounds, models).
-5. `federated/__main__.py` — `python -m federated` CLI: `run`,
-   `server`, `client`, `sites`.
-6. API — `TrainRequest.distributed` flag → `services._train_distributed`
-   runs the distributed deployment and reports registry metrics.
-7. README + `.ai/` updated.
+1. `federated/hospitals.py` — stratified, class-balanced, disjoint
+   central hold-out (one fold of an `n_sites+1` split) instead of a
+   contiguous slice.
+2. `federated/distributed.py` — `ModelSpec.feature_names` canonical
+   schema + `align_features()` so every participant reindexes/zero-fills
+   its local features to the full-dataset columns.
+3. `federated/__main__.py` — CLI passes the feature schema to server and
+   client subprocesses.
+4. Re-verify all four presets through CLI and the API service.
 
 ## Completed
 
@@ -43,11 +40,13 @@ Phase 1 — multi-hospital federated, verified end to end:
 - API distributed train verified end to end (`preset=heart`, `kidney`):
   returns `federated_metrics` with run_id/version.
 - DP + secure aggregation path verified end to end (epsilon recorded).
-- Fixed per-slice feature drift: model spec is now derived from the full
-  source CSV (`_spec_from_preset`), and the server-side hold-out
-  evaluation falls back to client-aggregated accuracy when the hold-out
-  slice preprocesses to a different feature count (heart: 14 vs 11,
-  kidney: 19 vs 22 due to all-NaN columns in the contiguous slice).
+- **Fixed per-slice feature drift** (contiguous hold-out was class-sorted
+  and lost all-NaN columns → shape mismatch). Now:
+  - the hold-out is a stratified, disjoint fold of the full data;
+  - `ModelSpec` carries the canonical `feature_names` and every client /
+    the server align their local features to that schema;
+  - hold-out evaluation now succeeds for heart (acc 0.54, AUC 0.73),
+    kidney (acc 0.87), sepsis (acc 1.0) — no more fallback.
 - Fixed string-target hospital partitioning (`LabelEncoder` for
   `classification` values like "ckd" instead of `.astype(int)`).
 - Ruff clean; format applied; all imports compile; live API/dashboard/n8n
@@ -61,19 +60,18 @@ Phase 1 — multi-hospital federated, verified end to end:
 
 ## Design Notes
 
-- Hospital slice partitioning uses `StratifiedKFold` (rarest class must
-  support n_sites). Each hospital preprocesses its own CSV locally.
-- Model spec (`n_features`/`n_classes`) is derived from the **full**
-  source CSV, not a single slice, so all clients agree on the
-  architecture even when slices preprocess to different shapes.
-- Server-side hold-out evaluation is optional: if the hold-out slice
-  preprocesses to a different feature count than the model, it logs a
-  warning and uses the client-aggregated accuracy instead (avoids
-  crashing the whole run on a contiguous all-NaN column slice).
+- Hospital slice partitioning uses `StratifiedKFold` with `n_sites + 1`
+  folds: one fold becomes the central hold-out, the rest are the
+  hospital sites. Everything is class-balanced, disjoint, and
+  column-complete.
+- The model spec (`n_features`/`n_classes`/`feature_names`) is derived
+  from the **full** source CSV. Each participant aligns its local
+  features via `ModelSpec.align_features()` (reindex + zero-fill), so
+  per-slice imputer behavior cannot change the matrix shape.
 - `_train_distributed` spawns the `federated run` launcher as a
   subprocess; registry + artifacts are written under `API_ARTIFACTS_DIR`.
 
 ## Status
 
-Phase 1 complete and verified across all four presets. Repo not yet
-committed (user drives commits).
+Phase 1 complete and feature-drift fix verified across all four presets.
+Repo not yet committed (user drives commits).

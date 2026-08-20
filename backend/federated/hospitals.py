@@ -137,15 +137,27 @@ def build_hospital_sites(
         y_encoded = pd.to_numeric(y_raw).astype(int).to_numpy()
 
     counts = np.bincount(y_encoded)
-    if counts.min() < n_sites:
+    if counts.min() < n_sites + 1:
         raise ValueError(
-            f"Rarest class has {counts.min()} samples, fewer than {n_sites} "
-            "sites. Reduce n_sites or provide a larger dataset."
+            f"Rarest class has {counts.min()} samples, fewer than "
+            f"{n_sites + 1} folds (sites + hold-out) require. Reduce "
+            "n_sites or provide a larger dataset."
         )
 
-    splitter = StratifiedKFold(n_splits=n_sites, shuffle=True, random_state=seed)
+    splitter = StratifiedKFold(n_splits=n_sites + 1, shuffle=True, random_state=seed)
+    folds = list(splitter.split(raw, y_encoded))
+
+    holdout_index = folds[0][1]
+    holdout_path = root / "central_holdout.csv"
+    raw.iloc[holdout_index].to_csv(holdout_path, index=False)
+    logger.info(
+        "Wrote central hold-out slice with %d rows to %s",
+        len(holdout_index),
+        holdout_path,
+    )
+
     sites: list[HospitalConfig] = []
-    for index, (_, test_index) in enumerate(splitter.split(raw, y_encoded)):
+    for index, (_, test_index) in enumerate(folds[1:]):
         hospital_id = f"hospital_{chr(ord('A') + index)}"
         site_dir = root / hospital_id
         site_dir.mkdir(parents=True, exist_ok=True)
@@ -165,13 +177,6 @@ def build_hospital_sites(
             len(test_index),
             slice_path,
         )
-
-    holdout = raw.iloc[0 : max(1, len(raw) // (n_sites + 1))]
-    holdout_path = root / "central_holdout.csv"
-    holdout.to_csv(holdout_path, index=False)
-    logger.info(
-        "Wrote central hold-out slice with %d rows to %s", len(holdout), holdout_path
-    )
     return sites
 
 

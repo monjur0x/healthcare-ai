@@ -292,11 +292,15 @@ weights with a real Flower gRPC server.
 - `backend/federated/hospitals.py` — partitions a preset dataset into
   per-hospital local CSV slices (`FED_HOSPITALS_DIR`, default
   `data/hospitals/`). Each hospital preprocesses its own slice locally;
-  raw rows never leave the site.
+  raw rows never leave the site. The central hold-out is a stratified,
+  class-balanced fold so it evaluates consistently.
 - `backend/federated/distributed.py` — `run_distributed_server` /
   `run_hospital_client` over Flower gRPC, with a `DistributedFedAvg`
   strategy that keeps the pairwise OTP secure-aggregation semantics and
-  records per-round metrics.
+  records per-round metrics. A shared `ModelSpec` carries the canonical
+  feature schema (derived from the full dataset) so every participant
+  aligns its local features to the same columns even when the imputer
+  would drop different columns per slice.
 - `backend/federated/registry.py` — SQLite model registry
   (`FED_REGISTRY_PATH`, default `artifacts/federation.db`) storing runs,
   per-round metrics, and versioned global model artifacts.

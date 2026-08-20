@@ -57,6 +57,7 @@ def _spec_from_preset(preset: str, differential_privacy: bool, seed: int) -> Mod
     return ModelSpec(
         n_features=int(features.shape[1]),
         n_classes=int(labels.nunique()),
+        feature_names=tuple(features.columns),
         differential_privacy=differential_privacy,
         seed=seed,
     )
@@ -71,6 +72,20 @@ def _spec_from_args(
         n_classes=n_classes,
         differential_privacy=differential_privacy,
         seed=seed,
+    )
+
+
+def _with_feature_names(spec: ModelSpec, feature_names: str | None) -> ModelSpec:
+    """Attach a comma-separated feature schema to a :class:`ModelSpec`."""
+    if not feature_names:
+        return spec
+    names = tuple(name for name in feature_names.split(",") if name)
+    return ModelSpec(
+        n_features=spec.n_features,
+        n_classes=spec.n_classes,
+        feature_names=names,
+        differential_privacy=spec.differential_privacy,
+        seed=spec.seed,
     )
 
 
@@ -106,6 +121,7 @@ def cmd_server(args: argparse.Namespace) -> int:
     spec = _spec_from_args(
         args.n_features, args.n_classes, args.differential_privacy, args.seed
     )
+    spec = _with_feature_names(spec, args.feature_names)
     registry = ModelRegistry(settings.REGISTRY_PATH)
 
     holdout: tuple[Any, np.ndarray] | None = None
@@ -114,6 +130,7 @@ def cmd_server(args: argparse.Namespace) -> int:
         features, labels, _ = load_classification_frame(
             holdout_csv, _preset_target(args.preset)
         )
+        features = spec.align_features(features)
         holdout = (features, labels.to_numpy())
 
     run_id, model_path, version = run_distributed_server(
@@ -153,6 +170,7 @@ def cmd_client(args: argparse.Namespace) -> int:
     spec = _spec_from_args(
         args.n_features, args.n_classes, args.differential_privacy, args.seed
     )
+    spec = _with_feature_names(spec, args.feature_names)
     privacy = (
         PrivacyConfig(
             enabled=args.differential_privacy,
@@ -188,6 +206,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     spec = _spec_from_preset(args.preset, args.differential_privacy, args.seed)
     n_features = spec.n_features
     n_classes = spec.n_classes
+    feature_names = ",".join(spec.feature_names)
 
     server_cmd = [
         sys.executable,
@@ -206,6 +225,8 @@ def cmd_run(args: argparse.Namespace) -> int:
         str(n_features),
         "--n-classes",
         str(n_classes),
+        "--feature-names",
+        feature_names,
         "--seed",
         str(args.seed),
     ]
@@ -229,6 +250,8 @@ def cmd_run(args: argparse.Namespace) -> int:
         str(n_features),
         "--n-classes",
         str(n_classes),
+        "--feature-names",
+        feature_names,
         "--seed",
         str(args.seed),
         "--hospital",
@@ -312,6 +335,7 @@ def build_parser() -> argparse.ArgumentParser:
     server.add_argument("--rounds", type=int, default=3)
     server.add_argument("--n-features", type=int, required=True)
     server.add_argument("--n-classes", type=int, required=True)
+    server.add_argument("--feature-names", default="")
     server.add_argument("--secure-aggregation", action="store_true")
     server.add_argument("--differential-privacy", action="store_true")
     server.set_defaults(func=cmd_server)
@@ -324,6 +348,7 @@ def build_parser() -> argparse.ArgumentParser:
     client.add_argument("--hospital", required=True)
     client.add_argument("--n-features", type=int, required=True)
     client.add_argument("--n-classes", type=int, required=True)
+    client.add_argument("--feature-names", default="")
     client.add_argument("--differential-privacy", action="store_true")
     client.add_argument("--noise-multiplier", type=float, default=1.1)
     client.add_argument("--max-grad-norm", type=float, default=1.0)

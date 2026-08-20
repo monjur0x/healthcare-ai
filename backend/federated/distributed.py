@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+import pandas as pd
 
 from flwr.client import start_numpy_client
 from flwr.common import ndarrays_to_parameters, parameters_to_ndarrays
@@ -54,6 +55,10 @@ class ModelSpec:
         Number of input features after local preprocessing.
     n_classes : int
         Number of output classes.
+    feature_names : tuple[str, ...]
+        Canonical ordered feature names derived from the full source
+        dataset; every participant aligns its local features to this
+        schema so the imputer cannot cause per-slice shape drift.
     differential_privacy : bool
         Whether clients apply Opacus DP-SGD (selects the torch backend).
     seed : int
@@ -62,6 +67,7 @@ class ModelSpec:
 
     n_features: int
     n_classes: int
+    feature_names: tuple[str, ...] = ()
     differential_privacy: bool = False
     seed: int = 42
 
@@ -84,11 +90,42 @@ class ModelSpec:
             )
         return TabularClassifier(model_name="mlp", random_state=self.seed)
 
+    def align_features(self, features: pd.DataFrame) -> pd.DataFrame:
+        """
+        Reorder and/or zero-fill ``features`` to the canonical schema.
+
+        Each participant preprocesses its own slice, so the imputer may
+        have dropped different columns than the full dataset. Aligning by
+        the shared ``feature_names`` guarantees an identical matrix shape
+        everywhere while keeping column semantics consistent.
+
+        Parameters
+        ----------
+        features : pd.DataFrame
+            Locally preprocessed feature frame.
+
+        Returns
+        -------
+        pd.DataFrame
+            Frame with exactly the canonical feature columns in order.
+        """
+
+        if not self.feature_names:
+            return features
+        missing = [name for name in self.feature_names if name not in features.columns]
+        if missing:
+            logger.warning(
+                "Aligning local features: filling %d missing columns with 0",
+                len(missing),
+            )
+        return features.reindex(columns=self.feature_names).fillna(0.0)
+
     def to_dict(self) -> dict[str, Any]:
         """Serialize the model spec for CLI passing."""
         return {
             "n_features": self.n_features,
             "n_classes": self.n_classes,
+            "feature_names": list(self.feature_names),
             "differential_privacy": self.differential_privacy,
             "seed": self.seed,
         }
@@ -306,6 +343,7 @@ def _resolve_model_spec(model_spec: dict[str, Any] | None) -> ModelSpec | None:
     return ModelSpec(
         n_features=int(model_spec["n_features"]),
         n_classes=int(model_spec["n_classes"]),
+        feature_names=tuple(model_spec.get("feature_names", ())),
         differential_privacy=bool(model_spec.get("differential_privacy", False)),
         seed=int(model_spec.get("seed", 42)),
     )
@@ -480,6 +518,7 @@ def run_hospital_client(
     """
 
     features, labels, _ = load_hospital_dataset(hospital, max_rows)
+    features = model_spec.align_features(features)
     if features.shape[0] < 2:
         raise ValueError(f"{hospital.hospital_id} has too few local samples.")
 
