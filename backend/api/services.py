@@ -35,6 +35,7 @@ from CrewAI.orchestrator.schemas import (
 from CrewAI.orchestrator.services import retrieve_evidence, run_prediction
 from evaluation import evaluate_classifier
 from federated import FedAvgServer, FederatedClient, make_global_evaluator
+from federated.config import settings as federation_settings
 from federated.privacy import (
     PrivacyConfig,
     data_leakage_rate,
@@ -788,7 +789,7 @@ class AnalysisService:
             "--rounds",
             str(rounds),
             "--address",
-            "127.0.0.1:8080",
+            federation_settings.SERVER_ADDRESS,
             "--seed",
             str(seed),
         ]
@@ -997,6 +998,154 @@ class AnalysisService:
             infos.append(info)
         logger.info("Reported %d presets", len(infos))
         return infos
+
+    def _registry_path(self) -> Path | None:
+        """
+        Resolve the federation registry database path.
+
+        The registry lives next to the artifacts directory
+        (``<artifacts_dir>/federation.db``), matching where
+        :meth:`_train_distributed` writes it. Returns ``None`` when the
+        database does not exist.
+
+        Returns
+        -------
+        Path | None
+            The registry database path, or ``None`` if absent.
+        """
+
+        path = self.artifacts_dir / "federation.db"
+        return path if path.is_file() else None
+
+    def federation_status(self) -> dict[str, Any]:
+        """
+        Summarize the federation registry for the dashboard.
+
+        Returns
+        -------
+        dict[str, Any]
+            ``{registry_path, n_runs, n_models, presets}`` where each
+            preset entry carries the preset metadata plus the latest
+            registered model row (or ``None``).
+        """
+
+        path = self._registry_path()
+        if path is None:
+            return {
+                "registry_path": None,
+                "n_runs": 0,
+                "n_models": 0,
+                "presets": [],
+            }
+        registry = ModelRegistry(path)
+        try:
+            runs = registry.list_runs()
+            models = registry.list_models()
+            run_by_id = {run["run_id"]: run for run in runs}
+            presets: list[dict[str, Any]] = []
+            for name, (file_name, target) in sorted(PRESETS.items()):
+                latest = registry.latest_model(name)
+                if latest is not None:
+                    run = run_by_id.get(latest["run_id"], {})
+                    latest = {
+                        **latest,
+                        "secure_aggregation": bool(run.get("secure_aggregation", 0)),
+                        "differential_privacy": bool(
+                            run.get("differential_privacy", 0)
+                        ),
+                    }
+                presets.append(
+                    {
+                        "name": name,
+                        "dataset": file_name,
+                        "target": target,
+                        "available": latest is not None,
+                        "feature_names": None,
+                        "classes": None,
+                        "latest_model": latest,
+                    }
+                )
+            return {
+                "registry_path": str(path),
+                "n_runs": len(runs),
+                "n_models": len(models),
+                "presets": presets,
+            }
+        finally:
+            registry.close()
+
+    def federation_runs(self, preset: str | None = None) -> list[dict[str, Any]]:
+        """
+        List federation runs, newest first.
+
+        Parameters
+        ----------
+        preset : str | None
+            Restrict to a preset when given.
+
+        Returns
+        -------
+        list[dict[str, Any]]
+            Run rows ordered by creation time (descending).
+        """
+
+        path = self._registry_path()
+        if path is None:
+            return []
+        registry = ModelRegistry(path)
+        try:
+            return registry.list_runs(preset)
+        finally:
+            registry.close()
+
+    def federation_models(self, preset: str | None = None) -> list[dict[str, Any]]:
+        """
+        List registered global models, newest first.
+
+        Parameters
+        ----------
+        preset : str | None
+            Restrict to a preset when given.
+
+        Returns
+        -------
+        list[dict[str, Any]]
+            Model rows ordered by registration time (descending).
+        """
+
+        path = self._registry_path()
+        if path is None:
+            return []
+        registry = ModelRegistry(path)
+        try:
+            return registry.list_models(preset)
+        finally:
+            registry.close()
+
+    def federation_rounds(self, run_id: str) -> list[dict[str, Any]]:
+        """
+        Return the per-round metrics of a specific run.
+
+        Parameters
+        ----------
+        run_id : str
+            The run id.
+
+        Returns
+        -------
+        list[dict[str, Any]]
+            Round rows ordered by round index; empty when the registry is
+            absent or the run is unknown.
+        """
+
+        path = self._registry_path()
+        if path is None:
+            return []
+        registry = ModelRegistry(path)
+        try:
+            return registry.run_rounds(run_id)
+        finally:
+            registry.close()
 
     def analyze_image(
         self,

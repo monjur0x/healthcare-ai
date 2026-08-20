@@ -217,6 +217,10 @@ second minimal workflow, `n8n/clinical-analysis.json`
 | ------ | ---- | ----------- |
 | GET | `/health` | Liveness |
 | GET | `/api/v1/model` | Model metadata (features / classes) |
+| GET | `/api/v1/federation/status` | Federation registry overview (runs / models / per-preset latest) |
+| GET | `/api/v1/federation/runs` | List federation runs (optional `?preset=`) |
+| GET | `/api/v1/federation/models` | List registered global models (optional `?preset=`) |
+| GET | `/api/v1/federation/runs/{run_id}/rounds` | Per-round metrics of a federation run |
 | POST | `/api/v1/train` | Train a model (central or federated) and serve it |
 | POST | `/api/v1/predict` | Classify one feature row |
 | POST | `/api/v1/retrieve` | RAG evidence retrieval |
@@ -340,3 +344,13 @@ The response `federated_metrics` reports the registry `run_id`, model
 Federation settings use the `FED_` prefix (`FED_SERVER_ADDRESS`,
 `FED_HOSPITALS_DIR`, `FED_REGISTRY_PATH`, `FED_ARTIFACTS_DIR`,
 `FED_DATASET_DIR`, `FED_SEED`).
+
+**Registry inspection** — every distributed run is recorded in the
+SQLite registry; query it through the API:
+
+```bash
+curl localhost:8000/api/v1/federation/status                 # overview
+curl "localhost:8000/api/v1/federation/runs?preset=diabetes" # runs
+curl "localhost:8000/api/v1/federation/models"               # global models
+curl localhost:8000/api/v1/federation/runs/<run_id>/rounds   # round metrics
+```

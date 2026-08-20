@@ -23,6 +23,10 @@ from .schemas import (
     AnalyzeCSVRequest,
     AnalyzeImageRequest,
     AnalyzeRequest,
+    FederationModel,
+    FederationRound,
+    FederationRun,
+    FederationStatus,
     ModelInfo,
     PredictRequest,
     PresetInfo,
@@ -280,6 +284,92 @@ def model_info(service: ServiceDependency) -> ModelInfo:
     """
 
     return ModelInfo(**service.model_info())
+
+
+@router.get("/federation/status", response_model=FederationStatus)
+def federation_status(service: ServiceDependency) -> FederationStatus:
+    """
+    Summarize the federation model registry.
+
+    Parameters
+    ----------
+    service : AnalysisService
+        Injected analysis service.
+
+    Returns
+    -------
+    FederationStatus
+        Registry path, run/model counts, and per-preset latest models.
+    """
+
+    return FederationStatus(**service.federation_status())
+
+
+@router.get("/federation/runs", response_model=list[FederationRun])
+def federation_runs(
+    service: ServiceDependency, preset: str | None = None
+) -> list[FederationRun]:
+    """
+    List federation runs, newest first.
+
+    Parameters
+    ----------
+    service : AnalysisService
+        Injected analysis service.
+    preset : str | None
+        Restrict to a preset when given.
+
+    Returns
+    -------
+    list[FederationRun]
+        Run rows ordered by creation time (descending).
+    """
+
+    return [FederationRun(**row) for row in service.federation_runs(preset)]
+
+
+@router.get("/federation/models", response_model=list[FederationModel])
+def federation_models(
+    service: ServiceDependency, preset: str | None = None
+) -> list[FederationModel]:
+    """
+    List registered global models, newest first.
+
+    Parameters
+    ----------
+    service : AnalysisService
+        Injected analysis service.
+    preset : str | None
+        Restrict to a preset when given.
+
+    Returns
+    -------
+    list[FederationModel]
+        Model rows ordered by registration time (descending).
+    """
+
+    return [FederationModel(**row) for row in service.federation_models(preset)]
+
+
+@router.get("/federation/runs/{run_id}/rounds", response_model=list[FederationRound])
+def federation_rounds(run_id: str, service: ServiceDependency) -> list[FederationRound]:
+    """
+    Return the per-round metrics of a specific run.
+
+    Parameters
+    ----------
+    run_id : str
+        The run id.
+    service : AnalysisService
+        Injected analysis service.
+
+    Returns
+    -------
+    list[FederationRound]
+        Round rows ordered by round index.
+    """
+
+    return [FederationRound(**row) for row in service.federation_rounds(run_id)]
 
 
 @router.get("/presets", response_model=list[PresetInfo])

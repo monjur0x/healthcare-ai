@@ -379,6 +379,169 @@ class HealthResponse(BaseModel):
     version: str
 
 
+class FederationRound(BaseModel):
+    """
+    Per-round global metrics from a federation run.
+
+    Parameters
+    ----------
+    round_index : int
+        1-based round number.
+    accuracy : float | None
+        Global count-weighted accuracy.
+    log_loss : float | None
+        Global count-weighted log loss.
+    n_clients : int | None
+        Number of participating clients.
+    bytes_exchanged : int | None
+        Estimated bytes exchanged in the round.
+    duration_s : float | None
+        Wall-clock duration of the round.
+    """
+
+    round_index: int
+    accuracy: float | None = None
+    log_loss: float | None = None
+    n_clients: int | None = None
+    bytes_exchanged: int | None = None
+    duration_s: float | None = None
+
+
+class FederationRun(BaseModel):
+    """
+    Metadata about one distributed federation run.
+
+    Parameters
+    ----------
+    run_id : str
+        Unique run identifier.
+    preset : str
+        Dataset preset federated.
+    n_hospitals : int
+        Number of participating hospital sites.
+    n_rounds : int
+        Number of federated rounds.
+    secure_aggregation : bool
+        Whether client updates were masked.
+    differential_privacy : bool
+        Whether clients applied DP-SGD.
+    status : str
+        ``"running"`` / ``"completed"``.
+    created_at : str
+        Run creation timestamp.
+    completed_at : str | None
+        Completion timestamp (None while running).
+    """
+
+    run_id: str
+    preset: str
+    n_hospitals: int
+    n_rounds: int
+    secure_aggregation: bool
+    differential_privacy: bool
+    status: str
+    created_at: str
+    completed_at: str | None = None
+
+
+class FederationModel(BaseModel):
+    """
+    A versioned global model artifact registered by a federation run.
+
+    Parameters
+    ----------
+    id : int
+        Registry row id.
+    run_id : str
+        The run that produced the model.
+    preset : str
+        Dataset preset the model predicts.
+    version : int
+        Monotonic version for the preset.
+    model_path : str
+        Path to the persisted model artifact.
+    accuracy : float | None
+        Hold-out accuracy.
+    roc_auc : float | None
+        Hold-out ROC-AUC.
+    epsilon : float | None
+        Worst-case DP epsilon (DP runs only).
+    secure_aggregation : bool | None
+        Whether the producing run masked client updates (None for the
+        flat model list, where run details live in :class:`FederationRun`).
+    differential_privacy : bool | None
+        Whether the producing run applied DP-SGD (see above).
+    created_at : str
+        Registration timestamp.
+    """
+
+    id: int
+    run_id: str
+    preset: str
+    version: int
+    model_path: str
+    accuracy: float | None = None
+    roc_auc: float | None = None
+    epsilon: float | None = None
+    secure_aggregation: bool | None = None
+    differential_privacy: bool | None = None
+    created_at: str
+
+
+class FederationPreset(BaseModel):
+    """
+    A preset's registry summary: preset metadata plus latest global model.
+
+    Parameters
+    ----------
+    name : str
+        Preset name.
+    dataset : str
+        Source CSV file name.
+    target : str
+        Target column name.
+    available : bool
+        Whether at least one global model is registered for the preset.
+    feature_names : list[str] | None
+        Feature columns of the latest served model (always None for
+        registry entries; artifacts are authoritative).
+    classes : list[str] | None
+        Class labels of the latest model (always None here).
+    latest_model : FederationModel | None
+        The most recent registered global model for the preset.
+    """
+
+    name: str
+    dataset: str
+    target: str
+    available: bool = False
+    feature_names: list[str] | None = None
+    classes: list[str] | None = None
+    latest_model: FederationModel | None = None
+
+
+class FederationStatus(BaseModel):
+    """
+    Overview of the federation model registry.
+
+    Parameters
+    ----------
+    registry_path : str | None
+        Path to the SQLite registry database (None when not configured).
+    n_runs : int
+        Total recorded runs.
+    n_models : int
+        Total registered global models.
+    presets : list[FederationPreset]
+        Per-preset summary with the latest registered model.
+    """
+
+    registry_path: str | None = None
+    n_runs: int = 0
+    n_models: int = 0
+    presets: list[FederationPreset] = []
+
+
 __all__ = [
     "AnalyzeCSVRequest",
     "AnalyzeImageRequest",
@@ -386,6 +549,11 @@ __all__ = [
     "ClinicalReport",
     "DatasetPreset",
     "EvidenceItem",
+    "FederationModel",
+    "FederationPreset",
+    "FederationRound",
+    "FederationRun",
+    "FederationStatus",
     "HealthResponse",
     "ModelInfo",
     "PatientInfo",

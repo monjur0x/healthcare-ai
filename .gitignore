@@ -30,6 +30,8 @@ logs/
 
 # Generated model / experiment artifacts
 backend/artifacts/
+backend/hospitals/
+backend/data/
 
 # Node / frontend
 node_modules/
