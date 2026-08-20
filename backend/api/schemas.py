@@ -51,8 +51,11 @@ class TrainRequest(BaseModel):
         Optional cap on the number of rows used.
     federated : bool
         When true, train through the federated FedAvg path.
+    distributed : bool
+        When true and ``federated`` is set, hospitals run as separate
+        processes over Flower gRPC (requires ``preset``).
     clients : int
-        Number of simulated hospital clients (federated path).
+        Number of hospital clients (federated path).
     rounds : int
         Number of federated rounds (federated path).
     differential_privacy : bool
@@ -77,6 +80,7 @@ class TrainRequest(BaseModel):
     seed: int = 42
     max_rows: int | None = Field(default=None, ge=1)
     federated: bool = False
+    distributed: bool = False
     clients: int = Field(default=3, ge=1, le=16)
     rounds: int = Field(default=3, ge=1, le=50)
     differential_privacy: bool = False

@@ -1,0 +1,51 @@
+"""
+Configuration for the federated learning module.
+
+Server-level settings for the distributed Flower deployment and the
+hospital data layer. Environment variables use the ``FED_`` prefix,
+e.g. ``FED_REGISTRY_PATH`` or ``FED_SERVER_ADDRESS``.
+"""
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class FederationSettings(BaseSettings):
+    """
+    Distributed federation settings.
+
+    Environment variables use the ``FED_`` prefix (e.g.
+    ``FED_REGISTRY_PATH``). Falls back to the shared ``DATASET_DIR``
+    environment variable for hospital dataset sources.
+    """
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_prefix="FED_",
+        case_sensitive=False,
+        extra="ignore",
+    )
+
+    #: gRPC address the Flower server binds to (e.g. ``0.0.0.0:8080``).
+    SERVER_ADDRESS: str = "0.0.0.0:8080"
+
+    #: Path to the SQLite model registry.
+    REGISTRY_PATH: str = "artifacts/federation.db"
+
+    #: Root directory holding per-hospital local datasets.
+    HOSPITALS_DIR: str = "data/hospitals"
+
+    #: Base directory for preset datasets (diabetes.csv, ...). When
+    #: empty, falls back to the ``DATASET_DIR`` environment variable and
+    #: then the current working directory.
+    DATASET_DIR: str = ""
+
+    #: Root directory where trained global model artifacts are written.
+    ARTIFACTS_DIR: str = "artifacts"
+
+    #: Fixed seed for hospital data partitioning and secure aggregation.
+    SEED: int = 42
+
+
+settings = FederationSettings()
+
+__all__ = ["FederationSettings", "settings"]

@@ -119,6 +119,7 @@ def train(request: TrainRequest, service: ServiceDependency) -> TrainResponse:
         seed=request.seed,
         max_rows=request.max_rows,
         federated=request.federated,
+        distributed=request.distributed,
         clients=request.clients,
         rounds=request.rounds,
         differential_privacy=request.differential_privacy,

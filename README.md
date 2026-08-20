@@ -281,3 +281,58 @@ With the test suite removed, verify the live system with:
 2. `curl localhost:8000/health` — backend up.
 3. A `POST /api/v1/analyze` call returns a report with `prediction`,
    `risk`, and `evidence`.
+
+## Distributed Multi-Hospital Federation
+
+Beyond the in-process FedAvg path (used by `/api/v1/train` with
+`federated: true`), the framework ships a genuine distributed deployment
+where each hospital runs as its **own process** and exchanges only model
+weights with a real Flower gRPC server.
+
+- `backend/federated/hospitals.py` — partitions a preset dataset into
+  per-hospital local CSV slices (`FED_HOSPITALS_DIR`, default
+  `data/hospitals/`). Each hospital preprocesses its own slice locally;
+  raw rows never leave the site.
+- `backend/federated/distributed.py` — `run_distributed_server` /
+  `run_hospital_client` over Flower gRPC, with a `DistributedFedAvg`
+  strategy that keeps the pairwise OTP secure-aggregation semantics and
+  records per-round metrics.
+- `backend/federated/registry.py` — SQLite model registry
+  (`FED_REGISTRY_PATH`, default `artifacts/federation.db`) storing runs,
+  per-round metrics, and versioned global model artifacts.
+- `backend/federated/__main__.py` — `python -m federated` launcher.
+
+**Orchestrated run (server + N hospital processes on this machine):**
+
+```bash
+cd backend
+DATASET_DIR=~/dataset python -m federated run \
+  --preset diabetes --hospitals 4 --rounds 3 --secure-aggregation
+```
+
+Or split across hosts:
+
+```bash
+python -m federated sites --preset diabetes --hospitals 4          # build slices
+python -m federated server --preset diabetes --hospitals 4 \
+  --n-features 8 --n-classes 2 --address 0.0.0.0:8080              # on the server
+python -m federated client --preset diabetes --hospitals 4 \
+  --n-features 8 --n-classes 2 --hospital hospital_A \
+  --address <server>:8080                                          # on each hospital
+```
+
+**Through the API** (`distributed` requires `federated` and a `preset`):
+
+```bash
+curl -X POST localhost:8000/api/v1/train \
+  -H "Content-Type: application/json" \
+  -d '{"preset": "diabetes", "federated": true, "distributed": true,
+       "clients": 4, "rounds": 3, "differential_privacy": true,
+       "secure_aggregation": true}'
+```
+
+The response `federated_metrics` reports the registry `run_id`, model
+`version`, hold-out accuracy / ROC-AUC, and the worst-case DP epsilon.
+Federation settings use the `FED_` prefix (`FED_SERVER_ADDRESS`,
+`FED_HOSPITALS_DIR`, `FED_REGISTRY_PATH`, `FED_ARTIFACTS_DIR`,
+`FED_DATASET_DIR`, `FED_SEED`).

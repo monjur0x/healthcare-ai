@@ -2,55 +2,78 @@
 
 ## Current Milestone
 
-Repository cleanup: removed all tests, examples, scripts, dead
-multimodal modules, `docs/`, and root junk. The live system (FastAPI
-backend + CrewAI orchestrator + n8n + Streamlit dashboard) is unchanged
-and verified to import cleanly.
+Phase 1 of the multi-hospital federated build: a genuine distributed
+Flower deployment where each hospital runs as its own process and
+exchanges only model weights with a real Flower gRPC server, with an
+SQLite model registry for versioned global models.
 
 ## Current Module
 
-N/A (cleanup session).
+`backend/federated/` (hospitals, distributed, registry, launcher) plus
+`backend/preprocessing/loader.py` (shared CSV loader).
 
 ## Current Task
 
-1. Delete all test files (backend + frontend) and `backend/conftest.py`.
-2. Delete `backend/examples/`, `backend/scripts/`, and top-level
-   `scripts/` (run_system.sh, train_image_model.py).
-3. Delete dead multimodal modules (`backend/models/multimodal/`,
-   `backend/preprocessing/multimodal/`) and remove their references from
-   `models/__init__.py` / `preprocessing/__init__.py`.
-4. Delete `docs/`, `n8n/README.md`, and root junk (`workflow.txt`,
-   `ai-automation-research.md`, empty log files, caches).
-5. Consolidate all documentation into `README.md` with an accurate
-   Mermaid flowchart of the actual system.
-6. Update `AGENTS.md` and `.ai/` to match the cleaned repo.
+Phase 1 — multi-hospital federated, verified end to end:
+
+1. `preprocessing/loader.py` — canonical `load_classification_frame`
+   (CSV → engineered features + encoded labels); API and hospitals share it.
+2. `federated/hospitals.py` — `HospitalConfig` + `build_hospital_sites`
+   (partitions a preset into per-hospital local CSVs) + `load_hospital_dataset`.
+3. `federated/distributed.py` — `DistributedFedAvg` (FedAvg strategy
+   keeping the pairwise OTP secure-aggregation semantics), `ModelSpec`,
+   `run_distributed_server`, `run_hospital_client` (Flower gRPC).
+4. `federated/registry.py` — SQLite `ModelRegistry` (runs, rounds, models).
+5. `federated/__main__.py` — `python -m federated` CLI: `run`,
+   `server`, `client`, `sites`.
+6. API — `TrainRequest.distributed` flag → `services._train_distributed`
+   runs the distributed deployment and reports registry metrics.
+7. README + `.ai/` updated.
 
 ## Completed
 
-- All tests (~38 tracked files, ~6k lines) removed.
-- `backend/examples/`, `backend/scripts/`, top-level `scripts/` removed.
-- Multimodal modules removed; `models/__init__.py` and
-  `preprocessing/__init__.py` updated.
-- `docs/` (10 files), `n8n/README.md`, `workflow.txt`,
-  `ai-automation-research.md`, empty logs, and caches removed.
-- Backend + frontend verified: all live imports resolve, code compiles.
-- `AGENTS.md` de-referenced from deleted docs/scripts/tests.
+- Flower 1.33 API verified: `start_server` / `start_numpy_client` over
+  gRPC work; no built-in SecureAggregation strategy (custom strategy used).
+- Hospital data layer: 4-site partition + central hold-out slice verified.
+- `DistributedFedAvg` masked (secure) aggregation + weighted (plain)
+  aggregation verified; per-round metrics persist to SQLite.
+- Registry verified: runs, rounds, models, `latest_model`, versioning.
+- CLI `run` verified end to end for all four presets (diabetes, heart,
+  kidney, sepsis) with plain, secure-aggregation, and DP+secagg variants.
+- API distributed train verified end to end (`preset=heart`, `kidney`):
+  returns `federated_metrics` with run_id/version.
+- DP + secure aggregation path verified end to end (epsilon recorded).
+- Fixed per-slice feature drift: model spec is now derived from the full
+  source CSV (`_spec_from_preset`), and the server-side hold-out
+  evaluation falls back to client-aggregated accuracy when the hold-out
+  slice preprocesses to a different feature count (heart: 14 vs 11,
+  kidney: 19 vs 22 due to all-NaN columns in the contiguous slice).
+- Fixed string-target hospital partitioning (`LabelEncoder` for
+  `classification` values like "ckd" instead of `.astype(int)`).
+- Ruff clean; format applied; all imports compile; live API/dashboard/n8n
+  healthy.
 
 ## Next Files (optional / backlog)
 
-- Write the consolidated `README.md` (accurate Mermaid flowchart,
-  quick-start, API reference, config).
-- Update `.ai/next_session.md`.
-- Commit the cleanup as one focused commit when the user asks.
+- `.ai/next_session.md` update.
+- Phase 2+ (backlog): real medical RAG corpora, doctor notification,
+  feedback loop, encrypted transport, risk monitoring on history.
 
 ## Design Notes
 
-- Tests were removed by explicit user request. Verification of the live
-  system is the import smoke check + manual API calls in README.md.
-- The remaining code is the genuinely working system: preprocessing →
-  models → federated → RAG → CrewAI → FastAPI → n8n → dashboard.
+- Hospital slice partitioning uses `StratifiedKFold` (rarest class must
+  support n_sites). Each hospital preprocesses its own CSV locally.
+- Model spec (`n_features`/`n_classes`) is derived from the **full**
+  source CSV, not a single slice, so all clients agree on the
+  architecture even when slices preprocess to different shapes.
+- Server-side hold-out evaluation is optional: if the hold-out slice
+  preprocesses to a different feature count than the model, it logs a
+  warning and uses the client-aggregated accuracy instead (avoids
+  crashing the whole run on a contiguous all-NaN column slice).
+- `_train_distributed` spawns the `federated run` launcher as a
+  subprocess; registry + artifacts are written under `API_ARTIFACTS_DIR`.
 
 ## Status
 
-Cleanup staged (deletions staged in git index, `models/__init__.py` and
-`preprocessing/__init__.py` modified, README not yet rewritten).
+Phase 1 complete and verified across all four presets. Repo not yet
+committed (user drives commits).

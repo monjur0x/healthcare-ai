@@ -10,6 +10,8 @@ typed ``APIError`` subclasses at the service boundary.
 from __future__ import annotations
 
 import os
+import subprocess
+import sys
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -39,6 +41,7 @@ from federated.privacy import (
     membership_inference_auroc,
     privacy_metrics_summary,
 )
+from federated.registry import ModelRegistry
 from models import (
     BaseModel,
     ImageClassifier,
@@ -407,6 +410,7 @@ class AnalysisService:
         seed: int = 42,
         max_rows: int | None = None,
         federated: bool = False,
+        distributed: bool = False,
         clients: int = 3,
         rounds: int = 3,
         differential_privacy: bool = False,
@@ -441,8 +445,11 @@ class AnalysisService:
             Optional row cap.
         federated : bool
             Use the federated FedAvg path when true.
+        distributed : bool
+            Run hospitals as separate processes over Flower gRPC when
+            true (requires ``federated`` and a preset).
         clients : int
-            Number of simulated hospital clients (federated path).
+            Number of hospital clients (federated path).
         rounds : int
             Number of federated rounds (federated path).
         differential_privacy : bool
@@ -495,21 +502,34 @@ class AnalysisService:
                         "The federated path supports model_name='mlp' only "
                         "(incremental local steps)."
                     )
-                fitted, fed_metrics = self._train_federated(
-                    train_x,
-                    train_y,
-                    test_x,
-                    test_y,
-                    model,
-                    clients,
-                    rounds,
-                    seed,
-                    differential_privacy=differential_privacy,
-                    noise_multiplier=noise_multiplier,
-                    max_grad_norm=max_grad_norm,
-                    privacy_delta=privacy_delta,
-                    secure_aggregation=secure_aggregation,
-                )
+                if distributed:
+                    fitted, fed_metrics = self._train_distributed(
+                        preset=preset,
+                        clients=clients,
+                        rounds=rounds,
+                        seed=seed,
+                        differential_privacy=differential_privacy,
+                        noise_multiplier=noise_multiplier,
+                        max_grad_norm=max_grad_norm,
+                        privacy_delta=privacy_delta,
+                        secure_aggregation=secure_aggregation,
+                    )
+                else:
+                    fitted, fed_metrics = self._train_federated(
+                        train_x,
+                        train_y,
+                        test_x,
+                        test_y,
+                        model,
+                        clients,
+                        rounds,
+                        seed,
+                        differential_privacy=differential_privacy,
+                        noise_multiplier=noise_multiplier,
+                        max_grad_norm=max_grad_norm,
+                        privacy_delta=privacy_delta,
+                        secure_aggregation=secure_aggregation,
+                    )
                 if hasattr(fitted, "set_scaler_params"):
                     fitted.set_scaler_params(scaler_params)
             else:
@@ -691,6 +711,143 @@ class AnalysisService:
                 epsilon_target=PrivacyConfig().epsilon_target,
                 secure_aggregation=secure_aggregation,
             )
+        return global_model, fed_metrics
+
+    def _train_distributed(
+        self,
+        preset: str,
+        clients: int,
+        rounds: int,
+        seed: int,
+        differential_privacy: bool = False,
+        noise_multiplier: float = 1.1,
+        max_grad_norm: float = 1.0,
+        privacy_delta: float = 1e-5,
+        secure_aggregation: bool = False,
+    ) -> tuple[BaseModel, dict[str, Any]]:
+        """
+        Train through the distributed Flower gRPC deployment.
+
+        Each hospital runs as its own subprocess (one per ``clients``),
+        loading its own local data slice from the federation hospitals
+        directory, connecting to a Flower server process, and exchanging
+        weights over gRPC. The run is recorded in the SQLite model
+        registry and the global model artifact is loaded back.
+
+        Parameters
+        ----------
+        preset : str
+            Dataset preset to federate.
+        clients : int
+            Number of hospital client processes.
+        rounds : int
+            Number of federated rounds.
+        seed : int
+            Reproducibility seed.
+        differential_privacy : bool
+            Apply Opacus DP-SGD on each hospital client.
+        noise_multiplier : float
+            DP-SGD noise multiplier.
+        max_grad_norm : float
+            DP-SGD gradient clipping norm.
+        privacy_delta : float
+            Privacy delta for the epsilon audit.
+        secure_aggregation : bool
+            Mask client updates with the pairwise one-time-pad aggregator.
+
+        Returns
+        -------
+        tuple[BaseModel, dict[str, Any]]
+            Loaded global model and federated metrics from the registry.
+
+        Raises
+        ------
+        InvalidInputError
+            If the distributed run fails or registers no model.
+        """
+
+        if preset is None:
+            raise InvalidInputError("Distributed federation requires a 'preset'.")
+
+        env = os.environ.copy()
+        env["DATASET_DIR"] = str(self.dataset_dir)
+        artifacts_root = Path(self.artifacts_dir)
+        env["FED_HOSPITALS_DIR"] = str(artifacts_root.parent / "hospitals")
+        env["FED_REGISTRY_PATH"] = str(artifacts_root / "federation.db")
+        env["FED_ARTIFACTS_DIR"] = str(artifacts_root)
+
+        command = [
+            sys.executable,
+            "-m",
+            "federated",
+            "run",
+            "--preset",
+            preset,
+            "--hospitals",
+            str(clients),
+            "--rounds",
+            str(rounds),
+            "--address",
+            "127.0.0.1:8080",
+            "--seed",
+            str(seed),
+        ]
+        if secure_aggregation:
+            command.append("--secure-aggregation")
+        if differential_privacy:
+            command += [
+                "--differential-privacy",
+                "--noise-multiplier",
+                str(noise_multiplier),
+                "--max-grad-norm",
+                str(max_grad_norm),
+                "--privacy-delta",
+                str(privacy_delta),
+            ]
+
+        logger.info("Launching distributed federation: %s", " ".join(command))
+        try:
+            subprocess.run(command, capture_output=True, text=True, env=env, check=True)
+        except subprocess.CalledProcessError as error:
+            logger.error(
+                "Distributed federation failed: %s\n%s",
+                error,
+                error.stderr[-4000:] if error.stderr else "",
+            )
+            raise InvalidInputError(
+                f"Distributed federation failed: {error}"
+            ) from error
+
+        registry = ModelRegistry(env["FED_REGISTRY_PATH"])
+        latest = registry.latest_model(preset)
+        registry.close()
+        if latest is None:
+            raise InvalidInputError(
+                f"Distributed federation registered no model for '{preset}'."
+            )
+
+        try:
+            global_model = TabularClassifier.load(latest["model_path"])
+        except ModelLoadError:
+            global_model = TorchMLPClassifier.load(latest["model_path"])
+
+        fed_metrics = {
+            "distributed": True,
+            "run_id": latest["run_id"],
+            "version": latest["version"],
+            "n_hospitals": clients,
+            "n_rounds": rounds,
+            "model_path": latest["model_path"],
+            "accuracy": latest["accuracy"],
+            "roc_auc": latest["roc_auc"],
+            "epsilon": latest["epsilon"],
+        }
+        logger.info(
+            "Distributed federation complete: run=%s version=%d artifact=%s",
+            latest["run_id"],
+            latest["version"],
+            latest["model_path"],
+        )
         return global_model, fed_metrics
 
     def predict(self, features: Mapping[str, float]) -> PredictionResult:
