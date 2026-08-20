@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import pytest
 
-from CrewAI.orchestrator.agents import create_agents
+from CrewAI.orchestrator.agents import _agent_llm, create_agents
 from CrewAI.orchestrator.prompts import AGENT_PROFILES, TASK_DESCRIPTIONS
 from CrewAI.orchestrator.schemas import PatientInfo
 from CrewAI.orchestrator.tasks import create_tasks
@@ -63,3 +63,42 @@ def test_crew_builds_sequential(tools) -> None:
     )
     assert len(crew.agents) == 7
     assert len(crew.tasks) == 7
+
+
+def test_agent_llm_native_string_when_no_base_url(monkeypatch) -> None:
+    from CrewAI.orchestrator.config import settings
+
+    monkeypatch.setattr(settings, "LLM_BASE_URL", "")
+    monkeypatch.setattr(settings, "LLM_PROVIDER", "google")
+    monkeypatch.setattr(settings, "LLM_MODEL", "gemini-3.7-flash")
+    assert _agent_llm() == "google/gemini-3.7-flash"
+
+
+def test_agent_llm_custom_openai_when_base_url(monkeypatch) -> None:
+    from CrewAI.orchestrator.config import settings
+
+    monkeypatch.setattr(settings, "LLM_BASE_URL", "https://integrate.api.nvidia.com/v1")
+    monkeypatch.setattr(settings, "LLM_MODEL", "meta/llama-3.3-70b-instruct")
+    monkeypatch.setattr(settings, "LLM_API_KEY", "nvapi-test")
+    monkeypatch.setattr(settings, "LLM_TEMPERATURE", 0.3)
+
+    cfg = _agent_llm()
+    assert isinstance(cfg, dict)
+    assert cfg["model"] == "meta/llama-3.3-70b-instruct"
+    assert cfg["custom_openai"] is True
+    assert cfg["base_url"] == "https://integrate.api.nvidia.com/v1"
+    assert cfg["api_key"] == "nvapi-test"
+
+
+def test_agents_accept_custom_openai_llm(tools) -> None:
+    from crewai.utilities.llm_utils import create_llm
+
+    cfg = {
+        "model": "meta/llama-3.3-70b-instruct",
+        "custom_openai": True,
+        "base_url": "https://integrate.api.nvidia.com/v1",
+        "api_key": "nvapi-test",
+    }
+    llm = create_llm(cfg)
+    agents = create_agents(tools, llm=llm)
+    assert all(agent.llm is llm for agent in agents.values())

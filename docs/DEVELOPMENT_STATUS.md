@@ -588,20 +588,38 @@ Assessment page end-to-end.
 
 ### CrewAI LLM orchestration wiring (`backend/api`)
 
-- [x] `AnalysisService.analyze` gained `use_llm: bool = True` and calls
-      `crew.run()` (prefers CrewAI LLM orchestration when
-      `CREW_LLM_API_KEY` is set, deterministic fallback otherwise) instead
-      of always forcing the LLM-free `run_analysis()`
-- [x] Baseline study forces `use_llm=False` for reproducibility
+- [x] `AnalysisService.analyze` and `analyze_image` always call
+      `crew.run()` — no `use_llm` opt-out exists; CrewAI is mandatory
+      whenever an LLM is configured (deterministic fallback is only a
+      safety net when the LLM is unavailable or its output cannot be
+      parsed)
+- [x] Baseline study builds `ClinicalCrew` directly and calls
+      `run_analysis()` for reproducibility; demo script uses `crew.run()`
+- [x] `run_llm` merges the LLM output over the deterministic base
+      (`_merge_llm_over_base`): narrative fields are enriched, while
+      prediction / risk / evidence always come from the tools/models
+
+### NVIDIA NIM provider (`backend/CrewAI/orchestrator`)
+
+- [x] `CrewSettings.LLM_BASE_URL` enables any OpenAI-compatible endpoint;
+      `_agent_llm()` returns a `custom_openai` config dict when set
+- [x] `backend/.env` switched to NVIDIA NIM
+      (`nvidia/nemotron-3.5-lightning-30b-a3b`) after Gemini's free tier
+      was rate-limited (5 req/min) and `meta/llama-3.3-70b-instruct` hung
+- [x] Tests hermetic: `backend/conftest.py` clears `LLM_API_KEY`
 
 ### Verification
 
-- [x] Backend suite **223 passing** (+2 scaling tests); frontend suite 58
-      (4 pre-existing smoke failures unrelated to this change)
+- [x] Backend suite **342 passing** (+2 scaling tests, +3 agents/NVIDIA,
+      +2 merge tests); frontend suite 58 (4 pre-existing smoke failures
+      unrelated to this change)
 - [x] Lint clean (black / ruff) on all touched modules
 - [x] Live: manual structured entry for the reference patient now returns
       prediction `0` @ **62.8%** confidence (risk 0.63 / high) instead of
       the previous saturated 100%; CSV path unchanged (~71% confidence)
+- [x] Live NVIDIA: full 7-agent kickoff (~6 min) returns the merged
+      report — prediction `0` @ 71.8% / risk high / 3 evidence items kept,
+      LLM-enriched narrative
 
 ---
 

@@ -2,11 +2,13 @@
 End-to-end clinical crew demo: CSV -> preprocessing -> model -> crew.
 
 Loads a hospital CSV, preprocesses it with the CSV pipeline, trains a
-small tabular model, then runs the deterministic clinical crew
-(prediction -> risk -> evidence retrieval -> clinical report) on one
-patient row. The report is written as JSON.
+small tabular model, then runs the clinical crew (prediction -> risk ->
+evidence retrieval -> clinical report) on one patient row. The report is
+written as JSON.
 
-The evidence step uses a small built-in medical corpus unless a corpus
+The crew prefers the CrewAI agentic path when ``CREW_LLM_API_KEY`` is
+configured and falls back to the deterministic pipeline otherwise. The
+evidence step uses a small built-in medical corpus unless a corpus
 directory of ``.txt``/``.md`` files is supplied with ``--corpus-dir``.
 
 Usage (run from ``backend/``):
@@ -15,9 +17,6 @@ Usage (run from ``backend/``):
 
 The dataset directory can be given with ``--dataset-dir`` or the
 ``DATASET_DIR`` environment variable.
-
-This demo is fully offline: it never calls an LLM (ADR-008). To add
-CrewAI agent narration instead, set ``CREW_LLM_API_KEY``.
 """
 
 from __future__ import annotations
@@ -204,7 +203,7 @@ def main(argv: list[str] | None = None) -> int:
         ],
     )
 
-    report = crew.run_analysis()
+    report = crew.run()
     logger.info(
         "Prediction: %s (confidence %.2f), risk: %s",
         report.prediction.predicted_class if report.prediction else None,

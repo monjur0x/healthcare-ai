@@ -92,6 +92,7 @@ from api.services import (  # noqa: E402
 )
 from CrewAI.orchestrator import (  # noqa: E402
     AgentMetrics,
+    ClinicalCrew,
     ClinicalReport,
     PatientInfo,
     compute_agent_metrics,
@@ -791,7 +792,15 @@ def evaluate_agents(
             id=f"{preset}-{index}",
             age=age,
         )
-        report = service.analyze(patient, row, preprocessed=True, use_llm=False)
+        crew = ClinicalCrew(
+            patient=patient,
+            input_type="csv",
+            model=service.model,
+            features=row,
+            rag_pipeline=rag_pipeline,
+            preprocessed=True,
+        )
+        report = crew.run_analysis()
         crew_results.extend(_report_sections(report))
         if report.prediction is not None:
             predictions.append(report.prediction.predicted_class)

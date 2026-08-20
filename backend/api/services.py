@@ -847,10 +847,14 @@ class AnalysisService:
         image: bytes,
         markers: Mapping[str, float] | None = None,
         recommendations: list[str] | None = None,
-        use_llm: bool = True,
     ) -> ClinicalReport:
         """
         Preprocess an uploaded image and run the clinical crew on it.
+
+        The crew always runs through the CrewAI agentic path when
+        ``CREW_LLM_API_KEY`` is configured (preferred); it falls back to
+        the deterministic pipeline only when the LLM is unavailable or its
+        output cannot be parsed.
 
         Parameters
         ----------
@@ -862,9 +866,6 @@ class AnalysisService:
             Optional raw clinical markers for the risk assessment.
         recommendations : list[str] | None
             Optional recommendation strings.
-        use_llm : bool
-            Run the CrewAI agentic path when ``CREW_LLM_API_KEY`` is set
-            (default True); pass False for a deterministic analysis.
 
         Returns
         -------
@@ -898,7 +899,7 @@ class AnalysisService:
             recommendations=recommendations,
         )
         try:
-            report = crew.run() if use_llm else crew.run_analysis()
+            report = crew.run()
         except CrewError as error:
             raise InvalidInputError(str(error)) from error
         logger.info("API image analysis complete for patient %s", patient.id)
@@ -999,10 +1000,14 @@ class AnalysisService:
         recommendations: list[str] | None = None,
         input_type: str = "csv",
         preprocessed: bool = False,
-        use_llm: bool = True,
     ) -> ClinicalReport:
         """
         Run the clinical crew and return the report.
+
+        The crew always runs through the CrewAI agentic path when
+        ``CREW_LLM_API_KEY`` is configured (preferred); it falls back to
+        the deterministic pipeline only when the LLM is unavailable or its
+        output cannot be parsed.
 
         Parameters
         ----------
@@ -1020,10 +1025,6 @@ class AnalysisService:
             True when ``features`` were already transformed by the
             training pipeline (CSV path); False applies the model's
             persisted scaler to raw feature values.
-        use_llm : bool
-            True to prefer CrewAI LLM orchestration when ``CREW_LLM_API_KEY``
-            is configured (falls back to the deterministic path otherwise);
-            False always runs the deterministic pipeline.
 
         Returns
         -------
@@ -1047,7 +1048,7 @@ class AnalysisService:
             preprocessed=preprocessed,
         )
         try:
-            report = crew.run() if use_llm else crew.run_analysis()
+            report = crew.run()
         except CrewError as error:
             raise InvalidInputError(str(error)) from error
         logger.info("API analysis complete for patient %s", patient.id)

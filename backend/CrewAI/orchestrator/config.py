@@ -37,6 +37,8 @@ class CrewSettings(BaseSettings):
 
     LLM_MAX_ITERATIONS: int = 10
 
+    LLM_BASE_URL: str = ""
+
     CREW_VERBOSE: bool = False
 
     CREW_MEMORY: bool = False

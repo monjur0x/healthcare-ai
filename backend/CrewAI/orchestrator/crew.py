@@ -151,9 +151,11 @@ class ClinicalCrew:
         """
         Run the CrewAI-orchestrated pipeline (requires an LLM key).
 
-        Enriches the deterministic analysis with agent reasoning. If the
-        crew's JSON output cannot be parsed, the deterministic report is
-        returned instead.
+        Enriches the deterministic analysis with agent reasoning. The LLM
+        is the native provider/model pair, or a custom OpenAI-compatible
+        endpoint (e.g. NVIDIA NIM) when ``CREW_LLM_BASE_URL`` is set. If
+        the crew's JSON output cannot be parsed, the deterministic report
+        is returned instead.
 
         Returns
         -------
@@ -174,8 +176,10 @@ class ClinicalCrew:
                 "run_analysis() for the offline deterministic path."
             )
 
-        if not os.environ.get("GEMINI_API_KEY") and not os.environ.get(
-            "GOOGLE_API_KEY"
+        if (
+            not settings.LLM_BASE_URL
+            and not os.environ.get("GEMINI_API_KEY")
+            and not os.environ.get("GOOGLE_API_KEY")
         ):
             os.environ["GEMINI_API_KEY"] = settings.LLM_API_KEY
 
@@ -221,8 +225,9 @@ class ClinicalCrew:
                 "Could not parse crew result as a report; returning base report"
             )
             return base
+        report = self._merge_llm_over_base(base, parsed)
         logger.info("LLM analysis complete for patient %s", self.patient.id)
-        return parsed
+        return report
 
     def run(self) -> ClinicalReport:
         """
@@ -260,6 +265,31 @@ class ClinicalCrew:
         except (json.JSONDecodeError, ValueError, TypeError) as error:
             logger.warning("Report parse failed: %s", error)
             return None
+
+    @staticmethod
+    def _merge_llm_over_base(
+        base: ClinicalReport, llm: ClinicalReport
+    ) -> ClinicalReport:
+        """Merge an LLM report over the deterministic base report.
+
+        The LLM enriches narrative fields; the deterministic model, risk,
+        and evidence outputs always win so an LLM cannot fabricate or drop
+        structured clinical results.
+        """
+        merged = base.model_copy()
+        merged.patient_summary = llm.patient_summary or base.patient_summary
+        merged.context = llm.context or base.context
+        if llm.recommendations:
+            merged.recommendations = llm.recommendations
+        if llm.limitations:
+            merged.limitations = llm.limitations
+        if llm.doctor_notice:
+            merged.doctor_notice = llm.doctor_notice
+        if merged.risk is None and llm.risk is not None:
+            merged.risk = llm.risk
+        if llm.agent_metrics is not None:
+            merged.agent_metrics = llm.agent_metrics
+        return merged
 
 
 __all__ = ["ClinicalCrew"]

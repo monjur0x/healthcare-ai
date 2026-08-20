@@ -22,12 +22,30 @@
   Tests: backend 223 (+2 in `test_prediction_service.py`).
 - **The API never invoked the CrewAI agents** — `AnalysisService.analyze`
   hardcoded the LLM-free `crew.run_analysis()`, so agent reasoning never
-  ran even with `CREW_LLM_API_KEY` set. `analyze` now accepts
-  `use_llm: bool = True` and calls `crew.run()` (CrewAI LLM orchestration
-  when configured, deterministic fallback otherwise), matching the image
-  path; the baseline study forces `use_llm=False` for reproducibility.
+  ran even with `CREW_LLM_API_KEY` set. `analyze` and `analyze_image` now
+  always call `crew.run()` (no `use_llm` opt-out): the CrewAI agentic
+  path runs whenever an LLM is configured, with the deterministic
+  pipeline used only as a safety net when the LLM is unavailable or its
+  output cannot be parsed. The baseline study builds `ClinicalCrew`
+  directly and calls `run_analysis()` to stay reproducible.
+- **The LLM could drop structured results** — a parsed crew output
+  replaced the deterministic report wholesale, so an LLM that omitted
+  the prediction could erase the model's actual result. `run_llm` now
+  merges the LLM output over the deterministic base (`_merge_llm_over_base`):
+  narrative fields (summary, context, recommendations, notices) are
+  enriched by the LLM, while prediction, risk, and evidence always come
+  from the deterministic tools/models.
 
 ### Added
+
+- **NVIDIA NIM as an LLM provider for the crew** — `CrewSettings` gained
+  `LLM_BASE_URL`; when set, `_agent_llm()` builds a CrewAI config dict
+  (`custom_openai=True`, base URL, key, temperature) so the crew runs
+  against any OpenAI-compatible endpoint (NVIDIA NIM, verified live with
+  `nvidia/nemotron-3.5-lightning-30b-a3b` at
+  `https://integrate.api.nvidia.com/v1`). `backend/.env` documents both
+  the Gemini (native) and NVIDIA (custom endpoint) configurations.
+  Tests: +3 in `test_agents.py`, +2 in `test_crew.py` (merge behavior).
 
 - **Doctor-friendly Clinical Assessment page** (`frontend/` + `backend/`):
   the assessment tab is now preset-driven and doctor-friendly while

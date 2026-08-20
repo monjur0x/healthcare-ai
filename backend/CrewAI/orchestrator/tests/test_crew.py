@@ -10,7 +10,13 @@ import pytest
 
 from CrewAI.orchestrator.crew import ClinicalCrew
 from CrewAI.orchestrator.exceptions import OrchestrationError
-from CrewAI.orchestrator.schemas import ClinicalReport, PatientInfo
+from CrewAI.orchestrator.schemas import (
+    ClinicalReport,
+    EvidenceItem,
+    PatientInfo,
+    PredictionResult,
+    RiskResult,
+)
 from models import ImageClassifier, TabularClassifier
 from rag import HashingEmbedder, RAGPipeline
 
@@ -142,3 +148,46 @@ def test_parse_report_accepts_llm_string_schedule() -> None:
 def test_parse_report_returns_none_for_invalid_json() -> None:
     assert ClinicalCrew._parse_report("not json at all") is None
     assert ClinicalCrew._parse_report("{}") is None
+
+
+def test_merge_keeps_deterministic_prediction_and_risk() -> None:
+    base = ClinicalReport(
+        patient=PatientInfo(id="p-merge"),
+        patient_summary="deterministic summary",
+        prediction=PredictionResult(
+            predicted_class="1",
+            probabilities={"0": 0.3, "1": 0.7},
+            confidence=0.7,
+            model_name="tabular",
+        ),
+        risk=RiskResult(risk_score=0.7, risk_level="high"),
+        evidence=[EvidenceItem(document_id="d1", score=0.9, text="evidence")],
+    )
+    llm = ClinicalReport(
+        patient=PatientInfo(id="p-merge"),
+        patient_summary="LLM enriched summary",
+        prediction=None,
+        risk=RiskResult(risk_score=0.0, risk_level="Not applicable"),
+        evidence=[],
+        recommendations=["Follow up in 1 month"],
+        doctor_notice="LLM notice",
+    )
+    merged = ClinicalCrew._merge_llm_over_base(base, llm)
+    assert merged.patient_summary == "LLM enriched summary"
+    assert merged.prediction == base.prediction
+    assert merged.risk == base.risk
+    assert merged.evidence == base.evidence
+    assert merged.recommendations == ["Follow up in 1 month"]
+    assert merged.doctor_notice == "LLM notice"
+
+
+def test_merge_takes_llm_risk_when_base_has_none() -> None:
+    base = ClinicalReport(patient=PatientInfo(id="p-merge2"), patient_summary="base")
+    llm = ClinicalReport(
+        patient=PatientInfo(id="p-merge2"),
+        patient_summary="enriched",
+        risk=RiskResult(risk_score=0.4, risk_level="medium"),
+    )
+    merged = ClinicalCrew._merge_llm_over_base(base, llm)
+    assert merged.risk is not None
+    assert merged.risk.risk_level == "medium"

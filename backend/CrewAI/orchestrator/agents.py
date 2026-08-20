@@ -14,13 +14,27 @@ from .config import settings
 from .prompts import AGENT_PROFILES
 
 
-def _agent_llm() -> str:
-    """Build the LLM identifier string for agents."""
+def _agent_llm() -> str | dict[str, object]:
+    """Build the LLM identifier for agents.
+
+    Returns a native ``provider/model`` string when ``LLM_BASE_URL`` is
+    empty; otherwise returns a CrewAI config dict for a custom
+    OpenAI-compatible endpoint (e.g. NVIDIA NIM) with the key and
+    temperature already wired.
+    """
+    if settings.LLM_BASE_URL:
+        return {
+            "model": settings.LLM_MODEL,
+            "custom_openai": True,
+            "base_url": settings.LLM_BASE_URL,
+            "api_key": settings.LLM_API_KEY,
+            "temperature": settings.LLM_TEMPERATURE,
+        }
     return f"{settings.LLM_PROVIDER}/{settings.LLM_MODEL}"
 
 
 def create_agents(
-    tools: Mapping[str, object], llm: str | None = None
+    tools: Mapping[str, object], llm: str | dict[str, object] | None = None
 ) -> dict[str, object]:
     """
     Build the seven healthcare agents.
@@ -30,8 +44,9 @@ def create_agents(
     tools : Mapping[str, object]
         Tool instances keyed by name (prediction, evidence retrieval,
         risk assessment, clinical report, ...).
-    llm : str | None
-        Optional LLM identifier (e.g. ``"google/gemini-3.7-flash"``).
+    llm : str | dict[str, object] | None
+        Optional LLM identifier (e.g. ``"google/gemini-3.7-flash"``) or
+        CrewAI config dict for a custom OpenAI-compatible endpoint.
         When omitted the agent is constructed without an explicit LLM so
         construction stays hermetic; the configured provider/model is
         used by the LLM orchestration path.
