@@ -215,9 +215,13 @@ curl -X POST http://localhost:5678/webhook/healthcare-endtoend \
 ```
 
 The workflow trains the model (if requested), analyzes the patient, and
-returns the full structured report in the webhook response. There is a
-second minimal workflow, `n8n/clinical-analysis.json`
-(`POST /webhook/healthcare-analyze`).
+returns the full structured report in the webhook response. When the
+analysis is classified as **high risk**, the workflow also fires a
+doctor-notification webhook (`DOCTOR_NOTIFY_WEBHOOK`, an n8n environment
+variable — e.g. a pager/chat-bot endpoint or a hospital notification
+service). The notification is best-effort: a failed notify never blocks
+the webhook response. There is a second minimal workflow,
+`n8n/clinical-analysis.json` (`POST /webhook/healthcare-analyze`).
 
 ## API Endpoints
 

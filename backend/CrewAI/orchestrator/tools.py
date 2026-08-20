@@ -68,14 +68,14 @@ class RiskAssessmentInput(BaseModel):
 
 class RiskAssessmentTool(BaseTool):
     """
-    Assess risk from prediction confidence and clinical markers.
+    Assess risk from the predicted probability of the disease class.
     """
 
     name: str = "risk_assessment"
     description: str = (
-        "Score risk from a model prediction's confidence and any elevated "
-        "clinical markers; returns a risk level, contributing factors, "
-        "and a monitoring schedule."
+        "Score risk from the predicted probability of the disease class "
+        "and any elevated clinical markers; returns a risk level, "
+        "contributing factors, and a monitoring schedule."
     )
     args_schema: type[BaseModel] = RiskAssessmentInput
 

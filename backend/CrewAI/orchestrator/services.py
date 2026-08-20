@@ -177,6 +177,37 @@ def run_image_prediction(
     return result
 
 
+def _positive_class_probability(prediction: PredictionResult) -> float:
+    """
+    Return the probability of the positive (disease) class.
+
+    The risk score must reflect the chance of the condition, not the
+    model's confidence in whichever class it predicted. A confident
+    prediction of the healthy class therefore scores *low* risk, while a
+    confident prediction of the disease class scores *high* risk.
+
+    For binary models the positive class is the highest class label (the
+    disease outcome, conventionally ``"1"``). For multi-class models the
+    most abnormal class cannot be inferred from the label alone, so the
+    max-class confidence is used as a conservative fallback.
+
+    Parameters
+    ----------
+    prediction : PredictionResult
+        Prediction whose positive-class probability is wanted.
+
+    Returns
+    -------
+    float
+        Probability in ``[0, 1]`` of the positive class.
+    """
+
+    labels = [str(label) for label in prediction.probabilities]
+    if len(labels) == 2 and "1" in labels:
+        return float(prediction.probabilities["1"])
+    return prediction.confidence
+
+
 def assess_risk(
     prediction: PredictionResult,
     markers: Mapping[str, float] | None = None,
@@ -203,7 +234,7 @@ def assess_risk(
         If any marker value is not numeric.
     """
 
-    score = prediction.confidence
+    score = _positive_class_probability(prediction)
     if score < settings.RISK_LOW_THRESHOLD:
         level = "low"
     elif score < settings.RISK_MEDIUM_THRESHOLD:

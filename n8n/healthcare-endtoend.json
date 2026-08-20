@@ -49,7 +49,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "http://localhost:8000/api/v1/train",
+        "url": "http://127.0.0.1:8000/api/v1/train",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
@@ -75,7 +75,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "http://localhost:8000/api/v1/analyze",
+        "url": "http://127.0.0.1:8000/api/v1/analyze",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
@@ -132,7 +132,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "http://localhost:8000/api/v1/analyze/csv",
+        "url": "http://127.0.0.1:8000/api/v1/analyze/csv",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
@@ -205,7 +205,66 @@
       "name": "Respond to Webhook (Success)",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
-      "position": [920, 140]
+      "position": [1120, 140]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "highrisk",
+              "leftValue": "={{ $json.risk_level }}",
+              "rightValue": "high",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "e2e00000-0000-4000-8000-000000000012",
+      "name": "IF: High Risk?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [680, 140]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.DOCTOR_NOTIFY_WEBHOOK }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { alert: 'high_risk', request_id: $json.request_id, dataset: $json.dataset, patient: $json.report.patient, risk_level: $json.risk_level, confidence: $json.confidence, prediction: $json.prediction, recommendation: ($json.report.recommendations || []).slice(0, 3), notified_at: new Date().toISOString() } }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "e2e00000-0000-4000-8000-000000000013",
+      "name": "HTTP: Notify Doctor",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [920, 60],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const report = $('IF: High Risk?').item.json;\nreturn [{ json: { ...report, notified: true } }];"
+      },
+      "id": "e2e00000-0000-4000-8000-000000000014",
+      "name": "Code: Pass Report After Notify",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 60]
     },
     {
       "parameters": {
@@ -356,7 +415,7 @@
       "main": [
         [
           {
-            "node": "Respond to Webhook (Success)",
+            "node": "IF: High Risk?",
             "type": "main",
             "index": 0
           }
@@ -364,6 +423,53 @@
         [
           {
             "node": "Respond to Webhook (Error)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF: High Risk?": {
+      "main": [
+        [
+          {
+            "node": "HTTP: Notify Doctor",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond to Webhook (Success)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP: Notify Doctor": {
+      "main": [
+        [
+          {
+            "node": "Code: Pass Report After Notify",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code: Pass Report After Notify",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Pass Report After Notify": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook (Success)",
             "type": "main",
             "index": 0
           }
