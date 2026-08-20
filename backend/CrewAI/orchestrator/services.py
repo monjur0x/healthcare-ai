@@ -58,6 +58,50 @@ MONITORING_SCHEDULES: dict[str, list[dict[str, str]]] = {
 }
 
 
+def _normalize_feature_key(key: str) -> str:
+    """Normalize a feature key for tolerant matching (lowercase, no separators)."""
+    return "".join(character for character in key.lower() if character.isalnum())
+
+
+def _align_feature_keys(
+    features: Mapping[str, float], names: list[str]
+) -> dict[str, float] | None:
+    """
+    Re-key an incoming feature mapping to match a model's feature names.
+
+    Retrained models capture pipeline-normalized column names (e.g.
+    ``bloodpressure``, ``diabetespedigreefunction``) while the manual /
+    n8n path sends snake_case keys (``blood_pressure``,
+    ``diabetes_pedigree_function``). This builds a tolerant lookup so
+    both spellings align to the model's expected names.
+
+    Parameters
+    ----------
+    features : Mapping[str, float]
+        Incoming feature values.
+    names : list[str]
+        The model's expected feature names.
+
+    Returns
+    -------
+    dict[str, float] | None
+        Re-keyed features aligned to ``names``, or None when a required
+        feature has no matching key.
+    """
+
+    lookup: dict[str, str] = {_normalize_feature_key(name): name for name in names}
+    aligned: dict[str, float] = {}
+    for key, value in features.items():
+        canonical = lookup.get(_normalize_feature_key(key))
+        if canonical is not None:
+            aligned[canonical] = value
+        else:
+            aligned[key] = value
+    if not all(name in aligned for name in names):
+        return None
+    return aligned
+
+
 def run_prediction(
     model: TabularClassifier,
     features: Mapping[str, float],
@@ -92,9 +136,13 @@ def run_prediction(
 
     names = model.feature_names
     keys = list(features) if names is None else names
-    if names is not None and not all(name in features for name in names):
-        missing = [name for name in names if name not in features]
-        raise PredictionToolError(f"Missing feature values for columns: {missing}.")
+    if names is not None:
+        aligned = _align_feature_keys(features, names)
+        if aligned is None:
+            missing = [name for name in names if name not in features]
+            raise PredictionToolError(f"Missing feature values for columns: {missing}.")
+        keys = list(names)
+        features = aligned
     try:
         row = np.array([float(features[key]) for key in keys], dtype=np.float64)
         if not preprocessed and getattr(model, "scaler_params", None) is not None:

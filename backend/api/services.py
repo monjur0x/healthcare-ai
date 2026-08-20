@@ -43,6 +43,9 @@ from federated.privacy import (
     privacy_metrics_summary,
 )
 from federated.registry import ModelRegistry
+from feedback import FeedbackStore, FeedbackStoreError
+from feedback import settings as feedback_settings
+from feedback.schemas import FeedbackRecord, FeedbackStatus, FeedbackSummary
 from models import (
     BaseModel,
     ImageClassifier,
@@ -346,6 +349,26 @@ class TrainResult:
 
 
 @dataclass
+class RetrainResult:
+    """
+    Outcome of a feedback-triggered retrain.
+
+    Parameters
+    ----------
+    train : TrainResult
+        The underlying training result.
+    feedback_consumed : int
+        Number of feedback samples folded into the retrain.
+    pending_remaining : int
+        Number of feedback samples left pending for the preset.
+    """
+
+    train: TrainResult
+    feedback_consumed: int
+    pending_remaining: int
+
+
+@dataclass
 class AnalysisService:
     """
     Facade exposing the clinical analysis pipeline to the API.
@@ -374,6 +397,8 @@ class AnalysisService:
     #: Dataset preset the in-memory tabular model was trained on, when
     #: known (None for a model loaded from ``API_MODEL_PATH``).
     active_preset: str | None = None
+    #: Persistent clinician-feedback store for the retrain loop.
+    feedback_store: FeedbackStore | None = None
 
     @classmethod
     def from_settings(cls, cfg: APISettings | None = None) -> AnalysisService:
@@ -398,12 +423,15 @@ class AnalysisService:
         )
         rag_pipeline = build_rag_pipeline(cfg.CORPUS_DIR or None)
         dataset_dir = Path(cfg.DATASET_DIR or os.environ.get("DATASET_DIR", "."))
+        artifacts_dir = Path(cfg.ARTIFACTS_DIR)
+        feedback_db = artifacts_dir / "feedback.db"
         return cls(
             model=model,
             image_model=image_model,
             rag_pipeline=rag_pipeline,
-            artifacts_dir=Path(cfg.ARTIFACTS_DIR),
+            artifacts_dir=artifacts_dir,
             dataset_dir=dataset_dir,
+            feedback_store=FeedbackStore(feedback_db),
         )
 
     def train(
@@ -577,19 +605,293 @@ class AnalysisService:
     def _resolve_dataset(
         self, preset: str | None, dataset: str | None, target: str | None
     ) -> tuple[Path, str]:
-        """Resolve a (preset or explicit) dataset path and target column."""
+        """
+        Resolve a (preset or explicit) dataset path and target column.
+
+        An explicit ``dataset`` path wins over the preset's bundled file
+        when both are supplied, while the preset still supplies the
+        default target and output directory naming.
+        """
         if preset is not None:
             if preset not in PRESETS:
                 raise InvalidInputError(
                     f"Unknown preset '{preset}'. Choose from {sorted(PRESETS)}."
                 )
             file_name, preset_target = PRESETS[preset]
-            return self.dataset_dir / file_name, target or preset_target
+            dataset_path = Path(dataset) if dataset else self.dataset_dir / file_name
+            return dataset_path, target or preset_target
         if dataset is None or target is None:
             raise InvalidInputError(
                 "Provide a 'preset' or both 'dataset' and 'target'."
             )
         return Path(dataset), target
+
+    def record_feedback(
+        self,
+        preset: str,
+        patient_id: str,
+        features: dict[str, float],
+        confirmed_label: int,
+        predicted_label: int | None = None,
+        confidence: float | None = None,
+    ) -> FeedbackRecord:
+        """
+        Record one clinician-confirmed feedback sample.
+
+        Parameters
+        ----------
+        preset : str
+            Dataset preset the feedback refers to.
+        patient_id : str
+            Patient study id.
+        features : dict[str, float]
+            Feature row that was analyzed.
+        confirmed_label : int
+            Clinician-confirmed outcome label (0/1).
+        predicted_label : int | None
+            Model prediction at analysis time (when recorded).
+        confidence : float | None
+            Model confidence at analysis time (when recorded).
+
+        Returns
+        -------
+        FeedbackRecord
+            The persisted record.
+
+        Raises
+        ------
+        InvalidInputError
+            If the preset is unknown.
+        ServiceUnavailableError
+            If the feedback store is unavailable.
+        """
+
+        self._validate_preset(preset)
+        if self.feedback_store is None:
+            raise ServiceUnavailableError(
+                "Feedback store is not configured on this service."
+            )
+        try:
+            record = self.feedback_store.add(
+                preset=preset,
+                patient_id=patient_id,
+                features=features,
+                confirmed_label=confirmed_label,
+                predicted_label=predicted_label,
+                confidence=confidence,
+            )
+        except FeedbackStoreError as error:
+            raise ServiceUnavailableError(str(error)) from error
+        logger.info(
+            "Recorded feedback id=%d preset=%s patient=%s label=%d",
+            record.id,
+            preset,
+            patient_id,
+            confirmed_label,
+        )
+        return record
+
+    def feedback_status(self) -> FeedbackStatus:
+        """
+        Summarize accumulated feedback across all presets.
+
+        Returns
+        -------
+        FeedbackStatus
+            Per-preset pending counts, thresholds, and readiness flags.
+        """
+
+        summaries: list[FeedbackSummary] = []
+        if self.feedback_store is not None:
+            for preset in sorted(PRESETS):
+                file_name, target = PRESETS[preset]
+                summaries.append(
+                    FeedbackSummary(
+                        preset=preset,
+                        dataset=file_name,
+                        target=target,
+                        pending=self.feedback_store.count_pending(preset),
+                        threshold=feedback_settings.RETRAIN_THRESHOLD,
+                        ready=(
+                            self.feedback_store.count_pending(preset)
+                            >= feedback_settings.RETRAIN_THRESHOLD
+                        ),
+                        recent=self.feedback_store.recent(preset),
+                    )
+                )
+        return FeedbackStatus(
+            retrain_enabled=feedback_settings.RETRAIN_ENABLED,
+            presets=summaries,
+        )
+
+    def retrain_from_feedback(
+        self,
+        preset: str,
+        model: Literal["mlp", "logistic"] = "mlp",
+        test_size: float = 0.25,
+        seed: int = 42,
+    ) -> RetrainResult:
+        """
+        Retrain a preset model on the base dataset augmented with pending
+        feedback rows.
+
+        The retrained artifact replaces the served model (written to the
+        preset's artifact directory) and the consumed feedback rows are
+        marked so they are not reused.
+
+        Parameters
+        ----------
+        preset : str
+            Dataset preset to retrain.
+        model : Literal["mlp", "logistic"]
+            Model family to fit.
+        test_size : float
+            Hold-out fraction.
+        seed : int
+            Reproducibility seed.
+
+        Returns
+        -------
+        RetrainResult
+            The training result plus feedback consumption counts.
+
+        Raises
+        ------
+        InvalidInputError
+            If the preset is unknown or feedback is below the threshold.
+        ServiceUnavailableError
+            If retraining is disabled or the feedback store is missing.
+        """
+
+        self._validate_preset(preset)
+        if not feedback_settings.RETRAIN_ENABLED:
+            raise ServiceUnavailableError(
+                "Feedback-driven retraining is disabled on this deployment."
+            )
+        if self.feedback_store is None:
+            raise ServiceUnavailableError(
+                "Feedback store is not configured on this service."
+            )
+
+        pending = self.feedback_store.list_pending(preset)
+        if len(pending) < feedback_settings.RETRAIN_THRESHOLD:
+            raise InvalidInputError(
+                f"Not enough pending feedback for '{preset}' "
+                f"({len(pending)} < {feedback_settings.RETRAIN_THRESHOLD})."
+            )
+
+        dataset_path, target = self._resolve_dataset(preset, None, None)
+        augmented_path = self._write_augmented_dataset(
+            preset, dataset_path, target, pending
+        )
+
+        try:
+            result = self.train(
+                preset=preset,
+                dataset=str(augmented_path),
+                target=target,
+                model=model,
+                test_size=test_size,
+                seed=seed,
+            )
+        except InvalidInputError:
+            raise
+        except Exception as error:
+            raise ServiceUnavailableError(
+                f"Feedback retrain failed: {error}"
+            ) from error
+
+        consumed = self.feedback_store.mark_consumed([record.id for record in pending])
+        remaining = self.feedback_store.count_pending(preset)
+        logger.info(
+            "Retrained %s from feedback: consumed=%d pending=%d artifact=%s",
+            preset,
+            consumed,
+            remaining,
+            result.model_path,
+        )
+        return RetrainResult(
+            train=result,
+            feedback_consumed=consumed,
+            pending_remaining=remaining,
+        )
+
+    def _validate_preset(self, preset: str) -> None:
+        """Raise if ``preset`` is not a known dataset preset."""
+        if preset not in PRESETS:
+            raise InvalidInputError(
+                f"Unknown preset '{preset}'. Choose from {sorted(PRESETS)}."
+            )
+
+    def _write_augmented_dataset(
+        self,
+        preset: str,
+        dataset_path: Path,
+        target: str,
+        pending: list[FeedbackRecord],
+    ) -> Path:
+        """
+        Write a temp CSV of the base dataset augmented with feedback rows.
+
+        The base rows are normalized to the pipeline column convention,
+        then one row per pending feedback record is appended using its
+        stored features plus the confirmed label in the target column.
+
+        Parameters
+        ----------
+        preset : str
+            Dataset preset.
+        dataset_path : Path
+            Path to the base dataset CSV.
+        target : str
+            Target column name.
+        pending : list[FeedbackRecord]
+            Pending feedback records to append.
+
+        Returns
+        -------
+        Path
+            Path to the written augmented CSV.
+
+        Raises
+        ------
+        InvalidInputError
+            If the base dataset cannot be read.
+        """
+
+        try:
+            base = pd.read_csv(dataset_path)
+        except (OSError, ValueError) as error:
+            raise InvalidInputError(f"Could not read base dataset: {error}") from error
+        base = _normalize_columns(base)
+        target_token = _normalize_token(target)
+
+        rows: list[dict[str, object]] = []
+        for record in pending:
+            row: dict[str, object] = dict(record.features)
+            row[target_token] = record.confirmed_label
+            rows.append(row)
+        feedback_frame = pd.DataFrame(rows)
+
+        columns = list(base.columns)
+        for column in feedback_frame.columns:
+            if column not in columns:
+                columns.append(column)
+        augmented = pd.concat(
+            [base, feedback_frame.reindex(columns=columns)], ignore_index=True
+        )
+
+        out_dir = self.artifacts_dir / preset
+        out_dir.mkdir(parents=True, exist_ok=True)
+        augmented_path = out_dir / "feedback_augmented.csv"
+        augmented.to_csv(augmented_path, index=False)
+        logger.info(
+            "Wrote augmented dataset with %d base + %d feedback rows: %s",
+            base.shape[0],
+            len(pending),
+            augmented_path,
+        )
+        return augmented_path
 
     def _train_federated(
         self,

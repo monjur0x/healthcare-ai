@@ -21,6 +21,12 @@ from CrewAI.orchestrator.schemas import (
     PatientInfo,
     PredictionResult,
 )
+from feedback.schemas import (
+    FeedbackRecord,
+    FeedbackRequest,
+    FeedbackStatus,
+    FeedbackSummary,
+)
 
 DatasetPreset = Literal["diabetes", "heart", "kidney", "sepsis"]
 
@@ -122,6 +128,47 @@ class TrainResponse(BaseModel):
     f1: float | None = None
     federated: bool = False
     federated_metrics: dict[str, Any] | None = None
+
+
+class RetrainRequest(BaseModel):
+    """
+    Request to retrain a preset model from accumulated feedback.
+
+    Parameters
+    ----------
+    preset : DatasetPreset
+        Dataset preset to retrain.
+    model : Literal["mlp", "logistic"]
+        Model family name.
+    test_size : float
+        Hold-out fraction.
+    seed : int
+        Reproducibility seed.
+    """
+
+    preset: DatasetPreset
+    model: Literal["mlp", "logistic"] = "mlp"
+    test_size: float = Field(default=0.25, ge=0.1, le=0.5)
+    seed: int = 42
+
+
+class RetrainResponse(BaseModel):
+    """
+    Outcome of a feedback-triggered retrain.
+
+    Parameters
+    ----------
+    train : TrainResponse
+        The underlying training result.
+    feedback_consumed : int
+        Number of feedback samples folded into the retrain.
+    pending_remaining : int
+        Number of feedback samples left pending for the preset.
+    """
+
+    train: TrainResponse
+    feedback_consumed: int = 0
+    pending_remaining: int = 0
 
 
 class PredictRequest(BaseModel):
@@ -554,12 +601,18 @@ __all__ = [
     "FederationRound",
     "FederationRun",
     "FederationStatus",
+    "FeedbackRecord",
+    "FeedbackRequest",
+    "FeedbackStatus",
+    "FeedbackSummary",
     "HealthResponse",
     "ModelInfo",
     "PatientInfo",
     "PredictRequest",
     "PredictionResult",
     "PresetInfo",
+    "RetrainRequest",
+    "RetrainResponse",
     "RetrieveRequest",
     "TrainRequest",
     "TrainResponse",

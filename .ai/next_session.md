@@ -4,42 +4,47 @@
 
 Continue the multi-hospital federated build. Phase 1 (distributed Flower
 deployment), the Phase 2 federation registry API, the dashboard Federation
-panel, the real medical RAG corpus, and the n8n doctor-notification branch
-are complete and verified. Next: commit the doctor-notification work and
-pick the next backlog item.
+panel, the real medical RAG corpus, the n8n doctor-notification branch, and
+the feedback-driven retrain loop are complete and verified. Next: commit
+the feedback work and pick the next backlog item.
 
 ## Done This Session
 
-- Extended `n8n/healthcare-endtoend.json` with an `IF: High Risk?` branch
-  that fires an `HTTP: Notify Doctor` webhook (`DOCTOR_NOTIFY_WEBHOOK`
-  n8n env var) for high-risk analyses, followed by a
-  `Code: Pass Report After Notify` node that preserves the clinical
-  report in the webhook response.
-- Fixed `assess_risk` in `backend/CrewAI/orchestrator/services.py` to
-  score the positive (disease) class probability instead of max-class
-  confidence, so a confident prediction of the healthy class no longer
-  scores high risk. Added `_positive_class_probability`; updated the
-  `RiskAssessmentTool` description.
-- Switched n8n workflow HTTP node URLs from `localhost` to `127.0.0.1`
-  for deterministic IPv4 reachability of the FastAPI.
-- Verified end-to-end against the live n8n + FastAPI:
-  - high-risk patient → notification fires (alert payload with patient,
-    risk level, confidence, prediction), webhook returns the full report
-    (`status: success, risk: high, notified: true`);
-  - low-risk patient → no notification, report returned
-    (`status: success, risk: low`).
-- Learned: n8n 2.x executes the active/published version
-  (`workflow_history` + `activeVersionId`), not the draft in
-  `workflow_entity`; direct DB draft edits do not affect runs. Use
-  `n8n import:workflow` + explicit activation. Set
-  `N8N_BLOCK_ENV_ACCESS_IN_NODE=false` for `$env.*` in nodes.
-- Updated README and `.env.example`.
+- Added `backend/feedback/` module: `FeedbackSettings` (`FEEDBACK_` env
+  prefix: `DB_PATH`, `RETRAIN_THRESHOLD`, `RETRAIN_ENABLED`), SQLite
+  `FeedbackStore`, and feedback schemas (`FeedbackRequest`, `FeedbackRecord`,
+  `FeedbackSummary`, `FeedbackStatus`). API-level `RetrainRequest` /
+  `RetrainResponse` moved to `api/schemas.py` to avoid the feedback → api
+  import cycle.
+- Extended `AnalysisService` with a `feedback_store`, `record_feedback`,
+  `feedback_status`, `retrain_from_feedback` (returns `RetrainResult`), and
+  `_write_augmented_dataset`. Retrain augments the base dataset CSV with
+  pending feedback rows (features + confirmed label), retrains via the
+  existing `train()` path (explicit `dataset` now wins over the preset file
+  in `_resolve_dataset`), marks consumed rows, and serves the new model
+  immediately (writes `artifacts/<preset>/global_model.joblib`,
+  `active_preset` set).
+- Added API routes `POST /api/v1/feedback`, `GET /api/v1/feedback/status`,
+  `POST /api/v1/feedback/retrain`.
+- Created `n8n/feedback-retrain.json` (webhook `feedback-retrain`): GET
+  status → resolve preset → `IF: Ready to Retrain?` → retrain → build
+  success / not-ready / error responses.
+- Fixed a retrain-surfaced bug in `run_prediction`: retrained models carry
+  pipeline-normalized `feature_names` (`bloodpressure`) while the manual /
+  n8n path sends snake_case (`blood_pressure`). Added
+  `_align_feature_keys` + `_normalize_feature_key` so both spellings align.
+- Verified end-to-end against live n8n + FastAPI: 5 feedback samples →
+  status ready → retrain (accuracy 0.8187, consumed 5, model redeployed) →
+  `feedback-retrain` webhook returns `status: success` / `not_ready`; the
+  endtoend pipeline still notifies on high-risk and stays silent on
+  low-risk with the retrained model.
+- Restarted the live stack with the new code: API now runs with
+  `DATASET_DIR=/home/monjur0x0/dataset` (needed by the retrain path).
 
 ## Next Steps
 
-1. Commit + push the doctor-notification work when the user asks.
+1. Commit + push the feedback work when the user asks.
 2. Phase 2+ candidates (backlog):
-   - Feedback loop (n8n → retrain → redeploy on threshold).
    - Encrypted gRPC transport (Flower certificates).
    - Risk monitoring over persisted patient history.
    - Cross-host deployment of hospital clients (documented commands).
@@ -47,4 +52,6 @@ pick the next backlog item.
 
 ## Open Questions
 
-- Commit cadence for the doctor-notification work.
+- None blocking. (Note: the feedback store DB is at
+  `artifacts/feedback.db`; the live API's `DATASET_DIR` env is required for
+  `retrain_from_feedback`.)

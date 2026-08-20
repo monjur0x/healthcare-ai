@@ -27,9 +27,14 @@ from .schemas import (
     FederationRound,
     FederationRun,
     FederationStatus,
+    FeedbackRecord,
+    FeedbackRequest,
+    FeedbackStatus,
     ModelInfo,
     PredictRequest,
     PresetInfo,
+    RetrainRequest,
+    RetrainResponse,
     RetrieveRequest,
     TrainRequest,
     TrainResponse,
@@ -390,6 +395,91 @@ def presets(service: ServiceDependency) -> list[PresetInfo]:
     """
 
     return [PresetInfo(**info) for info in service.presets_info()]
+
+
+@router.post("/feedback", response_model=FeedbackRecord)
+def record_feedback(
+    request: FeedbackRequest, service: ServiceDependency
+) -> FeedbackRecord:
+    """
+    Record a clinician-confirmed outcome label for a past analysis.
+
+    Parameters
+    ----------
+    request : FeedbackRequest
+        Feedback payload (preset, patient id, features, confirmed label).
+    service : AnalysisService
+        Injected analysis service.
+
+    Returns
+    -------
+    FeedbackRecord
+        The persisted feedback record.
+    """
+
+    return service.record_feedback(
+        preset=request.preset,
+        patient_id=request.patient_id,
+        features=request.features,
+        confirmed_label=request.confirmed_label,
+        predicted_label=request.predicted_label,
+        confidence=request.confidence,
+    )
+
+
+@router.get("/feedback/status", response_model=FeedbackStatus)
+def feedback_status(service: ServiceDependency) -> FeedbackStatus:
+    """
+    Summarize accumulated feedback and retrain readiness per preset.
+
+    Parameters
+    ----------
+    service : AnalysisService
+        Injected analysis service.
+
+    Returns
+    -------
+    FeedbackStatus
+        Per-preset pending counts, thresholds, and readiness flags.
+    """
+
+    return service.feedback_status()
+
+
+@router.post("/feedback/retrain", response_model=RetrainResponse)
+def feedback_retrain(
+    request: RetrainRequest, service: ServiceDependency
+) -> RetrainResponse:
+    """
+    Retrain a preset model on the base dataset plus pending feedback rows.
+
+    The retrained artifact is served immediately and the consumed
+    feedback rows are marked so they are not reused.
+
+    Parameters
+    ----------
+    request : RetrainRequest
+        Retrain payload (preset, model, test size, seed).
+    service : AnalysisService
+        Injected analysis service.
+
+    Returns
+    -------
+    RetrainResponse
+        Training result plus feedback consumption counts.
+    """
+
+    result = service.retrain_from_feedback(
+        preset=request.preset,
+        model=request.model,
+        test_size=request.test_size,
+        seed=request.seed,
+    )
+    return RetrainResponse(
+        train=TrainResponse(**result.train.to_dict()),
+        feedback_consumed=result.feedback_consumed,
+        pending_remaining=result.pending_remaining,
+    )
 
 
 __all__ = ["router"]

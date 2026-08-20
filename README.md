@@ -223,6 +223,25 @@ service). The notification is best-effort: a failed notify never blocks
 the webhook response. There is a second minimal workflow,
 `n8n/clinical-analysis.json` (`POST /webhook/healthcare-analyze`).
 
+### Feedback-Driven Retraining
+
+Clinicians can confirm (or correct) the outcome label of a past analysis
+via `POST /api/v1/feedback`. Feedback samples persist in the SQLite store
+(`FEEDBACK_DB_PATH`, default `artifacts/feedback.db`). Once pending samples
+for a preset reach `FEEDBACK_RETRAIN_THRESHOLD` (default 5),
+`POST /api/v1/feedback/retrain` retrains that preset on the base dataset
+augmented with the feedback rows, writes the new artifact to
+`artifacts/<preset>/global_model.joblib`, serves it immediately (no
+restart), and marks the consumed samples so they are not reused.
+
+The `n8n/feedback-retrain.json` workflow automates this:
+`POST /webhook/feedback-retrain` with `{"preset": "diabetes"}` checks
+retrain readiness and, when the threshold is met, triggers the retrain and
+returns the new model's metrics; otherwise it returns
+`{"status": "not_ready", "pending": <n>, "threshold": <t>}`. Set
+`FEEDBACK_RETRAIN_ENABLED=false` to record feedback but disable automated
+retraining.
+
 ## API Endpoints
 
 | Method | Path | Description |
@@ -240,6 +259,9 @@ the webhook response. There is a second minimal workflow,
 | POST | `/api/v1/analyze/image` | Image-based clinical report (base64 image body) |
 | POST | `/api/v1/analyze/csv` | CSV-upload clinical report |
 | GET | `/api/v1/presets` | Available dataset presets |
+| POST | `/api/v1/feedback` | Record a clinician-confirmed label for a past analysis |
+| GET | `/api/v1/feedback/status` | Pending feedback + retrain readiness per preset |
+| POST | `/api/v1/feedback/retrain` | Retrain a preset on base data + pending feedback and redeploy |
 
 Optional bearer auth: set `API_TOKEN` and send
 `Authorization: Bearer <token>` (all `/api/v1` routes).

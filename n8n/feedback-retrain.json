@@ -1,0 +1,291 @@
+{
+  "name": "Feedback-Driven Retrain",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "feedback-retrain",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "fb000000-0000-4000-8000-000000000001",
+      "name": "Webhook: Feedback Retrain",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-760, 260],
+      "webhookId": "fb000000-0000-4000-8000-000000000002"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "http://127.0.0.1:8000/api/v1/feedback/status",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "fb000000-0000-4000-8000-000000000003",
+      "name": "HTTP: Get Feedback Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-520, 260],
+      "onError": "continueErrorOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "PLACEHOLDER_CREDENTIAL_ID",
+          "name": "Healthcare API Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $('Webhook: Feedback Retrain').item.json.body || {};\nconst preset = body.preset || 'diabetes';\nconst presets = $json.presets || [];\nconst state = presets.find((p) => p.preset === preset)\n  || { preset, pending: 0, threshold: 0, ready: false };\nreturn [{\n  json: {\n    preset: state.preset,\n    pending: state.pending,\n    threshold: state.threshold,\n    ready: state.ready === true,\n    model: body.model || 'mlp',\n    test_size: body.test_size || 0.25,\n    seed: body.seed || 42,\n  },\n}];"
+      },
+      "id": "fb000000-0000-4000-8000-000000000004",
+      "name": "Code: Resolve Retrain Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-280, 260]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "ready",
+              "leftValue": "={{ $json.ready }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "fb000000-0000-4000-8000-000000000005",
+      "name": "IF: Ready to Retrain?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [-40, 260]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8000/api/v1/feedback/retrain",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { preset: $json.preset, model: $json.model, test_size: $json.test_size, seed: $json.seed } }}",
+        "options": {
+          "timeout": 600000
+        }
+      },
+      "id": "fb000000-0000-4000-8000-000000000006",
+      "name": "HTTP: Retrain Model",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [200, 80],
+      "onError": "continueErrorOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "PLACEHOLDER_CREDENTIAL_ID",
+          "name": "Healthcare API Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const req = $('Code: Resolve Retrain Request').item.json;\nconst resp = $json || {};\nconst train = resp.train || {};\nconst detail = resp.detail || (resp.body && resp.body.detail) || null;\nconst raw = (detail && (detail.message || detail.code))\n  || resp.message || resp.error\n  || (resp.body && (resp.body.message || resp.body.error)) || null;\nif (!train.model_path) {\n  return [{ json: {\n    status: 'error',\n    stage: 'retrain_call',\n    error_message: typeof raw === 'string' ? raw : JSON.stringify(raw),\n  } }];\n}\nreturn [{\n  json: {\n    status: 'success',\n    preset: req.preset,\n    feedback_consumed: resp.feedback_consumed,\n    pending_remaining: resp.pending_remaining,\n    model_path: train.model_path,\n    dataset: train.dataset,\n    target: train.target,\n    accuracy: train.accuracy,\n    retrained_at: new Date().toISOString(),\n  },\n}];"
+      },
+      "id": "fb000000-0000-4000-8000-000000000007",
+      "name": "Code: Build Retrain Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 80]
+    },
+    {
+      "parameters": {
+        "respondWith": "firstIncomingItem",
+        "options": {}
+      },
+      "id": "fb000000-0000-4000-8000-000000000008",
+      "name": "Respond to Webhook (Success)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [680, 80]
+    },
+    {
+      "parameters": {
+        "jsCode": "const resp = $json || {};\nconst detail = resp.detail || (resp.body && resp.body.detail) || null;\nconst raw = (detail && (detail.message || detail.code))\n  || resp.message || resp.error\n  || (resp.body && (resp.body.message || resp.body.error))\n  || 'The retrain request failed';\nconst msg = typeof raw === 'string' ? raw : JSON.stringify(raw);\nreturn [{ json: { status: 'error', stage: 'retrain_call', error_message: msg } }];"
+      },
+      "id": "fb000000-0000-4000-8000-000000000009",
+      "name": "Code: Format Retrain Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "firstIncomingItem",
+        "options": {}
+      },
+      "id": "fb000000-0000-4000-8000-00000000000a",
+      "name": "Respond to Webhook (Error)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{\n  json: {\n    status: 'not_ready',\n    preset: $json.preset,\n    pending: $json.pending,\n    threshold: $json.threshold,\n    retrain_skipped: true,\n    message: 'Pending feedback below the retrain threshold',\n  },\n}];"
+      },
+      "id": "fb000000-0000-4000-8000-00000000000b",
+      "name": "Code: Build Not-Ready Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [200, 440]
+    },
+    {
+      "parameters": {
+        "respondWith": "firstIncomingItem",
+        "options": {}
+      },
+      "id": "fb000000-0000-4000-8000-00000000000c",
+      "name": "Respond to Webhook (Not Ready)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [440, 440]
+    }
+  ],
+  "connections": {
+    "Webhook: Feedback Retrain": {
+      "main": [
+        [
+          {
+            "node": "HTTP: Get Feedback Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP: Get Feedback Status": {
+      "main": [
+        [
+          {
+            "node": "Code: Resolve Retrain Request",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code: Format Retrain Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Resolve Retrain Request": {
+      "main": [
+        [
+          {
+            "node": "IF: Ready to Retrain?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF: Ready to Retrain?": {
+      "main": [
+        [
+          {
+            "node": "HTTP: Retrain Model",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code: Build Not-Ready Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP: Retrain Model": {
+      "main": [
+        [
+          {
+            "node": "Code: Build Retrain Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code: Format Retrain Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Build Retrain Response": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook (Success)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Format Retrain Error": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook (Error)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Build Not-Ready Response": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook (Not Ready)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "instanceId": "n8n-workflow-feedback-retrain"
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
