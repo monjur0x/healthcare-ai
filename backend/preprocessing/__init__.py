@@ -20,9 +20,6 @@ csv
 
 image
     Medical image preprocessing.
-
-multimodal
-    Shared preprocessing utilities for multimodal data.
 """
 
 from .config import settings

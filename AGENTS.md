@@ -25,12 +25,8 @@ The goal is to produce a clean, modular, production-quality implementation suita
 
 Before making ANY code changes, read these files in order:
 
-1. docs/SYSTEM_SPECIFICATION.md
-2. docs/SOFTWARE_ARCHITECTURE.md
-3. docs/DEVELOPMENT_STATUS.md
-4. docs/BACKLOG.md
-5. docs/DECISIONS.md
-6. .ai/current_context.md
+1. README.md
+2. .ai/current_context.md
 
 Never skip this step.
 
@@ -51,8 +47,6 @@ frontend/
 
 n8n/
 
-docs/
-
 .ai/
 
 ---
@@ -66,12 +60,10 @@ When starting work:
 3. Implement ONLY that task.
 4. Do not start unrelated refactoring.
 5. Keep changes focused.
-6. If additional work is discovered, record it in `docs/BACKLOG.md` instead of implementing it immediately.
+6. If additional work is discovered, record it in `.ai/backlog.md` instead of implementing it immediately.
 7. Before finishing, update:
    - `.ai/current_context.md`
    - `.ai/next_session.md`
-   - `docs/DEVELOPMENT_STATUS.md`
-   - `docs/CHANGELOG.md`
 
 ---
 
@@ -159,13 +151,9 @@ Complex algorithms should include explanatory comments.
 
 # Testing
 
-Every new module should include tests whenever practical.
-
-Tests belong in:
-
-tests/
-
-Do not reduce existing test coverage.
+Tests were removed from the repository by request. The live system is
+verified by the import smoke check and manual API calls described in
+README.md.
 
 ---
 
@@ -347,10 +335,6 @@ Implement task
 
 ↓
 
-Run tests
-
-↓
-
 Run formatter
 
 ↓
@@ -375,21 +359,9 @@ Prepare next session
 
 Always update:
 
-docs/DEVELOPMENT_STATUS.md
-
-docs/CHANGELOG.md
-
-docs/BACKLOG.md
-
 .ai/current_context.md
 
 .ai/next_session.md
-
-If an architectural decision changed:
-
-Update:
-
-docs/DECISIONS.md
 
 ---
 

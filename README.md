@@ -1,72 +1,150 @@
 # Healthcare AI Framework
 
-Federated multi-agent healthcare intelligence framework: preprocessing,
-ML models, federated learning (Flower), CrewAI orchestration, RAG,
-FastAPI, n8n automation, and a Streamlit dashboard.
+Federated multi-agent healthcare intelligence framework. End to end:
+CSV / image input → preprocessing → model prediction → risk scoring →
+RAG evidence → CrewAI multi-agent report → FastAPI → n8n orchestration →
+Streamlit doctor dashboard.
 
-**CPU-only friendly** — no GPU required. All models are small and run on
-the CPU (Intel Iris Xe integrated graphics is fine).
+**CPU-only friendly** — no GPU required. All models are small.
+
+## System Flowchart
+
+```mermaid
+flowchart TB
+    subgraph IN["Input Layer"]
+        CSV["CSV / EHR<br/>diabetes · heart · kidney · sepsis"]
+        IMG["Medical Image<br/>brain MRI"]
+        MAN["Manual clinical form<br/>dashboard / n8n"]
+    end
+
+    subgraph PP["Preprocessing"]
+        P1["CSV Pipeline<br/>validate · clean · impute · encode<br/>feature-engineer · scale"]
+        P2["Image Pipeline<br/>validate · resize · normalize"]
+    end
+
+    CSV --> P1
+    IMG --> P2
+
+    subgraph ML["Prediction Models"]
+        M1["TabularClassifier<br/>sklearn / MLP"]
+        M2["TorchMLPClassifier<br/>federated clients"]
+        M3["ImageClassifier<br/>PyTorch CNN"]
+    end
+
+    P1 --> M1
+    P1 --> M2
+    P2 --> M3
+
+    subgraph FL["Federated Learning (Flower)"]
+        CL["FederatedClient<br/>local fit"]
+        SV["FedAvgServer<br/>weight aggregation"]
+        DP["Differential Privacy<br/>Opacus · secure aggregation"]
+    end
+
+    M2 --> CL --> DP --> SV
+    SV --> M1
+
+    subgraph RAG["RAG Knowledge Layer"]
+        DOC["Document ingestion"]
+        EMB["Embedder<br/>TF-IDF / dense"]
+        VDB["Vector store<br/>in-memory / ChromaDB"]
+        RET["Similarity search"]
+    end
+
+    DOC --> EMB --> VDB --> RET
+
+    subgraph CREW["CrewAI Orchestrator"]
+        A1["Patient Data Analysis"]
+        A2["Disease Prediction"]
+        A3["RAG Knowledge"]
+        A4["Treatment Recommendation"]
+        A5["Explainability"]
+        A6["Risk Monitoring"]
+        A7["Report Synthesizer"]
+        LLM["LLM provider<br/>NVIDIA NIM / Gemini"]
+    end
+
+    M1 --> A2
+    A1 --> A2
+    A2 --> A3
+    A2 --> A4
+    A3 --> A4
+    A2 --> A5
+    A2 --> A6
+    RET --> A3
+    LLM --> CREW
+    A2 --> A7
+    A3 --> A7
+    A4 --> A7
+    A5 --> A7
+    A6 --> A7
+
+    subgraph API["FastAPI"]
+        R["/api/v1 routes<br/>train · predict · retrieve<br/>analyze · analyze/image<br/>analyze/csv · model · presets"]
+    end
+
+    MAN --> R
+    CREW --> R
+
+    subgraph N8N["n8n Orchestration"]
+        W["webhook /healthcare-endtoend<br/>route · validate · respond"]
+    end
+
+    R --> W
+    MAN --> W
+    W --> R
+
+    subgraph UI["Doctor Dashboard (Streamlit)"]
+        T1["Overview"]
+        T2["Clinical Assessment"]
+        T3["Imaging"]
+        T4["Results"]
+        T5["System Status"]
+    end
+
+    R --> T2
+    R --> T3
+    R --> T4
+    W --> T2
+```
 
 ## Components
 
 | Component | Entry point | Purpose |
 | --------- | ----------- | ------- |
 | FastAPI backend | `backend/api/main.py` | Train / predict / retrieve / analyze |
-| RAG (retrieval) | `backend/rag/` | TF-IDF (default) or dense embedding + in-memory / ChromaDB store, RAGAS-style quality metrics |
-| Multi-agent crew | `backend/CrewAI/orchestrator/` | Deterministic tool pipeline + optional Gemini agents; agent-level metrics |
+| Multi-agent crew | `backend/CrewAI/orchestrator/` | Deterministic tool pipeline + LLM agents; merged clinical report |
+| RAG | `backend/rag/` | TF-IDF (default) or dense embedding + in-memory / ChromaDB store |
 | Federated learning | `backend/federated/` | Flower FedAvg with opt-in DP (Opacus) + secure aggregation |
-| Streamlit dashboard | `frontend/streamlit_app.py` | Doctor-facing Clinical Decision Support UI (Overview / Clinical Assessment / Imaging / Results / System Status) over the API, routed through n8n when available |
-| n8n automation | `n8n/healthcare-endtoend.json` | One workflow: train → analyze → store → respond |
+| Models | `backend/models/` | Tabular (sklearn / PyTorch MLP) + image CNN classifiers |
+| Preprocessing | `backend/preprocessing/` | CSV pipeline + image pipeline |
+| Streamlit dashboard | `frontend/streamlit_app.py` | Doctor-facing CDS UI (Overview / Assessment / Imaging / Results / System Status) |
+| n8n automation | `n8n/healthcare-endtoend.json` | One workflow: train → analyze → respond |
 | Datasets | `~/dataset/` | `diabetes.csv`, `heart_disease_uci.csv`, `kidney_disease.csv`, `sepsis_icu_synthetic.csv`, brain-tumor MRI |
 
 ## Quick Start
 
-The one-command runner does everything (trains a default model, starts
-the API, starts the dashboard, starts n8n in Docker):
+Prerequisites: Python 3.12+ venv with `backend/requirements.txt`, plus the
+datasets in `~/dataset/` (not bundled in the repo).
 
-> `DATASET_DIR` must point to a directory containing `diabetes.csv`,
-> `heart_disease_uci.csv`, `kidney_disease.csv`, and
-> `sepsis_icu_synthetic.csv` — none are bundled in this repository.
-
-```bash
-cd /path/to/healthcare-ai
-scripts/run_system.sh start        # N8N_ENABLED=0 to skip n8n
-scripts/run_system.sh status       # what is running
-scripts/run_system.sh stop         # stop everything
-```
-
-That gives you:
-
-- Dashboard: http://localhost:8501
-- API docs (Swagger): http://localhost:8000/docs
-- n8n: http://localhost:5678
-
-## Step-by-Step (manual)
-
-Prerequisites (already present on the reference machine): a Python
-3.12+ venv with the project dependencies and the datasets in
-`~/dataset/`.
-
-**1. Start the backend** (the model is loaded lazily, so the API starts
-even before any model exists):
+**1. Start the backend** (model loads lazily, so the API starts even
+before any model exists):
 
 ```bash
 cd backend
-DATASET_DIR=/path/to/your/datasets \
+DATASET_DIR=~/dataset \
   CrewAI/.venv-opencode/bin/python -m uvicorn api.main:app \
-  --host 0.0.0.0 --port 8000
+  --host 127.0.0.1 --port 8000
 ```
 
-Check it: `curl localhost:8000/health`.
+Check: `curl localhost:8000/health`.
 
-**2. Train a model** — now possible through the API itself (no manual
-CLI step). Central fit:
+**2. Train a model** through the API — central fit:
 
 ```bash
 curl -X POST localhost:8000/api/v1/train \
   -H "Content-Type: application/json" \
   -d '{"preset": "diabetes", "model": "mlp"}'
-# → {"model_path": ".../artifacts/diabetes/global_model.joblib", "accuracy": 0.81, ...}
 ```
 
 Or federated (FedAvg over simulated hospital clients):
@@ -77,9 +155,9 @@ curl -X POST localhost:8000/api/v1/train \
   -d '{"preset": "diabetes", "federated": true, "clients": 3, "rounds": 3}'
 ```
 
-The backend starts serving the new model immediately — no restart.
-Presets: `diabetes`, `heart`, `kidney`, `sepsis` (also usable via
-`dataset` + `target` for arbitrary CSVs).
+Presets: `diabetes`, `heart`, `kidney`, `sepsis` (also `dataset` +
+`target` for arbitrary CSVs). The new model is served immediately — no
+restart.
 
 **3. Run a clinical analysis** (predict → risk → RAG evidence → report):
 
@@ -98,67 +176,17 @@ curl -X POST localhost:8000/api/v1/analyze \
 Also available: `POST /api/v1/predict` (single row) and
 `POST /api/v1/retrieve` (RAG evidence).
 
-**3b. Image analysis (MRI upload)** — the backend ships with a trained
-brain-tumor CNN (`glioma` / `meningioma` / `notumor` / `pituitary`)
-loaded from `API_IMAGE_MODEL_PATH`. Send a base64-encoded image to
-`POST /api/v1/analyze/image`, or use the dashboard's **Image (MRI
-upload)** tab:
-
-```bash
-python - <<'EOF'
-import base64, json, urllib.request
-image = open("scan.png", "rb").read()
-body = json.dumps({
-    "patient": {"id": "p-img", "name": "Patient A", "age": 30},
-    "image": base64.b64encode(image).decode(),
-}).encode()
-req = urllib.request.Request(
-    "http://localhost:8000/api/v1/analyze/image", body,
-    {"Content-Type": "application/json"})
-print(urllib.request.urlopen(req).read().decode())
-EOF
-```
-
-To retrain the CNN (the brain-tumor dataset must be extracted with
-class folders like `glioma/`, `notumor/`):
-
-```bash
-cd /path/to/healthcare-ai
-python scripts/train_image_model.py --dataset /path/to/dataset \
-  --max-per-class 300 --epochs 6 --image-size 64
-```
-
-**4. Start the dashboard:** (opens at http://localhost:8501)
+**4. Start the dashboard** (http://localhost:8501):
 
 ```bash
 cd frontend
 ../backend/CrewAI/.venv-opencode/bin/python -m streamlit run streamlit_app.py
 ```
 
-The dashboard is a thin view layer (ADR-010): it collects clinical
-inputs, calls the backend (directly or through the n8n end-to-end
-webhook), and renders the structured report. Pages:
-
-- **Overview** — research workflow recap + current configuration.
-- **Clinical Assessment** — model-driven form grouped into Patient
-  Information / Vital Signs / Clinical Measurements / Medical History /
-  Additional Model Features, one **Analyze Patient** action, inline
-  results.
-- **Imaging** — upload → preview → analyze (when an image model is
-  configured).
-- **Results** — the six research outputs (disease risk, mortality risk,
-  readmission risk, treatment recommendation, clinical evidence,
-  explainable decision report), with unsupported outputs shown honestly
-  as "not estimated".
-- **System Status** — live probes of FastAPI / ML model / RAG / CrewAI /
-  n8n.
-
 The sidebar configures the backend URL, optional API token, n8n URL, and
-the analysis route (`Automatic` uses n8n when it is reachable and falls
-back to the FastAPI backend; `N8N_ENABLED=0` is the dev-only direct
-route).
+the analysis route (n8n when reachable, else direct FastAPI).
 
-**5. n8n (Docker)** — orchestrate the whole lifecycle in one workflow:
+**5. n8n** — one workflow drives the whole lifecycle:
 
 ```bash
 docker run -d --rm --name healthcare-n8n -p 5678:5678 \
@@ -171,20 +199,17 @@ activate it, then drive everything with one request:
 ```bash
 curl -X POST http://localhost:5678/webhook/healthcare-endtoend \
   -H "Content-Type: application/json" \
-  -d '{
-    "train": true,
-    "preset": "diabetes",
-    "patient": {"id": "smoke-1"},
-    "features": {"pregnancies":5.0,"glucose":116.0,"bloodpressure":74.0,
-                 "skinthickness":27.0,"insulin":102.5,"bmi":25.6,
-                 "diabetespedigreefunction":0.201,"age":30.0},
-    "markers": {"glucose":116.0,"bmi":25.6,"age":30.0}
-  }'
+  -d '{"train": true, "preset": "diabetes",
+       "patient": {"id": "smoke-1"},
+       "features": {"pregnancies":5.0,"glucose":116.0,"bloodpressure":74.0,
+                    "skinthickness":27.0,"insulin":102.5,"bmi":25.6,
+                    "diabetespedigreefunction":0.201,"age":30.0}}'
 ```
 
-The workflow trains the model (if requested), analyzes the patient,
-writes the full report JSON to `/tmp/healthcare_reports/`, and returns a
-structured success/error payload.
+The workflow trains the model (if requested), analyzes the patient, and
+returns the full structured report in the webhook response. There is a
+second minimal workflow, `n8n/clinical-analysis.json`
+(`POST /webhook/healthcare-analyze`).
 
 ## API Endpoints
 
@@ -197,92 +222,62 @@ structured success/error payload.
 | POST | `/api/v1/retrieve` | RAG evidence retrieval |
 | POST | `/api/v1/analyze` | Full clinical report (prediction, risk, evidence, recommendations) |
 | POST | `/api/v1/analyze/image` | Image-based clinical report (base64 image body) |
+| POST | `/api/v1/analyze/csv` | CSV-upload clinical report |
+| GET | `/api/v1/presets` | Available dataset presets |
 
 Optional bearer auth: set `API_TOKEN` and send
 `Authorization: Bearer <token>` (all `/api/v1` routes).
 
-## Configuration (environment variables)
+## Configuration
 
-- `API_MODEL_PATH` — path to a persisted tabular model (else empty; train via the API)
-- `API_IMAGE_MODEL_PATH` — path to a persisted image CNN (else empty; train via `scripts/train_image_model.py`)
-- `API_CORPUS_DIR` — RAG knowledge directory of `.txt`/`.md` (else built-in corpus)
-- `API_DATASET_DIR` — base dir for preset datasets (else `DATASET_DIR`, else cwd)
-- `API_ARTIFACTS_DIR` — where trained models are written (default `backend/artifacts`)
+Environment variables (all optional, see `backend/.env.example`):
+
+- `API_MODEL_PATH` — path to a persisted tabular model
+- `API_IMAGE_MODEL_PATH` — path to a persisted image CNN
+- `API_CORPUS_DIR` — RAG knowledge directory of `.txt`/`.md`
+- `API_DATASET_DIR` / `DATASET_DIR` — dataset directory
+- `API_ARTIFACTS_DIR` — where trained models are written
 - `API_TOKEN` — optional bearer token
-- `DATASET_DIR` — used by the demos and as the dataset-dir fallback
+- `CREW_LLM_PROVIDER` / `CREW_LLM_MODEL` / `CREW_LLM_API_KEY` /
+  `CREW_LLM_BASE_URL` — the crew's LLM (NVIDIA NIM by default;
+  `LLM_BASE_URL` switches to any OpenAI-compatible endpoint)
+- `RAG_*` — embedding backend (`tfidf` default, `sentence-transformer`
+  opt-in), vector store (`memory` default, `chroma` opt-in)
 
-RAG settings (prefix `RAG_`, see `backend/rag/config.py`):
+### CrewAI LLM
 
-- `RAG_EMBEDDING_MODEL` — `tfidf` (default), `hashing`, or
-  `sentence-transformer` (dense, opt-in, downloads a small model from
-  Hugging Face on first use)
-- `RAG_SENTENCE_TRANSFORMER_MODEL` — the sentence-transformer model name
-  (default `BAAI/bge-small-en-v1.5`)
-- `RAG_VECTOR_STORE` — `memory` (default, in-process NumPy) or `chroma`
-  (persistent ChromaDB collection)
-- `RAG_CHROMA_PERSIST_DIR` — directory for the ChromaDB collection when
-  `RAG_VECTOR_STORE=chroma` (empty = ephemeral per process)
-- `RAG_CHROMA_COLLECTION` — ChromaDB collection name (default
-  `healthcare_rag`)
+Every analysis runs through `crew.run()`: the deterministic pipeline
+(prediction → risk → evidence → report) always runs; when an LLM is
+configured, CrewAI agents enrich the narrative (summary, context,
+recommendations, notices) while prediction/risk/evidence always come from
+the models. If the LLM is unavailable or its output cannot be parsed, the
+deterministic report is returned unchanged.
 
-### Enabling the CrewAI LLM agents (Gemini)
-
-By default the crew runs a fully offline, deterministic pipeline
-(prediction → risk → evidence → report) with no model calls. To enable
-the agentic path (`ClinicalCrew.run_llm`, CrewAI agents that enrich the
-report with reasoning):
-
-1. Get a Gemini API key from <https://aistudio.google.com/apikey>.
-2. From `backend/`: `cp .env.example .env` and set `CREW_LLM_API_KEY=`.
-   (Default provider/model: `google` / `gemini-3.7-flash`.)
-3. Install the Google extra for CrewAI in the venv:
-   `pip install crewai[google-genai]`.
-4. Restart the backend. The crew now uses agents with Gemini; if the
-   LLM call fails, it falls back to the deterministic report.
-
-`backend/.env.example` documents every variable (API_ / CREW_ / MODEL_ /
-RAG_). Never commit `.env` — it is gitignored.
+From `backend/`: `cp .env.example .env`, set `CREW_LLM_API_KEY` (NVIDIA
+NIM key by default, or Gemini). Never commit `.env` — it is gitignored.
 
 ## Privacy & Security
 
-This framework is a research prototype; treat all outputs as
-non-clinical. It applies defense-in-depth at three layers:
-
-- **Data protection (in-process)** — PHI never leaves a client. When
-  federated training runs with `differential_privacy=true`, local
-  updates use Opacus DP-SGD; `secure_aggregation=true` adds a pairwise
-  one-time-pad mask so per-client updates are hidden from the server.
-  The training response reports epsilon, MIA-AUROC, and leakage rate
-  (ADR-013). Raw records are never returned by the API.
-- **Access control** — the API supports an optional static bearer token
-  (`API_TOKEN`, off by default). Full OAuth is deferred to the backlog.
-- **Transport security (encrypted communication)** — all inter-service
-  traffic (dashboard ↔ API, n8n ↔ API) should be served over TLS at the
-  deployment boundary, not encrypted inside the application (ADR-014).
-  Run uvicorn behind a TLS-terminating reverse proxy such as nginx or
-  Caddy; use mTLS where components must mutually authenticate. Localhost
-  dev traffic can remain plain HTTP.
+- **Data protection (in-process)** — PHI stays on the client. Federated
+  training supports Opacus DP-SGD (`differential_privacy=true`) and
+  pairwise one-time-pad secure aggregation (`secure_aggregation=true`);
+  the training response reports epsilon, MIA-AUROC, and leakage rate.
+  Raw records are never returned by the API.
+- **Access control** — optional static bearer token (`API_TOKEN`, off by
+  default). Full OAuth is deferred.
+- **Transport** — serve uvicorn behind a TLS-terminating reverse proxy
+  at the deployment boundary.
 
 Secrets policy: never commit `.env`, API keys, tokens, passwords, private
-datasets, or hospital records. `backend/.env.example` and `backend/.gitignore`
+datasets, or hospital records. `backend/.env.example` and `.gitignore`
 enforce this.
 
-## Datasets
+## Verification
 
-This machine ships the Pima Diabetes, UCI Heart Disease, UCI CKD, and a
-synthetic sepsis ICU CSV (plus a brain-tumor MRI set for the image path).
-**MIMIC-IV is not used here**: it requires PhysioNet credentialed access
-and hundreds of GB of storage. The local CSVs are sufficient for the
-full end-to-end system.
+With the test suite removed, verify the live system with:
 
-## Tests
-
-```bash
-# Backend (from backend/): 326 tests
-CrewAI/.venv-opencode/bin/python -m pytest \
-  preprocessing/tests models/tests evaluation/tests federated/tests \
-  rag/tests examples/tests CrewAI/orchestrator/tests api/tests -q
-
-# Frontend (from frontend/): 35 tests
-../backend/CrewAI/.venv-opencode/bin/python -m pytest dashboard/tests -q
-```
+1. `python -c "from api.main import create_app"` (from `backend/`) —
+   all imports resolve.
+2. `curl localhost:8000/health` — backend up.
+3. A `POST /api/v1/analyze` call returns a report with `prediction`,
+   `risk`, and `evidence`.
