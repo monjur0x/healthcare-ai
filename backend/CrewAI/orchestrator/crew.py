@@ -16,6 +16,7 @@ deterministic pipeline.
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 
@@ -29,9 +30,7 @@ from .config import settings
 from .exceptions import LLMNotConfiguredError, OrchestrationError
 from .schemas import (
     ClinicalReport,
-    EvidenceItem,
     PatientInfo,
-    PredictionResult,
 )
 from .services import (
     assemble_clinical_report,
@@ -42,6 +41,9 @@ from .services import (
 )
 
 logger = get_logger(__name__)
+
+# CrewAI is optional - check availability
+_CREWAI_AVAILABLE = importlib.util.find_spec("crewai") is not None
 
 
 class ClinicalCrew:
@@ -98,10 +100,10 @@ class ClinicalCrew:
         self._image_model = image_model
         self._image = image
         self._rag_pipeline = rag_pipeline
-        self._markers = dict(markers or {})
+        self._markers = dict(markers or [])
         self._recommendations = list(recommendations or [])
 
-    def run_analysis(self) -> ClinicalReport:
+    def run_analysis(self):
         """
         Run the deterministic, LLM-free analysis pipeline.
 
@@ -131,7 +133,7 @@ class ClinicalCrew:
             )
             risk = assess_risk(prediction, self._markers)
 
-        evidence: list[EvidenceItem] = []
+        evidence = []
         if self._rag_pipeline is not None:
             query = self._build_query(prediction)
             evidence = retrieve_evidence(self._rag_pipeline, query)
@@ -147,7 +149,7 @@ class ClinicalCrew:
         logger.info("Deterministic analysis complete for patient %s", self.patient.id)
         return report
 
-    def run_llm(self) -> ClinicalReport:
+    def run_llm(self):
         """
         Run the CrewAI-orchestrated pipeline (requires an LLM key).
 
@@ -167,8 +169,15 @@ class ClinicalCrew:
         LLMNotConfiguredError
             If ``CREW_LLM_API_KEY`` is not configured.
         OrchestrationError
-            If the crew cannot be built.
+            If the crew cannot be built or CrewAI is not available.
         """
+
+        if not _CREWAI_AVAILABLE:
+            raise OrchestrationError(
+                "CrewAI is not installed. Install with 'pip install crewai' "
+                "to enable LLM orchestration, or use run_analysis() for the "
+                "offline deterministic path."
+            )
 
         if not settings.LLM_API_KEY:
             raise LLMNotConfiguredError(
@@ -229,7 +238,7 @@ class ClinicalCrew:
         logger.info("LLM analysis complete for patient %s", self.patient.id)
         return report
 
-    def run(self) -> ClinicalReport:
+    def run(self):
         """
         Run the analysis, preferring LLM orchestration when configured.
 
@@ -239,11 +248,11 @@ class ClinicalCrew:
             The assembled structured report.
         """
 
-        if settings.LLM_API_KEY:
+        if settings.LLM_API_KEY and _CREWAI_AVAILABLE:
             return self.run_llm()
         return self.run_analysis()
 
-    def _build_query(self, prediction: PredictionResult | None) -> str:
+    def _build_query(self, prediction) -> str:
         """Build an evidence query from the prediction (or a generic one)."""
         if prediction is None:
             return "clinical management and monitoring recommendations"
@@ -253,7 +262,7 @@ class ClinicalCrew:
         )
 
     @staticmethod
-    def _parse_report(result: object) -> ClinicalReport | None:
+    def _parse_report(result: object):
         """Parse a crew kickoff result into a ClinicalReport if possible."""
         text = str(result)
         start, end = text.find("{"), text.rfind("}")
@@ -267,15 +276,8 @@ class ClinicalCrew:
             return None
 
     @staticmethod
-    def _merge_llm_over_base(
-        base: ClinicalReport, llm: ClinicalReport
-    ) -> ClinicalReport:
-        """Merge an LLM report over the deterministic base report.
-
-        The LLM enriches narrative fields; the deterministic model, risk,
-        and evidence outputs always win so an LLM cannot fabricate or drop
-        structured clinical results.
-        """
+    def _merge_llm_over_base(base, llm):
+        """Merge an LLM report over the deterministic base report."""
         merged = base.model_copy()
         merged.patient_summary = llm.patient_summary or base.patient_summary
         merged.context = llm.context or base.context

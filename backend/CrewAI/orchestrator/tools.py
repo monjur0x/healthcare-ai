@@ -9,7 +9,6 @@ modules; they never implement machine learning themselves.
 
 from __future__ import annotations
 
-from crewai.tools import BaseTool
 from pydantic import BaseModel, Field
 
 from preprocessing.logger import get_logger
@@ -23,6 +22,27 @@ from .services import (
 )
 
 logger = get_logger(__name__)
+
+# CrewAI is optional - provide a minimal BaseTool shim if not available
+try:
+    from crewai.tools import BaseTool
+
+    _CREWAI_AVAILABLE = True
+except ImportError:
+    _CREWAI_AVAILABLE = False
+
+    class BaseTool:
+        """Minimal BaseTool shim when CrewAI is not available."""
+
+        name: str = ""
+        description: str = ""
+        args_schema: type = None
+
+        def __init__(self, **kwargs) -> None:
+            pass
+
+        def _run(self, *args, **kwargs):
+            raise NotImplementedError("CrewAI not installed")
 
 
 class PredictionInput(BaseModel):
@@ -43,7 +63,7 @@ class PredictionTool(BaseTool):
         "Run a fitted clinical model on one patient's feature row and "
         "return the predicted class, per-class probabilities, and confidence."
     )
-    args_schema: type[BaseModel] = PredictionInput
+    args_schema: type = PredictionInput
 
     def __init__(self, model, **kwargs) -> None:
         """Bind the fitted model to the tool."""
@@ -77,7 +97,7 @@ class RiskAssessmentTool(BaseTool):
         "and any elevated clinical markers; returns a risk level, "
         "contributing factors, and a monitoring schedule."
     )
-    args_schema: type[BaseModel] = RiskAssessmentInput
+    args_schema: type = RiskAssessmentInput
 
     def _run(self, prediction: dict, markers: dict | None = None) -> dict:
         """Assess risk for the given prediction."""
@@ -102,7 +122,7 @@ class RAGRetrievalTool(BaseTool):
         "Retrieve clinical evidence chunks relevant to a query from the "
         "RAG knowledge base, with source labels and similarity scores."
     )
-    args_schema: type[BaseModel] = RAGRetrievalInput
+    args_schema: type = RAGRetrievalInput
 
     def __init__(self, pipeline, **kwargs) -> None:
         """Bind the ingested RAG pipeline to the tool."""
@@ -143,7 +163,7 @@ class ClinicalReportTool(BaseTool):
         "Merge patient context, prediction, risk, evidence, and "
         "recommendations into the final structured clinical report."
     )
-    args_schema: type[BaseModel] = ReportInput
+    args_schema: type = ReportInput
 
     def _run(
         self,
@@ -167,6 +187,7 @@ class ClinicalReportTool(BaseTool):
 
 
 __all__ = [
+    "_CREWAI_AVAILABLE",
     "ClinicalReportTool",
     "PredictionTool",
     "RAGRetrievalTool",

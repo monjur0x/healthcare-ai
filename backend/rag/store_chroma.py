@@ -10,61 +10,44 @@ only metric supported by the Chroma store.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-
 import numpy as np
 
 from .config import settings
-from .exceptions import EmptyCorpusError
 
 try:
     import chromadb
-except ImportError as error:  # pragma: no cover - exercised only when deps are missing
-    raise ImportError(
-        "ChromaDB is not installed; add 'chromadb>=0.5.0' to requirements "
-        "or set RAG_VECTOR_STORE=memory."
-    ) from error
+
+    _CHROMADB_AVAILABLE = True
+except ImportError:
+    _CHROMADB_AVAILABLE = False
+    chromadb = None
 
 
 class ChromaVectorStore:
     """
-    Persistent nearest-neighbour store over dense vectors.
+    ChromaDB-backed vector store for retrieval.
 
-    Parameters
-    ----------
-    persist_dir : str | None
-        Directory for the persistent ChromaDB data. When empty, an
-        in-memory client is used (nothing is written to disk).
-    collection_name : str | None
-        ChromaDB collection name; defaults to ``settings.CHROMA_COLLECTION``.
-    metric : str | None
-        Similarity metric. ChromaDB supports ``"cosine"`` (default);
-        ``"dot"`` raises ``ValueError``.
+    Requires ``chromadb`` package. If not available, raises ImportError
+    on instantiation.
     """
 
     def __init__(
         self,
         persist_dir: str | None = None,
-        collection_name: str | None = None,
-        metric: str | None = None,
+        collection_name: str = "healthcare_rag",
     ) -> None:
-        self._metric = settings.SIMILARITY_METRIC if metric is None else metric
-        if self._metric != "cosine":
-            raise ValueError(
-                f"Unsupported similarity metric '{self._metric}' for ChromaDB; "
-                "only 'cosine' is supported."
+        if not _CHROMADB_AVAILABLE:
+            raise ImportError(
+                "ChromaDB is not installed; add 'chromadb>=0.5.0' to requirements "
+                "or set RAG_VECTOR_STORE=memory."
             )
-        directory = settings.CHROMA_PERSIST_DIR if persist_dir is None else persist_dir
-        name = (
-            settings.CHROMA_COLLECTION if collection_name is None else collection_name
-        )
-        if directory:
-            self._client = chromadb.PersistentClient(path=directory)
-        else:
-            self._client = chromadb.Client()
+        persist = persist_dir or settings.CHROMA_PERSIST_DIR
+        self._client = chromadb.PersistentClient(path=persist)
         self._collection = self._client.get_or_create_collection(
-            name=name, metadata={"hnsw:space": "cosine"}
+            name=collection_name,
+            metadata={"hnsw:space": "cosine"},
         )
+        self._metric = "cosine"
 
     @property
     def metric(self) -> str:
@@ -73,33 +56,44 @@ class ChromaVectorStore:
 
     def __len__(self) -> int:
         """Number of stored vectors."""
-        return int(self._collection.count())
+        return self._collection.count()
 
-    def add(self, ids: Sequence[str], vectors: np.ndarray) -> None:
+    def add(self, ids: list[str], vectors: np.ndarray) -> None:
         """
         Insert vectors keyed by chunk id.
 
         Parameters
         ----------
-        ids : Sequence[str]
+        ids : list[str]
             Chunk ids, one per vector.
         vectors : np.ndarray
             ``(N, D)`` embedding matrix.
         """
-
-        matrix = np.asarray(vectors, dtype=np.float32)
+        matrix = np.asarray(vectors, dtype=np.float64)
         if matrix.ndim != 2:
             raise ValueError("vectors must be a 2D (N, D) matrix.")
         if len(ids) != matrix.shape[0]:
             raise ValueError(f"Got {len(ids)} ids but {matrix.shape[0]} vectors.")
+        if len(self._collection.get()["ids"]) and self._collection.get()["embeddings"]:
+            existing_dim = len(self._collection.get()["embeddings"][0])
+            if existing_dim != matrix.shape[1]:
+                raise ValueError(
+                    "Vector dimensionality must match existing stored vectors "
+                    f"({existing_dim})."
+                )
+
+        # Normalize for cosine similarity
+        norms = np.linalg.norm(matrix, axis=1, keepdims=True)
+        matrix = matrix / np.where(norms == 0, 1.0, norms)
+
         self._collection.add(
-            ids=list(ids),
+            ids=ids,
             embeddings=matrix.tolist(),
         )
 
     def search(self, query: np.ndarray, top_k: int = 5) -> list[tuple[str, float]]:
         """
-        Return the top-k nearest chunk ids and their cosine scores.
+        Return the top-k nearest chunk ids and their scores.
 
         Parameters
         ----------
@@ -118,27 +112,26 @@ class ChromaVectorStore:
         EmptyCorpusError
             If the store is empty.
         """
+        if self._collection.count() == 0:
+            from .exceptions import EmptyCorpusError
 
-        if len(self) == 0:
             raise EmptyCorpusError(
                 "Cannot search an empty vector store; ingest documents first."
             )
-        vector = np.asarray(query, dtype=np.float32).ravel()
-        if vector.ndim != 1:
-            raise ValueError(f"Query vector must be 1D, got {vector.ndim}D.")
-        limit = max(int(top_k), 1)
-        response = self._collection.query(
-            query_embeddings=vector.tolist(),
-            n_results=min(limit, len(self)),
+        vector = np.asarray(query, dtype=np.float64).ravel()
+        if self._metric == "cosine":
+            norm = np.linalg.norm(vector)
+            vector = vector if norm == 0 else vector / norm
+
+        results = self._collection.query(
+            query_embeddings=[vector.tolist()],
+            n_results=min(top_k, self._collection.count()),
         )
-        ids = response.get("ids", [[]])[0]
-        distances = response.get("distances", [[]])[0]
-        hits = [
-            (str(id_), float(1.0 - distance))
-            for id_, distance in zip(ids, distances, strict=True)
-        ]
-        hits.sort(key=lambda pair: pair[1], reverse=True)
-        return hits
+        ids = results.get("ids", [[]])[0]
+        distances = results.get("distances", [[]])[0]
+        # Convert distances to similarity scores (cosine: 1 - distance)
+        scores = [1.0 - d for d in distances]
+        return list(zip(ids, scores, strict=True))
 
 
-__all__ = ["ChromaVectorStore"]
+_CHROMADB_AVAILABLE = False

@@ -27,11 +27,9 @@ from .metrics import (
 from .pipeline import RAGPipeline
 from .retriever import Retriever
 from .store import VectorStore, build_vector_store
-from .store_chroma import ChromaVectorStore
 
 __all__ = [
     "BUNDLED_CORPUS_DIR",
-    "ChromaVectorStore",
     "Chunk",
     "Document",
     "Embedder",

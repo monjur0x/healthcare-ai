@@ -1048,6 +1048,8 @@ class AnalysisService:
                 epsilon_target=PrivacyConfig().epsilon_target,
                 secure_aggregation=secure_aggregation,
             )
+        if hasattr(global_model, "_feature_names"):
+            global_model._feature_names = list(train_x.columns)
         return global_model, fed_metrics
 
     def _train_distributed(
@@ -1203,6 +1205,13 @@ class AnalysisService:
             latest["version"],
             latest["model_path"],
         )
+        if hasattr(global_model, "_feature_names"):
+            from federated.hospitals import PRESETS
+            from preprocessing.loader import load_classification_frame
+
+            dataset_path = self.dataset_dir / PRESETS[preset][0]
+            features, _, _ = load_classification_frame(dataset_path, PRESETS[preset][1])
+            global_model._feature_names = list(features.columns)
         return global_model, fed_metrics
 
     def predict(self, features: Mapping[str, float]) -> PredictionResult:

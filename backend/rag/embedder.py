@@ -239,7 +239,7 @@ class SentenceTransformerEmbedder(Embedder):
         model = self._load_model()
         if self._query_instruction:
             prefixed = [
-                "Represent this sentence for searching relevant passages: " f"{text}"
+                f"Represent this sentence for searching relevant passages: {text}"
                 for text in texts
             ]
             texts = prefixed
