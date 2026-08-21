@@ -452,6 +452,12 @@ class AnalysisService:
         max_grad_norm: float = 1.0,
         privacy_delta: float = 1e-5,
         secure_aggregation: bool = False,
+        tls_enabled: bool = False,
+        tls_ca_cert: str | None = None,
+        tls_server_cert: str | None = None,
+        tls_server_key: str | None = None,
+        tls_client_cert: str | None = None,
+        tls_client_key: str | None = None,
     ) -> TrainResult:
         """
         Preprocess a dataset, fit a tabular model, evaluate, and persist it.
@@ -498,6 +504,18 @@ class AnalysisService:
         secure_aggregation : bool
             Mask client updates with the pairwise one-time-pad
             aggregator (federated path).
+        tls_enabled : bool
+            Enable TLS for gRPC connections (distributed path).
+        tls_ca_cert : str | None
+            Path to CA certificate PEM (distributed path, requires tls_enabled).
+        tls_server_cert : str | None
+            Path to server certificate PEM (distributed path, requires tls_enabled).
+        tls_server_key : str | None
+            Path to server private key PEM (distributed path, requires tls_enabled).
+        tls_client_cert : str | None
+            Path to client certificate PEM for mutual TLS (distributed path).
+        tls_client_key : str | None
+            Path to client private key PEM for mutual TLS (distributed path).
 
         Returns
         -------
@@ -547,6 +565,12 @@ class AnalysisService:
                         max_grad_norm=max_grad_norm,
                         privacy_delta=privacy_delta,
                         secure_aggregation=secure_aggregation,
+                        tls_enabled=tls_enabled,
+                        tls_ca_cert=tls_ca_cert,
+                        tls_server_cert=tls_server_cert,
+                        tls_server_key=tls_server_key,
+                        tls_client_cert=tls_client_cert,
+                        tls_client_key=tls_client_key,
                     )
                 else:
                     fitted, fed_metrics = self._train_federated(
@@ -1032,6 +1056,12 @@ class AnalysisService:
         max_grad_norm: float = 1.0,
         privacy_delta: float = 1e-5,
         secure_aggregation: bool = False,
+        tls_enabled: bool = False,
+        tls_ca_cert: str | None = None,
+        tls_server_cert: str | None = None,
+        tls_server_key: str | None = None,
+        tls_client_cert: str | None = None,
+        tls_client_key: str | None = None,
     ) -> tuple[BaseModel, dict[str, Any]]:
         """
         Train through the distributed Flower gRPC deployment.
@@ -1112,6 +1142,18 @@ class AnalysisService:
                 "--privacy-delta",
                 str(privacy_delta),
             ]
+        if tls_enabled:
+            command.append("--tls-enabled")
+            if tls_ca_cert:
+                command += ["--tls-ca-cert", tls_ca_cert]
+            if tls_server_cert:
+                command += ["--tls-server-cert", tls_server_cert]
+            if tls_server_key:
+                command += ["--tls-server-key", tls_server_key]
+            if tls_client_cert:
+                command += ["--tls-client-cert", tls_client_cert]
+            if tls_client_key:
+                command += ["--tls-client-key", tls_client_key]
 
         logger.info("Launching distributed federation: %s", " ".join(command))
         try:

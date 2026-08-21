@@ -144,6 +144,10 @@ def cmd_server(args: argparse.Namespace) -> int:
         holdout=holdout,
         artifacts_dir=settings.ARTIFACTS_DIR,
         min_available=args.hospitals,
+        tls_enabled=args.tls_enabled,
+        tls_ca_cert=args.tls_ca_cert or None,
+        tls_server_cert=args.tls_server_cert or None,
+        tls_server_key=args.tls_server_key or None,
     )
     registry.close()
     print(f"run_id={run_id} model_path={model_path} version={version}")
@@ -186,6 +190,10 @@ def cmd_client(args: argparse.Namespace) -> int:
         hospital=hospital,
         model_spec=spec,
         privacy=privacy,
+        tls_enabled=args.tls_enabled,
+        tls_ca_cert=args.tls_ca_cert or None,
+        tls_client_cert=args.tls_client_cert or None,
+        tls_client_key=args.tls_client_key or None,
     )
     return 0
 
@@ -234,6 +242,14 @@ def cmd_run(args: argparse.Namespace) -> int:
         server_cmd.append("--secure-aggregation")
     if args.differential_privacy:
         server_cmd.append("--differential-privacy")
+    if args.tls_enabled:
+        server_cmd.append("--tls-enabled")
+        if args.tls_ca_cert:
+            server_cmd += ["--tls-ca-cert", args.tls_ca_cert]
+        if args.tls_server_cert:
+            server_cmd += ["--tls-server-cert", args.tls_server_cert]
+        if args.tls_server_key:
+            server_cmd += ["--tls-server-key", args.tls_server_key]
 
     client_cmd = [
         sys.executable,
@@ -267,6 +283,14 @@ def cmd_run(args: argparse.Namespace) -> int:
             "--privacy-delta",
             str(args.privacy_delta),
         ]
+    if args.tls_enabled:
+        client_cmd.append("--tls-enabled")
+        if args.tls_ca_cert:
+            client_cmd += ["--tls-ca-cert", args.tls_ca_cert]
+        if args.tls_client_cert:
+            client_cmd += ["--tls-client-cert", args.tls_client_cert]
+        if args.tls_client_key:
+            client_cmd += ["--tls-client-key", args.tls_client_key]
 
     logger.info("Starting distributed server process: %s", " ".join(server_cmd))
     server_proc = subprocess.Popen(server_cmd)
@@ -320,6 +344,21 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["diabetes", "heart", "kidney", "sepsis"],
     )
     common.add_argument("--seed", type=int, default=42)
+    # TLS arguments (common for server/client/run)
+    common.add_argument("--tls-enabled", action="store_true")
+    common.add_argument("--tls-ca-cert", default="", help="Path to CA certificate PEM")
+    common.add_argument(
+        "--tls-server-cert", default="", help="Path to server certificate PEM"
+    )
+    common.add_argument(
+        "--tls-server-key", default="", help="Path to server private key PEM"
+    )
+    common.add_argument(
+        "--tls-client-cert", default="", help="Path to client certificate PEM (mTLS)"
+    )
+    common.add_argument(
+        "--tls-client-key", default="", help="Path to client private key PEM (mTLS)"
+    )
 
     sites = subparsers.add_parser(
         "sites", parents=[common], help="Build hospital data slices."

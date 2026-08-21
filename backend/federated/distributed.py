@@ -44,6 +44,57 @@ from preprocessing.logger import get_logger
 logger = get_logger(__name__)
 
 
+def _load_certificates(
+    tls_enabled: bool,
+    ca_cert: str | None,
+    server_cert: str | None,
+    server_key: str | None,
+) -> tuple[bytes, bytes, bytes] | None:
+    """
+    Load TLS certificates for Flower gRPC server.
+
+    Returns a tuple of (ca_cert, server_cert, server_key) as bytes,
+    or None if TLS is disabled.
+    """
+    if not tls_enabled:
+        return None
+    if not ca_cert or not server_cert or not server_key:
+        raise ValueError(
+            "TLS enabled but certificate paths missing: "
+            "ca_cert, server_cert, and server_key are required."
+        )
+    ca = Path(ca_cert).read_bytes()
+    cert = Path(server_cert).read_bytes()
+    key = Path(server_key).read_bytes()
+    return ca, cert, key
+
+
+def _load_client_certificates(
+    tls_enabled: bool,
+    ca_cert: str | None,
+    client_cert: str | None,
+    client_key: str | None,
+) -> bytes | tuple[bytes, bytes, bytes] | None:
+    """
+    Load TLS certificates for Flower gRPC client.
+
+    Returns:
+    - None if TLS is disabled
+    - CA cert bytes only (server verification only)
+    - Tuple of (ca_cert, client_cert, client_key) for mutual TLS
+    """
+    if not tls_enabled:
+        return None
+    if not ca_cert:
+        raise ValueError("TLS enabled but ca_cert path is required.")
+    ca = Path(ca_cert).read_bytes()
+    if client_cert and client_key:
+        cert = Path(client_cert).read_bytes()
+        key = Path(client_key).read_bytes()
+        return ca, cert, key
+    return ca
+
+
 @dataclass(frozen=True)
 class ModelSpec:
     """
@@ -360,6 +411,10 @@ def run_distributed_server(
     holdout: tuple[Any, np.ndarray] | None = None,
     artifacts_dir: str | Path = "artifacts",
     min_available: int | None = None,
+    tls_enabled: bool = False,
+    tls_ca_cert: str | None = None,
+    tls_server_cert: str | None = None,
+    tls_server_key: str | None = None,
 ) -> tuple[str, str, int | None]:
     """
     Start the Flower gRPC server and persist the global model.
@@ -428,10 +483,14 @@ def run_distributed_server(
         min_available=min_available,
     )
 
+    certs = _load_certificates(
+        tls_enabled, tls_ca_cert, tls_server_cert, tls_server_key
+    )
     start_server(
         server_address=address,
         config=ServerConfig(num_rounds=num_rounds),
         strategy=strategy,
+        certificates=certs,
     )
 
     if strategy.global_parameters is None:
@@ -495,6 +554,10 @@ def run_hospital_client(
     model_spec: ModelSpec,
     max_rows: int | None = None,
     privacy: PrivacyConfig | None = None,
+    tls_enabled: bool = False,
+    tls_ca_cert: str | None = None,
+    tls_client_cert: str | None = None,
+    tls_client_key: str | None = None,
 ) -> None:
     """
     Connect one hospital to the server as a Flower NumPy client.
@@ -542,7 +605,13 @@ def run_hospital_client(
         address,
         features.shape[0],
     )
-    start_numpy_client(server_address=address, client=client)
+    start_numpy_client(
+        server_address=address,
+        client=client,
+        certificates=_load_client_certificates(
+            tls_enabled, tls_ca_cert, tls_client_cert, tls_client_key
+        ),
+    )
     logger.info("Hospital %s finished federation", hospital.hospital_id)
 
 

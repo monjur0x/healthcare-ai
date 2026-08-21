@@ -136,6 +136,12 @@ def train(request: TrainRequest, service: ServiceDependency) -> TrainResponse:
         max_grad_norm=request.max_grad_norm,
         privacy_delta=request.privacy_delta,
         secure_aggregation=request.secure_aggregation,
+        tls_enabled=request.tls_enabled,
+        tls_ca_cert=request.tls_ca_cert,
+        tls_server_cert=request.tls_server_cert,
+        tls_server_key=request.tls_server_key,
+        tls_client_cert=request.tls_client_cert,
+        tls_client_key=request.tls_client_key,
     )
     return TrainResponse(**result.to_dict())
 

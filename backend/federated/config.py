@@ -45,6 +45,24 @@ class FederationSettings(BaseSettings):
     #: Fixed seed for hospital data partitioning and secure aggregation.
     SEED: int = 42
 
+    #: Enable TLS for gRPC connections (default False).
+    TLS_ENABLED: bool = False
+
+    #: Path to the CA certificate PEM file (required when TLS_ENABLED=true).
+    TLS_CA_CERT: str = ""
+
+    #: Path to the server certificate PEM file (required when TLS_ENABLED=true).
+    TLS_SERVER_CERT: str = ""
+
+    #: Path to the server private key PEM file (required when TLS_ENABLED=true).
+    TLS_SERVER_KEY: str = ""
+
+    #: Path to the client certificate PEM file (optional, for mutual TLS).
+    TLS_CLIENT_CERT: str = ""
+
+    #: Path to the client private key PEM file (optional, for mutual TLS).
+    TLS_CLIENT_KEY: str = ""
+
 
 settings = FederationSettings()
 

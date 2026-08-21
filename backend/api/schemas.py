@@ -76,6 +76,18 @@ class TrainRequest(BaseModel):
     secure_aggregation : bool
         When true, client updates are masked with the pairwise
         one-time-pad secure aggregator.
+    tls_enabled : bool
+        Enable TLS for gRPC connections (distributed path).
+    tls_ca_cert : str | None
+        Path to CA certificate PEM (distributed path, requires tls_enabled).
+    tls_server_cert : str | None
+        Path to server certificate PEM (distributed path, requires tls_enabled).
+    tls_server_key : str | None
+        Path to server private key PEM (distributed path, requires tls_enabled).
+    tls_client_cert : str | None
+        Path to client certificate PEM for mutual TLS (distributed path).
+    tls_client_key : str | None
+        Path to client private key PEM for mutual TLS (distributed path).
     """
 
     preset: DatasetPreset | None = None
@@ -94,6 +106,12 @@ class TrainRequest(BaseModel):
     max_grad_norm: float = Field(default=1.0, gt=0.0)
     privacy_delta: float = Field(default=1e-5, gt=0.0, le=1.0)
     secure_aggregation: bool = False
+    tls_enabled: bool = False
+    tls_ca_cert: str | None = None
+    tls_server_cert: str | None = None
+    tls_server_key: str | None = None
+    tls_client_cert: str | None = None
+    tls_client_key: str | None = None
 
 
 class TrainResponse(BaseModel):
