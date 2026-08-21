@@ -58,6 +58,7 @@ from preprocessing.image import ImagePipeline
 from preprocessing.logger import get_logger
 from rag import RAGPipeline
 from rag.corpus import load_bundled_corpus, load_documents
+from risk import RiskHistoryStore, RiskHistoryStoreError
 
 from .config import APISettings
 from .config import settings as default_settings
@@ -399,6 +400,8 @@ class AnalysisService:
     active_preset: str | None = None
     #: Persistent clinician-feedback store for the retrain loop.
     feedback_store: FeedbackStore | None = None
+    #: Persistent risk history store for longitudinal monitoring.
+    risk_history_store: RiskHistoryStore | None = None
 
     @classmethod
     def from_settings(cls, cfg: APISettings | None = None) -> AnalysisService:
@@ -425,6 +428,7 @@ class AnalysisService:
         dataset_dir = Path(cfg.DATASET_DIR or os.environ.get("DATASET_DIR", "."))
         artifacts_dir = Path(cfg.ARTIFACTS_DIR)
         feedback_db = artifacts_dir / "feedback.db"
+        risk_history_db = artifacts_dir / "risk_history.db"
         return cls(
             model=model,
             image_model=image_model,
@@ -432,6 +436,7 @@ class AnalysisService:
             artifacts_dir=artifacts_dir,
             dataset_dir=dataset_dir,
             feedback_store=FeedbackStore(feedback_db),
+            risk_history_store=RiskHistoryStore(risk_history_db),
         )
 
     def train(
@@ -1706,8 +1711,45 @@ class AnalysisService:
             report = crew.run()
         except CrewError as error:
             raise InvalidInputError(str(error)) from error
+
+        if report.risk and self.risk_history_store:
+            self._persist_risk_history(
+                patient_id=patient.id,
+                preset=self.active_preset or "unknown",
+                report=report,
+                markers=markers,
+            )
+
         logger.info("API analysis complete for patient %s", patient.id)
         return report
+
+    def _persist_risk_history(
+        self,
+        patient_id: str,
+        preset: str,
+        report: ClinicalReport,
+        markers: Mapping[str, float] | None,
+    ) -> None:
+        """Persist the risk assessment from a clinical report."""
+        if not self.risk_history_store or not report.risk:
+            return
+        risk = report.risk
+        prediction = report.prediction.predicted_class if report.prediction else None
+        confidence = report.prediction.confidence if report.prediction else None
+        try:
+            self.risk_history_store.add(
+                patient_id=patient_id,
+                preset=preset,
+                risk_score=risk.risk_score,
+                risk_level=risk.risk_level,
+                prediction=int(prediction) if prediction is not None else None,
+                confidence=confidence,
+                markers=dict(markers) if markers else None,
+            )
+        except RiskHistoryStoreError as error:
+            logger.warning(
+                "Failed to persist risk history for %s: %s", patient_id, error
+            )
 
 
 __all__ = [

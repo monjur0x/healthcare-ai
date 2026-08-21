@@ -23,6 +23,7 @@ from .schemas import (
     AnalyzeCSVRequest,
     AnalyzeImageRequest,
     AnalyzeRequest,
+    EscalationAlert,
     FederationModel,
     FederationRound,
     FederationRun,
@@ -36,6 +37,9 @@ from .schemas import (
     RetrainRequest,
     RetrainResponse,
     RetrieveRequest,
+    RiskHistoryResponse,
+    RiskHistorySummary,
+    RiskTrend,
     TrainRequest,
     TrainResponse,
 )
@@ -486,6 +490,131 @@ def feedback_retrain(
         feedback_consumed=result.feedback_consumed,
         pending_remaining=result.pending_remaining,
     )
+
+
+@router.get("/risk/history", response_model=RiskHistoryResponse)
+def risk_history(
+    patient_id: str | None = None,
+    preset: str | None = None,
+    limit: int = 100,
+    service: ServiceDependency = None,
+) -> RiskHistoryResponse:
+    """
+    Get risk history summaries for patients.
+
+    Parameters
+    ----------
+    patient_id : str | None
+        Filter by patient study id (optional).
+    preset : str | None
+        Filter by dataset preset (optional).
+    limit : int
+        Maximum number of records per patient (default 100).
+    service : AnalysisService
+        Injected analysis service.
+
+    Returns
+    -------
+    RiskHistoryResponse
+        Summaries with trend analysis and alert count.
+    """
+
+    if not service.risk_history_store:
+        return RiskHistoryResponse()
+
+    if patient_id and preset:
+        summary = service.risk_history_store.get_summary(patient_id, preset)
+        return RiskHistoryResponse(
+            summaries=[summary],
+            alert_count=1 if summary.trend and summary.trend.escalation_alert else 0,
+        )
+
+    return service.risk_history_store.get_all_summaries()
+
+
+@router.get("/risk/history/{patient_id}", response_model=RiskHistorySummary)
+def risk_history_patient(
+    patient_id: str,
+    preset: str,
+    service: ServiceDependency,
+) -> RiskHistorySummary:
+    """
+    Get detailed risk history for a specific patient-preset.
+
+    Parameters
+    ----------
+    patient_id : str
+        Patient study id.
+    preset : str
+        Dataset preset.
+    service : AnalysisService
+        Injected analysis service.
+
+    Returns
+    -------
+    RiskHistorySummary
+        History with trend and latest record.
+    """
+
+    if not service.risk_history_store:
+        raise ServiceUnavailableError("Risk history store is not configured.")
+    return service.risk_history_store.get_summary(patient_id, preset)
+
+
+@router.get("/risk/trends/{patient_id}", response_model=RiskTrend)
+def risk_trends(
+    patient_id: str,
+    preset: str,
+    window: int | None = None,
+    service: ServiceDependency = None,
+) -> RiskTrend:
+    """
+    Get computed risk trend for a patient-preset.
+
+    Parameters
+    ----------
+    patient_id : str
+        Patient study id.
+    preset : str
+        Dataset preset.
+    window : int | None
+        Number of recent analyses for trend (default from settings).
+    service : AnalysisService
+        Injected analysis service.
+
+    Returns
+    -------
+    RiskTrend
+        Computed trend with direction, slope, and escalation alert.
+    """
+
+    if not service.risk_history_store:
+        raise ServiceUnavailableError("Risk history store is not configured.")
+    return service.risk_history_store.compute_trend(patient_id, preset, window)
+
+
+@router.get("/risk/alerts", response_model=list[EscalationAlert])
+def risk_alerts(service: ServiceDependency) -> list[EscalationAlert]:
+    """
+    Get all active escalation alerts.
+
+    An alert is generated when a patient's risk score increases
+    by more than the configured threshold compared to the previous analysis.
+
+    Parameters
+    ----------
+    service : AnalysisService
+        Injected analysis service.
+
+    Returns
+    -------
+    list[EscalationAlert]
+        Active alerts sorted by timestamp (newest first).
+    """
+
+    if not service.risk_history_store:
+        raise ServiceUnavailableError("Risk history store is not configured.")
+    return service.risk_history_store.get_escalation_alerts()
 
 
 __all__ = ["router"]

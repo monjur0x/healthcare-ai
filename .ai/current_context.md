@@ -4,55 +4,37 @@
 
 Phase 2 of the multi-hospital federated build: federation model registry
 (API + dashboard), real medical RAG corpus, doctor notification via n8n,
-and the feedback-driven retrain loop (n8n → retrain → redeploy when
-pending clinician feedback crosses a threshold).
+feedback-driven retrain loop, encrypted gRPC transport (TLS), and risk
+history monitoring with trend analysis and escalation alerts.
 
 ## Current Module
 
-`backend/feedback/` (persistent clinician-feedback store + schemas),
-`backend/api/services.py` + `routes.py` + `schemas.py` (feedback
-endpoints + retrain service methods), `backend/CrewAI/orchestrator/
-services.py` (tolerant feature-key alignment), and `n8n/feedback-retrain
-.json` (orchestration workflow).
+`backend/risk/` (persistent risk history store + schemas + trend analysis),
+`backend/api/services.py` + `routes.py` + `schemas.py` (risk history
+endpoints), `backend/CrewAI/orchestrator/services.py` (tolerant
+feature-key alignment).
 
 ## Current Task
 
-Feedback / retrain loop (complete):
+Risk monitoring on history (complete):
 
-1. `backend/feedback/` module: `config.py` (`FeedbackSettings`, `FEEDBACK_`
-   prefix: `DB_PATH`, `RETRAIN_THRESHOLD`, `RETRAIN_ENABLED`), `store.py`
-   (SQLite `FeedbackStore`: add / get / list_pending / count_pending /
-   count_total / recent / mark_consumed), `schemas.py` (`FeedbackRequest`,
-   `FeedbackRecord`, `FeedbackSummary`, `FeedbackStatus`). API-level
-   `RetrainRequest` / `RetrainResponse` live in `api/schemas.py` to avoid a
-   feedback → api import cycle.
-2. `AnalysisService` gained `feedback_store`, `record_feedback`,
-   `feedback_status`, `retrain_from_feedback` (returns `RetrainResult`
-   dataclass), `_validate_preset`, `_write_augmented_dataset`. Retrain
-   builds an augmented CSV (base dataset + pending feedback rows, target =
-   confirmed label), calls the existing `train()` with `dataset` overriding
-   the preset file (`_resolve_dataset` now lets an explicit path win while
-   the preset supplies target + output dir), marks consumed rows, and
-   serves the new model immediately (`active_preset` set).
-3. API routes: `POST /api/v1/feedback`, `GET /api/v1/feedback/status`,
-   `POST /api/v1/feedback/retrain`.
-4. `n8n/feedback-retrain.json` (webhook `feedback-retrain`): GET feedback
-   status → resolve preset request → `IF: Ready to Retrain?` →
-   `HTTP: Retrain Model` → build success/not-ready/error responses.
-5. Feature-key alignment fix in `run_prediction`: retrained models carry
-   pipeline-normalized `feature_names` (`bloodpressure`,
-   `diabetespedigreefunction`) that did not match the snake_case keys the
-   manual / n8n path sends (`blood_pressure`,
-   `diabetes_pedigree_function`). Added `_align_feature_keys` +
-   `_normalize_feature_key` so both spellings resolve to the model's names.
-6. Live verification (all end-to-end):
-   - `POST /api/v1/feedback` × 5 → status `pending: 5, ready: true`;
-   - `POST /api/v1/feedback/retrain` → accuracy 0.8187, consumed 5,
-     served model replaced (`active_preset = diabetes`);
-   - `POST /webhook/feedback-retrain` → `status: success, consumed: 5`,
-     and `not_ready` when pending is below threshold;
-   - endtoend still works with the retrained model: low-risk patient
-     (risk low, no notify), high-risk patient (risk high, notify fires).
+1. `backend/risk/` module: `config.py` (`RiskHistorySettings`, `RISK_HISTORY_`
+   prefix: `DB_PATH`, `TREND_WINDOW`, `ESCALATION_THRESHOLD`, `MIN_TREND_POINTS`,
+   `ALERTS_ENABLED`), `store.py` (SQLite `RiskHistoryStore`: add /
+   get_patient_history / get_recent_scores / get_all_patients /
+   compute_trend / get_summary / get_all_summaries / get_escalation_alerts),
+   `schemas.py` (`RiskHistoryRecord`, `RiskTrend`, `RiskHistorySummary`,
+   `RiskHistoryResponse`, `EscalationAlert`).
+2. `AnalysisService` gained `risk_history_store` and `_persist_risk_history`,
+   called automatically after each `analyze()` to record risk score, level,
+   prediction, confidence, and markers.
+3. API routes: `GET /api/v1/risk/history` (all or filtered),
+   `GET /api/v1/risk/history/{patient_id}`, `GET /api/v1/risk/trends/{patient_id}`,
+   `GET /api/v1/risk/alerts`.
+3. Trend analysis: linear regression over recent window; direction
+   (improving/stable/worsening), slope, avg, latest; escalation alert when
+   score jump exceeds threshold.
+4. Escalation alerts: active alerts from all patients, sorted by timestamp.
 
 ## Completed
 
@@ -63,14 +45,15 @@ Feedback / retrain loop (complete):
 - Dashboard federation panel (committed `b351e0e`).
 - Bundled medical corpus authored (committed `db8708e`).
 - Doctor notification via n8n (committed `1a9b500`).
-- Feedback / retrain loop (this task; not yet committed).
+- Feedback / retrain loop (committed `dfd8075`).
+- Encrypted gRPC transport (committed `06a57aa`).
+- Risk monitoring on history (this task; not yet committed).
 
 ## Next Files (optional / backlog)
 
-- Encrypted gRPC transport.
-- Risk monitoring on history.
 - Cross-host deployment docs.
 - Corpus expansion.
+- n8n risk-monitoring workflow.
 
 ## Design Notes
 
@@ -89,10 +72,15 @@ Feedback / retrain loop (complete):
   column convention so `prepare_tabular_data` treats them like base rows.
 - The feedback store defaults to `artifacts/feedback.db` (a fresh temp DB
   when the service builds it under an ephemeral artifacts dir).
+- TLS for Flower gRPC uses standard PEM certificates; server requires
+  CA + cert + key; client requires CA (for verification) and optionally
+  client cert + key for mutual TLS.
+- Risk history is persisted per-analysis with patient_id, preset, score,
+  level, prediction, confidence, markers; trend uses linear regression
+  over the configured window; escalation alert triggers on score delta
+  exceeding threshold.
 
 ## Status
 
-Feedback / retrain loop complete and verified end-to-end against the live
-n8n + FastAPI (API restarted with `DATASET_DIR`; n8n restarted with
-`N8N_BLOCK_ENV_ACCESS_IN_NODE=false` + `DOCTOR_NOTIFY_WEBHOOK`). Repo not
-yet committed (user drives commits).
+Risk monitoring on history complete. Lint (ruff) and format checks pass
+on all modified files. Repo not yet committed (user drives commits).

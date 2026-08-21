@@ -27,6 +27,13 @@ from feedback.schemas import (
     FeedbackStatus,
     FeedbackSummary,
 )
+from risk.schemas import (
+    EscalationAlert,
+    RiskHistoryRecord,
+    RiskHistoryResponse,
+    RiskHistorySummary,
+    RiskTrend,
+)
 
 DatasetPreset = Literal["diabetes", "heart", "kidney", "sepsis"]
 
@@ -613,6 +620,7 @@ __all__ = [
     "AnalyzeRequest",
     "ClinicalReport",
     "DatasetPreset",
+    "EscalationAlert",
     "EvidenceItem",
     "FederationModel",
     "FederationPreset",
@@ -632,6 +640,10 @@ __all__ = [
     "RetrainRequest",
     "RetrainResponse",
     "RetrieveRequest",
+    "RiskHistoryRecord",
+    "RiskHistoryResponse",
+    "RiskHistorySummary",
+    "RiskTrend",
     "TrainRequest",
     "TrainResponse",
 ]

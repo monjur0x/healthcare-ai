@@ -242,6 +242,35 @@ returns the new model's metrics; otherwise it returns
 `FEEDBACK_RETRAIN_ENABLED=false` to record feedback but disable automated
 retraining.
 
+### Risk Monitoring & History
+
+Every clinical analysis (`POST /api/v1/analyze`) now persists the risk
+assessment (score, level, prediction, confidence, markers) to a SQLite
+store (`RISK_HISTORY_DB_PATH`, default `artifacts/risk_history.db`).
+This enables longitudinal monitoring of patient risk over time.
+
+Key features:
+- **Trend analysis**: `GET /api/v1/risk/trends/{patient_id}` computes
+  a linear trend over the recent window (`RISK_HISTORY_TREND_WINDOW`,
+  default 5 analyses) and returns direction (improving/stable/worsening),
+  slope, and escalation flag.
+- **Escalation alerts**: When a patient's risk score increases by more
+  than `RISK_HISTORY_ESCALATION_THRESHOLD` (default 0.2) compared to the
+  previous analysis, an alert is generated. Retrieve all active alerts
+  via `GET /api/v1/risk/alerts`.
+- **History summaries**: `GET /api/v1/risk/history` returns per-patient
+  summaries with total analyses, latest risk, trend, and alert count.
+  Filter by patient/preset with query parameters.
+- **Minimum points**: Trend analysis requires
+  `RISK_HISTORY_MIN_TREND_POINTS` (default 3) data points.
+
+The `n8n/risk-monitoring.json` workflow (to be added) can poll
+`/api/v1/risk/alerts` on a schedule and fire notifications for
+escalating patients.
+
+Set `RISK_HISTORY_ALERTS_ENABLED=false` to record history but disable
+automated alerting.
+
 ## API Endpoints
 
 | Method | Path | Description |
@@ -262,6 +291,10 @@ retraining.
 | POST | `/api/v1/feedback` | Record a clinician-confirmed label for a past analysis |
 | GET | `/api/v1/feedback/status` | Pending feedback + retrain readiness per preset |
 | POST | `/api/v1/feedback/retrain` | Retrain a preset on base data + pending feedback and redeploy |
+| GET | `/api/v1/risk/history` | Risk history summaries with trends for all patients |
+| GET | `/api/v1/risk/history/{patient_id}` | Detailed risk history for a patient-preset |
+| GET | `/api/v1/risk/trends/{patient_id}` | Computed risk trend (direction, slope, escalation) |
+| GET | `/api/v1/risk/alerts` | Active escalation alerts (risk score jumps) |
 
 Optional bearer auth: set `API_TOKEN` and send
 `Authorization: Bearer <token>` (all `/api/v1` routes).
