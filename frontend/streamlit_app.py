@@ -1191,6 +1191,157 @@ def run_system_status_tab(client: HealthcareAPIClient, n8n_base_url: str) -> Non
 # ---------------------------------------------------------------------------
 
 
+
+def run_risk_monitoring_tab(client: HealthcareAPIClient) -> None:
+    """Longitudinal risk monitoring: trends, alerts, and feedback entry."""
+    import pandas as pd
+
+    st.header("Risk Monitoring & Clinician Feedback")
+
+    col_trends, col_alerts = st.columns(2)
+
+    with col_trends:
+        st.subheader("Patient Risk History")
+        try:
+            history = client.risk_history()
+        except HealthcareAPIError as error:
+            st.warning(f"Risk history unavailable: {error}")
+            history = {"summaries": [], "alert_count": 0}
+
+        summaries = history.get("summaries", [])
+        if not summaries:
+            st.info("No analyses recorded yet. Run a clinical assessment first.")
+        else:
+            selected = st.selectbox(
+                "Patient / preset",
+                summaries,
+                format_func=lambda s: (
+                    f"{s['patient_id']} ({s['preset']}) - "
+                    f"{s['total_analyses']} analyses"
+                ),
+                key="risk_patient_select",
+            )
+            trend = selected.get("trend")
+            if trend and trend.get("recent_scores"):
+                scores = list(reversed(trend["recent_scores"]))
+                chart = pd.DataFrame(
+                    {"risk_score": scores},
+                    index=pd.RangeIndex(
+                        len(scores) - len(scores), len(scores)
+                    ),
+                )
+                st.line_chart(chart, height=220)
+                direction = trend.get("trend_direction", "stable")
+                icon = {
+                    "improving": "🟢",
+                    "stable": "🟡",
+                    "worsening": "🔴",
+                }.get(direction, "-")
+                st.metric(
+                    "Trend",
+                    f"{icon} {direction}",
+                    delta=(
+                        f"slope {trend.get('slope', 0):+.3f} "
+                        f"| latest {trend.get('latest_score', 0):.3f}"
+                    ),
+                )
+                if trend.get("escalation_alert"):
+                    st.error("Escalation alert active for this patient.")
+            else:
+                latest = selected.get("latest") or {}
+                st.write(
+                    f"Latest score: **{latest.get('risk_score', 'n/a')}** "
+                    f"({latest.get('risk_level', 'n/a')}) - "
+                    "not enough points for a trend yet."
+                )
+
+    with col_alerts:
+        st.subheader("Active Escalation Alerts")
+        try:
+            alerts = client.escalation_alerts()
+        except HealthcareAPIError as error:
+            st.warning(f"Alerts unavailable: {error}")
+            alerts = []
+        if not alerts:
+            st.success("No active escalation alerts.")
+        for alert in alerts:
+            delta = alert.get("delta", 0)
+            st.error(
+                f"**{alert.get('patient_id')}** ({alert.get('preset')}): "
+                f"{alert.get('previous_score'):.2f} -> "
+                f"{alert.get('current_score'):.2f} "
+                f"(+{delta:.2f} > {alert.get('threshold'):.2f})"
+            )
+
+    st.divider()
+    st.subheader("Record Clinician Feedback")
+    st.caption(
+        "Confirm the true outcome of an analysis; pending samples feed the "
+        "feedback-driven retrain loop (threshold-gated)."
+    )
+    with st.form("feedback_form"):
+        fb_col1, fb_col2 = st.columns([1, 2])
+        with fb_col1:
+            preset = st.selectbox(
+                "Preset",
+                ["diabetes", "heart", "kidney", "sepsis"],
+                key="fb_preset",
+            )
+            patient_id = st.text_input("Patient study id", key="fb_patient")
+            confirmed = st.radio(
+                "Confirmed outcome",
+                [1, 0],
+                format_func=lambda v: "Disease (1)" if v else "Healthy (0)",
+                horizontal=True,
+                key="fb_label",
+            )
+            predicted = st.number_input(
+                "Predicted label (optional)", min_value=-1, max_value=1,
+                value=-1, step=1, key="fb_pred",
+            )
+            confidence = st.slider(
+                "Model confidence at analysis time",
+                0.0, 1.0, 0.9, 0.01, key="fb_conf",
+            )
+        with fb_col2:
+            features_raw = st.text_area(
+                "Feature row (JSON)",
+                value='{"age": 55, "glucose": 150}',
+                height=140,
+                key="fb_features",
+            )
+        submitted = st.form_submit_button("Submit feedback")
+    if submitted:
+        import json as _json
+
+        try:
+            features = {
+                k: float(v)
+                for k, v in _json.loads(features_raw or "{}").items()
+            }
+        except ValueError as error:
+            st.error(f"Features JSON invalid: {error}")
+            return
+        if not patient_id or not features:
+            st.error("Patient id and at least one feature are required.")
+            return
+        try:
+            record = client.submit_feedback(
+                preset=preset,
+                patient_id=patient_id,
+                features=features,
+                confirmed_label=int(confirmed),
+                predicted_label=None if predicted < 0 else int(predicted),
+                confidence=confidence,
+            )
+            st.success(
+                f"Feedback recorded (id {record.get('id')}) for "
+                f"{record.get('patient_id')} ({record.get('preset')})."
+            )
+        except HealthcareAPIError as error:
+            st.error(f"Submission failed: {error}")
+
+
 def run_federation_tab(client: HealthcareAPIClient) -> None:
     """Render the federation registry overview and distributed training."""
     st.header("Federated Learning")
@@ -1440,17 +1591,24 @@ def main() -> None:
 
     client, n8n_base_url, _route = render_sidebar()
 
-    tab_overview, tab_assessment, tab_imaging, tab_results, tab_status, tab_fed = (
-        st.tabs(
-            [
-                "Overview",
-                "Clinical Assessment",
-                "Imaging",
-                "Results",
-                "System Status",
-                "Federation",
-            ]
-        )
+    (
+        tab_overview,
+        tab_assessment,
+        tab_imaging,
+        tab_results,
+        tab_status,
+        tab_fed,
+        tab_risk,
+    ) = st.tabs(
+        [
+            "Overview",
+            "Clinical Assessment",
+            "Imaging",
+            "Results",
+            "System Status",
+            "Federation",
+            "Risk Monitoring",
+        ]
     )
     with tab_overview:
         run_overview_tab(client, n8n_base_url)
@@ -1464,6 +1622,8 @@ def main() -> None:
         run_system_status_tab(client, n8n_base_url)
     with tab_fed:
         run_federation_tab(client)
+    with tab_risk:
+        run_risk_monitoring_tab(client)
 
 
 if __name__ == "__main__":

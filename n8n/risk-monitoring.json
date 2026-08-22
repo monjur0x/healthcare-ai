@@ -1,0 +1,112 @@
+{
+  "name": "Risk Monitoring",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            { "field": "minutes", "minutesBetweenPolls": 15 }
+          ]
+        }
+      },
+      "id": "rm000000-0000-4000-8000-000000000001",
+      "name": "Schedule: Poll Every 15m",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [-620, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "http://127.0.0.1:8000/api/v1/risk/alerts",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "rm000000-0000-4000-8000-000000000002",
+      "name": "HTTP: Get Escalation Alerts",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-380, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "PLACEHOLDER_CREDENTIAL_ID",
+          "name": "Healthcare API Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// httpRequest v4 auto-splits the JSON array so each item is one\n// escalation alert; normalize it for the notification payload.\nconst alert = $json;\nreturn [{ json: {\n  alert: 'risk_escalation',\n  patient_id: alert.patient_id,\n  preset: alert.preset,\n  previous_score: alert.previous_score,\n  current_score: alert.current_score,\n  delta: alert.delta,\n  threshold: alert.threshold,\n  detected_at: alert.timestamp || new Date().toISOString(),\n} }];"
+      },
+      "id": "rm000000-0000-4000-8000-000000000003",
+      "name": "Format Alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-140, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.DOCTOR_NOTIFY_WEBHOOK }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "rm000000-0000-4000-8000-000000000004",
+      "name": "HTTP: Notify Clinician",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [100, 300],
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "Schedule: Poll Every 15m": {
+      "main": [
+        [
+          {
+            "node": "HTTP: Get Escalation Alerts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP: Get Escalation Alerts": {
+      "main": [
+        [
+          {
+            "node": "Format Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Alert": {
+      "main": [
+        [
+          {
+            "node": "HTTP: Notify Clinician",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "instanceId": "n8n-workflow-risk-monitoring"
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

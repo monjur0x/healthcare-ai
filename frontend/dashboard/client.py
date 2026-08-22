@@ -635,6 +635,48 @@ class HealthcareAPIClient:
             payload["recommendations"] = list(recommendations)
         return self._post_json("/api/v1/analyze/csv", payload)
 
+    # ------------------------------------------------------------------
+    # Risk monitoring (longitudinal) + clinician feedback
+    # ------------------------------------------------------------------
+
+    def risk_history(self) -> dict[str, Any]:
+        """Return risk-history summaries with trends for all patients."""
+        return self._get_json("/api/v1/risk/history")
+
+    def risk_trend(self, patient_id: str, preset: str) -> dict[str, Any]:
+        """Return the computed risk trend for one patient-preset pair."""
+        return self._get_json(
+            f"/api/v1/risk/trends/{patient_id}?preset={preset}"
+        )
+
+    def escalation_alerts(self) -> list[dict[str, Any]]:
+        """Return active risk-escalation alerts."""
+        response = self._client.get("/api/v1/risk/alerts")
+        self._raise_for_error(response)
+        return response.json()
+
+    def submit_feedback(
+        self,
+        preset: str,
+        patient_id: str,
+        features: dict[str, float],
+        confirmed_label: int,
+        predicted_label: int | None = None,
+        confidence: float | None = None,
+    ) -> dict[str, Any]:
+        """Record a clinician-confirmed label for a past analysis."""
+        payload: dict[str, Any] = {
+            "preset": preset,
+            "patient_id": patient_id,
+            "features": {k: float(v) for k, v in features.items()},
+            "confirmed_label": int(confirmed_label),
+        }
+        if predicted_label is not None:
+            payload["predicted_label"] = int(predicted_label)
+        if confidence is not None:
+            payload["confidence"] = float(confidence)
+        return self._post_json("/api/v1/feedback", payload)
+
     def _get_json(self, path: str) -> dict[str, Any]:
         response = self._client.get(path)
         self._raise_for_error(response)

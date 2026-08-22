@@ -119,7 +119,9 @@ def _cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
 
 
 #: Minimum best cosine similarity for a sentence to count as grounded.
-_FAITHFULNESS_THRESHOLD = 0.5
+# Default grounded-similarity cutoff; overridden by
+# ``settings.FAITHFULNESS_THRESHOLD`` at call time.
+_FAITHFULNESS_THRESHOLD_DEFAULT = 0.5
 
 
 def context_precision(
@@ -188,7 +190,10 @@ def context_recall(
 
 
 def faithfulness(
-    answer: str, retrieved_chunks: Sequence[str], embedder: Embedder
+    answer: str,
+    retrieved_chunks: Sequence[str],
+    embedder: Embedder,
+    threshold: float | None = None,
 ) -> float:
     """
     Fraction of the answer's sentences grounded in the retrieved context.
@@ -217,6 +222,15 @@ def faithfulness(
         Faithfulness in ``[0, 1]``; ``0.0`` for an empty answer.
     """
 
+    from .config import settings
+
+    effective_threshold = threshold
+    if effective_threshold is None:
+        effective_threshold = getattr(
+            settings,
+            "FAITHFULNESS_THRESHOLD",
+            _FAITHFULNESS_THRESHOLD_DEFAULT,
+        )
     texts = [
         chunk[-1] if isinstance(chunk, tuple) else chunk for chunk in retrieved_chunks
     ]
@@ -228,7 +242,7 @@ def faithfulness(
     grounded = 0
     for sentence in sentence_vectors:
         best = max(_cosine_similarity(sentence, chunk) for chunk in chunk_vectors)
-        if best >= _FAITHFULNESS_THRESHOLD:
+        if best >= effective_threshold:
             grounded += 1
     return float(grounded / len(sentences))
 

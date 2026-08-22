@@ -27,19 +27,24 @@ mid-task (see AGENTS.md → Task Execution Rules).
 ## RAG
 
 - Expand bundled corpus (more conditions, WHO/CDC/NICE-style guideline
-  summaries); wire `rag/metrics.retrieval_metrics` /
-  `rag_quality_metrics` into an evaluation script per proposal §12.
+  summaries).
+- [x] DONE: §12 RAG metrics wired via scripts/run_m3_evaluation.py;
+  FAITHFULNESS_THRESHOLD now configurable (RAG_FAITHFULNESS_THRESHOLD) —
+  set ~0.3 for TF-IDF (ceiling 0.66 verified) or use dense embedder at
+  default 0.5.
 
 ## n8n
 
 - [x] DONE (M3.4): `n8n/clinical-full.json` implements the 10-step flowchart
   workflow; verified rejection / low-risk / high-risk-notify paths live.
-- Risk-monitoring workflow polling `/api/v1/risk/alerts` on schedule.
+- [x] DONE: `n8n/risk-monitoring.json` polls `/api/v1/risk/alerts`
+  every 15m and notifies clinicians per alert (activated locally).
 
 ## Dashboard
 
-- Risk-history trend charts and escalation-alert panel.
-- Feedback annotation UI feeding `/api/v1/feedback`.
+- [x] DONE: new "Risk Monitoring" tab — per-patient trend chart +
+  direction metric, active escalation-alert list, clinician feedback
+  form posting to `/api/v1/feedback` (client methods added).
 
 ## Housekeeping
 

@@ -28,6 +28,7 @@ from preprocessing.logger import get_logger
 
 from .config import settings
 from .exceptions import LLMNotConfiguredError, OrchestrationError
+from .metrics import compute_agent_metrics
 from .schemas import (
     ClinicalReport,
     PatientInfo,
@@ -235,6 +236,21 @@ class ClinicalCrew:
             )
             return base
         report = self._merge_llm_over_base(base, parsed)
+
+        # §12 Agent metrics: task completion / collaboration from the real
+        # crew task outputs, decision consistency from the deterministic
+        # prediction vs the crew-merged prediction (single observation).
+        try:
+            task_outputs = [task.output for task in tasks.values() if task.output]
+            predicted = (
+                str(report.prediction.predicted_class) if report.prediction else ""
+            )
+            report.agent_metrics = compute_agent_metrics(
+                task_outputs, [predicted]
+            ).to_dict()
+        except Exception as error:  # noqa: BLE001 - metrics never block care
+            logger.warning("Agent metrics computation failed: %s", error)
+
         logger.info("LLM analysis complete for patient %s", self.patient.id)
         return report
 

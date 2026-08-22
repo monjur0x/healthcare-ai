@@ -52,3 +52,19 @@ dashboard risk panel wiring.
    high-risk path fires DOCTOR_NOTIFY_WEBHOOK while still returning the
    stored clinical report (`notified: true`). Owner login configured on
    the local instance.
+
+---
+
+## Remaining-Gap Sprint (complete)
+
+- Faithfulness calibration: RAG_FAITHFULNESS_THRESHOLD setting added;
+  eval rerun at 0.3 lifts corpus-answer ceiling 0.05 -> 0.66 while
+  template answers stay low (honest discrimination).
+- run_llm now computes real AgentMetrics from crew task outputs into the
+  report.
+- n8n/risk-monitoring.json: 15-min poll of /risk/alerts -> per-alert
+  clinician notify (active).
+- Streamlit "Risk Monitoring" tab: trend chart/direction, alerts panel,
+  feedback form; client methods risk_history/risk_trend/
+  escalation_alerts/submit_feedback. Live-verified against running API
+  (TRENDS-1 trend seeded, feedback id recorded).
