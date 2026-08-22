@@ -241,6 +241,13 @@ def load_canonical_frame(
         raise ValueError(f"No canonical adapter for preset {preset!r} ({csv_path}).")
 
     raw = pd.read_csv(csv_path)
+    # Privacy layer (proposal §8 / flowchart AN): strip PII-like columns
+    # before anything downstream sees the frame.
+    from federated.privacy import anonymize_frame
+
+    raw, removed = anonymize_frame(raw)
+    if removed:
+        logger.info("Anonymization dropped %d PII-like column(s)", len(removed))
     features, labels = ADAPTERS[preset](raw)
     logger.info(
         "Mapped %s (%s): %d rows, %d features, %d/%d positives",

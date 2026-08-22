@@ -121,6 +121,13 @@ def build_hospital_sites(
     root.mkdir(parents=True, exist_ok=True)
 
     raw = pd.read_csv(source)
+    # Privacy layer (proposal §8): drop PII-like columns before the raw
+    # frame is sliced into per-hospital local CSVs.
+    from federated.privacy import anonymize_frame
+
+    raw, removed = anonymize_frame(raw)
+    if removed:
+        logger.info("Anonymization dropped %d PII-like column(s)", len(removed))
     raw = normalize_columns(raw)
     target = target.strip().lower().replace(" ", "_")
     if target not in raw.columns:

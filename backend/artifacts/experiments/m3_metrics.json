@@ -1,0 +1,167 @@
+{
+  "timestamp": "2026-08-22T05:09:49.482321+00:00",
+  "model": "/home/monjur0x0/Healthcare-AI/backend/artifacts/multi_disease/global_model.joblib",
+  "rag_metrics_per_query": {
+    "diabetes": {
+      "precision_at_k": 0.6666666666666666,
+      "recall_at_k": 1.0,
+      "mrr": 1.0,
+      "context_precision": 0.6666666666666666,
+      "context_recall": 0.6666666666666666,
+      "faithfulness": 0.0,
+      "answer_relevancy": 0.0,
+      "faithfulness_mean_cosine": 0.0523,
+      "faithfulness_ceiling": 0.05555555555555555,
+      "faithfulness_ceiling_mean_cosine": 0.3402
+    },
+    "heart": {
+      "precision_at_k": 0.6666666666666666,
+      "recall_at_k": 1.0,
+      "mrr": 1.0,
+      "context_precision": 0.6666666666666666,
+      "context_recall": 1.0,
+      "faithfulness": 0.0,
+      "answer_relevancy": 0.055196395389543,
+      "faithfulness_mean_cosine": 0.0843,
+      "faithfulness_ceiling": 0.0,
+      "faithfulness_ceiling_mean_cosine": 0.3314
+    },
+    "kidney": {
+      "precision_at_k": 0.6666666666666666,
+      "recall_at_k": 1.0,
+      "mrr": 1.0,
+      "context_precision": 0.6666666666666666,
+      "context_recall": 1.0,
+      "faithfulness": 0.0,
+      "answer_relevancy": 0.0,
+      "faithfulness_mean_cosine": 0.0656,
+      "faithfulness_ceiling": 0.045454545454545456,
+      "faithfulness_ceiling_mean_cosine": 0.3447
+    },
+    "sepsis": {
+      "precision_at_k": 0.6666666666666666,
+      "recall_at_k": 1.0,
+      "mrr": 1.0,
+      "context_precision": 0.6666666666666666,
+      "context_recall": 1.0,
+      "faithfulness": 0.0,
+      "answer_relevancy": 0.0,
+      "faithfulness_mean_cosine": 0.0518,
+      "faithfulness_ceiling": 0.10526315789473684,
+      "faithfulness_ceiling_mean_cosine": 0.3327
+    }
+  },
+  "rag_metrics_average": {
+    "precision_at_k": 0.6667,
+    "recall_at_k": 1.0,
+    "mrr": 1.0,
+    "context_precision": 0.6667,
+    "context_recall": 0.9167,
+    "faithfulness": 0.0,
+    "answer_relevancy": 0.0138,
+    "faithfulness_mean_cosine": 0.0635,
+    "faithfulness_ceiling": 0.0516,
+    "faithfulness_ceiling_mean_cosine": 0.3372
+  },
+  "agent_metrics": {
+    "task_completion_rate": 1.0,
+    "decision_consistency": 1.0,
+    "agent_collaboration_score": 1.0
+  },
+  "baselines": {
+    "B2_federated_only": {
+      "prediction": {
+        "accuracy": 0.925,
+        "precision": 0.9473684210526315,
+        "recall": 0.9,
+        "f1": 0.9230769230769231,
+        "roc_auc": 0.98
+      },
+      "predict_only_time_s": 0.001,
+      "analyze_latency_avg_s": 0.0005,
+      "avg_evidence_items": 0.0,
+      "report_completeness": 0.857,
+      "decision_consistent": true,
+      "use_rag": false
+    },
+    "B3_fl_rag": {
+      "prediction": {
+        "accuracy": 0.925,
+        "precision": 0.9473684210526315,
+        "recall": 0.9,
+        "f1": 0.9230769230769231,
+        "roc_auc": 0.98
+      },
+      "predict_only_time_s": 0.001,
+      "analyze_latency_avg_s": 0.0014,
+      "avg_evidence_items": 3.0,
+      "report_completeness": 1.0,
+      "decision_consistent": true,
+      "use_rag": true
+    },
+    "B4_fl_multi_agent": {
+      "prediction": {
+        "accuracy": 0.925,
+        "precision": 0.9473684210526315,
+        "recall": 0.9,
+        "f1": 0.9230769230769231,
+        "roc_auc": 0.98
+      },
+      "predict_only_time_s": 0.001,
+      "analyze_latency_avg_s": 0.0006,
+      "avg_evidence_items": 0.0,
+      "report_completeness": 0.857,
+      "decision_consistent": true,
+      "use_rag": false,
+      "agent_metrics": {
+        "task_completion_rate": 1.0,
+        "decision_consistency": 1.0,
+        "agent_collaboration_score": 1.0
+      }
+    },
+    "B5_proposed_full": {
+      "prediction": {
+        "accuracy": 0.925,
+        "precision": 0.9473684210526315,
+        "recall": 0.9,
+        "f1": 0.9230769230769231,
+        "roc_auc": 0.98
+      },
+      "predict_only_time_s": 0.001,
+      "analyze_latency_avg_s": 0.0013,
+      "avg_evidence_items": 3.0,
+      "report_completeness": 1.0,
+      "decision_consistent": true,
+      "use_rag": true,
+      "agent_metrics": {
+        "task_completion_rate": 1.0,
+        "decision_consistency": 1.0,
+        "agent_collaboration_score": 1.0
+      },
+      "n8n": {
+        "reachable": false,
+        "triggered": false
+      }
+    }
+  },
+  "prior_results": {
+    "B1_centralized": {
+      "accuracy": 0.9119453924914676,
+      "precision": 0.8823529411764706,
+      "recall": 0.6543624161073825,
+      "f1": 0.7514450867052023,
+      "roc_auc": 0.9455150877314056,
+      "pr_auc": 0.8695362545542006,
+      "mcc": 0.7109047063457916
+    },
+    "B2_federated_m2": {
+      "accuracy": 0.889419795221843,
+      "precision": 0.7556390977443609,
+      "recall": 0.674496644295302,
+      "f1": 0.7127659574468085,
+      "roc_auc": 0.9103908950271159,
+      "pr_auc": 0.8127393879637251,
+      "mcc": 0.6461632328755794
+    }
+  }
+}
