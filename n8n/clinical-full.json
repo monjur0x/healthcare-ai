@@ -84,7 +84,7 @@
       "onError": "continueErrorOutput",
       "credentials": {
         "httpHeaderAuth": {
-          "id": "PLACEHOLDER_CREDENTIAL_ID",
+          "id": "VyBag3RC9YxWb3PI",
           "name": "Healthcare API Token"
         }
       }

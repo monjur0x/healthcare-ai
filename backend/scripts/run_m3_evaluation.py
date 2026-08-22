@@ -49,10 +49,10 @@ from sklearn.metrics import (
     roc_auc_score,
 )
 
-from api.schemas import PatientInfo
-from api.services import AnalysisService, build_rag_pipeline, load_predictive_model
+from ..api.schemas import PatientInfo
+from ..api.services import AnalysisService, build_rag_pipeline, load_predictive_model
 from CrewAI.orchestrator.metrics import compute_agent_metrics
-from federated.canonical import HOSPITAL_PRESETS, TARGET_COLUMN, load_canonical_frame
+from ..federated.canonical import HOSPITAL_PRESETS, TARGET_COLUMN, load_canonical_frame
 from preprocessing.logger import get_logger
 from rag import TextChunker, TfidfEmbedder, load_bundled_corpus
 from rag.metrics import (

@@ -517,6 +517,38 @@ def is_integer_feature(name: str) -> bool:
     return normalize_feature_name(name) in INTEGER_FEATURES
 
 
+def parse_blood_pressure_pair(raw: str) -> tuple[float, float] | None:
+    """
+    Parse a blood-pressure entry into ``(systolic, diastolic)``.
+
+    Accepts ``"SYS/DIA"`` (e.g. ``"120/80"``, with optional spaces) or a
+    single value which is treated as the systolic reading with an unknown
+    diastolic (returns ``(value, value)`` so callers can still pick a
+    component).
+
+    Returns None when the entry is not parseable or clinically
+    inconsistent (non-positive, diastolic >= systolic).
+    """
+    text = raw.strip()
+    if not text:
+        return None
+    parts = [part.strip() for part in text.split("/")]
+    try:
+        if len(parts) == 2:
+            systolic = float(parts[0])
+            diastolic = float(parts[1])
+        elif len(parts) == 1:
+            systolic = float(parts[0])
+            diastolic = float(parts[0])
+        else:
+            return None
+    except ValueError:
+        return None
+    if systolic <= 0 or diastolic <= 0 or diastolic > systolic:
+        return None
+    return systolic, diastolic
+
+
 def parse_blood_pressure(raw: str) -> float | None:
     """
     Parse a blood-pressure entry into the model's ``bloodpressure`` value.

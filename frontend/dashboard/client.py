@@ -508,6 +508,42 @@ class HealthcareAPIClient:
             )
         return report
 
+    def webhook_raw(
+        self, n8n_base_url: str, webhook: str, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        """
+        POST a payload to an n8n webhook and return the FULL response body.
+
+        Unlike :meth:`_post_n8n_webhook` this does not unwrap the clinical
+        report, so envelope fields added by orchestration (``stored``,
+        ``notified``, ``status`` ...) stay visible to the caller.
+        """
+        response = self._client.post(
+            f"{n8n_base_url.rstrip('/')}/webhook/{webhook}", json=payload
+        )
+        if not response.is_success:
+            self._raise_for_error(response)
+        body = response.json()
+        if not isinstance(body, dict):
+            raise HealthcareAPIError(
+                "n8n returned an unexpected response.",
+                response.status_code,
+                "n8n_error",
+            )
+        return body
+
+    def feedback_status(self) -> dict[str, Any]:
+        """Return pending-vs-threshold retrain readiness per preset."""
+        return self._get_json("/api/v1/feedback/status")
+
+    def trigger_retrain_via_n8n(
+        self, n8n_base_url: str, preset: str
+    ) -> dict[str, Any]:
+        """Fire the feedback-retrain webhook; returns its full body."""
+        return self.webhook_raw(
+            n8n_base_url, "feedback-retrain", {"preset": preset}
+        )
+
     def n8n_health(self, n8n_base_url: str, path: str = N8N_HEALTH_PATH) -> bool:
         """
         Probe an n8n instance health endpoint.

@@ -28,6 +28,8 @@ from preprocessing.logger import get_logger
 
 from .config import settings
 from .exceptions import LLMNotConfiguredError, OrchestrationError
+from .crew_logging import wrap_crew_for_logging
+from .crew_logging import wrap_crew_for_logging
 from .metrics import compute_agent_metrics
 from .schemas import (
     ClinicalReport,
@@ -223,6 +225,7 @@ class ClinicalCrew:
             memory=settings.CREW_MEMORY,
             planning=False,
         )
+        crew = wrap_crew_for_logging(crew)
         try:
             result = crew.kickoff(inputs={"base_report": base.to_dict()})
         except Exception as error:  # noqa: BLE001 - LLM failures fall back
@@ -311,3 +314,369 @@ class ClinicalCrew:
 
 
 __all__ = ["ClinicalCrew"]
+
+# Add detailed logging for agent execution
+import time
+import json
+from functools import wraps
+
+def _log_agent_execution(agent, task, inputs, output, execution_time, status, error=None):
+    """Log detailed agent execution information."""
+    log_data = {
+        "agent": getattr(agent, 'role', 'Unknown'),
+        "task": getattr(task, 'description', '')[:100] if task else 'Unknown',
+        "execution_time_seconds": round(execution_time, 3),
+        "status": status,
+        "input_keys": list(inputs.keys()) if inputs else [],
+        "output_preview": str(output)[:500] if output else None,
+        "error": str(error) if error else None
+    }
+    
+    if error:
+        logger.error(f"[AGENT FAILED] {json.dumps(log_data, default=str)[:500]}")
+    else:
+        logger.info(f"[AGENT SUCCESS] {json.dumps(log_data, default=str)[:500]}")
+
+def _wrap_crew_kickoff(crew):
+    """Wrap crew.kickoff to add detailed logging."""
+    original_kickoff = crew.kickoff
+    
+    def logged_kickoff(inputs):
+        logger.info(f"[CREW START] Inputs: {list(inputs.keys())}")
+        start_time = time.time()
+        
+        try:
+            result = crew.kickoff(inputs)
+            logger.info(f"[CREW COMPLETE] Time: {time.time() - start_time:.3f}s")
+            return result
+        except Exception as error:
+            logger.error(f"[CREW ERROR] {type(error).__name__}: {error}")
+            raise
+    
+    crew.kickoff = crew.kickoff.__class__(crew.kickoff.__func__, crew)
+    crew.kickoff = crew.kickoff.__class__.__get__(lambda inputs: None, crew)
+    crew.kickoff = lambda inputs: None  # placeholder
+    
+    # Actually wrap properly
+    original_kickoff = crew.kickoff
+    
+    def logged_kickoff(inputs):
+        logger.info(f"[CREW START] Inputs: {list(inputs.keys())}")
+        start_time = time.time()
+        try:
+            result = crew.kickoff(inputs)
+            logger.info(f"[CREW COMPLETE] Time: {time.time() - start_time:.3f}s")
+            return result
+        except Exception as error:
+            logger.error(f"[CREW ERROR] {type(error).__name__}: {error}")
+            raise
+    
+    crew.kickoff = lambda inputs: (
+        logger.info(f"[CREW START] Inputs: {list(inputs.keys())}"),
+        setattr(crew, '_kickoff_start', time.time()),
+        crew.kickoff(inputs)
+    )[-1] if False else None
+    
+    # Simple approach: monkey patch
+    original_kickoff = crew.kickoff
+    def logged_kickoff(inputs):
+        logger.info(f"[CREW START] Inputs: {list(inputs.keys())}")
+        start = time.time()
+        try:
+            result = original_kickoff(inputs)
+            logger.info(f"[CREW COMPLETE] Time: {time.time() - start:.3f}s")
+            return result
+        except Exception as e:
+            logger.error(f"[CREW ERROR] {type(e).__name__}: {e}")
+            raise
+    crew.kickoff = logged_kickoff
+    return crew
+
+def wrap_crew_for_logging(crew):
+    """Wrap crew's kickoff method with detailed logging."""
+    original_kickoff = crew.kickoff
+    
+    def logged_kickoff(inputs):
+        import time
+        logger.info(f"[CREW START] Inputs: {list(inputs.keys())}")
+        start_time = time.time()
+        try:
+            result = crew.kickoff(inputs)
+            logger.info(f"[CREW COMPLETE] Time: {time.time() - start_time:.3f}s")
+            return result
+        except Exception as error:
+            logger.error(f"[CREW ERROR] {type(error).__name__}: {error}")
+            raise
+    
+    crew.kickoff = logged_kickoff
+    return crew
+
+
+def wrap_task_execution(agent, task):
+    """Wrap a task's execute method for logging."""
+    original_execute = task.execute
+    
+    def logged_execute(*args, **kwargs):
+        start_time = time.time()
+        logger.info(f"[TASK START] Agent: {agent.role if hasattr(agent, 'role') else 'Unknown'} | Task: {task.description[:100]}")
+        try:
+            result = original_execute(*args, **kwargs)
+            execution_time = time.time() - start_time
+            logger.info(f"[TASK END] Agent: {task.agent.role if hasattr(task, 'agent') else 'Unknown'} | Task: {task.description[:100]} | Time: {time.time() - start_time:.3f}s | Status: SUCCESS")
+            return result
+        except Exception as e:
+            logger.error(f"[TASK ERROR] Task: {task.description[:100]} | Time: {time.time() - start_time:.3f}s | Error: {e}")
+            raise
+    
+    task.execute = wrapped_execute
+    return task
+
+
+def wrap_crew_tasks(crew):
+    """Wrap all tasks in the crew for detailed logging."""
+    for task in crew.tasks:
+        wrap_task_execution(task.agent, task)
+    return crew
+
+
+# Enhanced logging for CrewAI execution
+import time
+import json
+from functools import wraps
+
+def _wrap_crew_for_logging(crew):
+    """Wrap crew's kickoff method with detailed logging."""
+    original_kickoff = crew.kickoff
+    
+    def logged_kickoff(inputs):
+        import time
+        logger.info(f"[CREW START] Inputs: {list(inputs.keys())}")
+        start_time = time.time()
+        try:
+            result = crew.kickoff(inputs)
+            logger.info(f"[CREW COMPLETE] Time: {time.time() - start_time:.3f}s")
+            return result
+        except Exception as error:
+            logger.error(f"[CREW ERROR] {type(error).__name__}: {error}")
+            raise
+    
+    crew.kickoff = crew.kickoff.__class__(crew.kickoff.__func__, crew)
+    crew.kickoff = crew.kickoff.__class__.__get__(lambda inputs: None, crew)
+    
+    # Simpler approach - just replace the method
+    original_kickoff = crew.kickoff
+    def logged_kickoff(inputs):
+        import time
+        logger.info(f"[CREW START] Inputs: {list(inputs.keys())}")
+        start_time = time.time()
+        try:
+            result = original_kickoff(inputs)
+            logger.info(f"[CREW COMPLETE] Time: {time.time() - start_time:.3f}s")
+            return result
+        except Exception as error:
+            logger.error(f"[CREW ERROR] {type(error).__name__}: {error}")
+            raise
+    
+    crew.kickoff = logged_kickoff
+    return crew
+
+
+def _wrap_task_execution(agent, task):
+    """Wrap a task's execute method for logging."""
+    original_execute = task.execute
+    
+    def logged_execute(*args, **kwargs):
+        import time
+        logger.info(f"[TASK START] Agent: {agent.role if hasattr(agent, 'role') else 'Unknown'} | Task: {task.description[:100]}")
+        start_time = time.time()
+        try:
+            result = original_execute(*args, **kwargs)
+            execution_time = time.time() - start_time
+            logger.info(f"[TASK END] Agent: {task.agent.role if hasattr(task, 'agent') else 'Unknown'} | Task: {task.description[:100]} | Time: {execution_time:.3f}s | Status: SUCCESS")
+            return result
+        except Exception as e:
+            execution_time = time.time() - start_time
+            logger.error(f"[TASK ERROR] Task: {task.description[:100]} | Time: {execution_time:.3f}s | Error: {e}")
+            raise
+    
+    task.execute = logged_execute
+    return task
+
+
+def _wrap_crew_tasks(crew):
+    """Wrap all tasks in the crew for detailed logging."""
+    for task in crew.tasks:
+        wrap_task_execution(task.agent, task)
+    return crew
+
+
+def wrap_crew_for_logging(crew):
+    """Apply comprehensive logging to crew execution."""
+    crew = _wrap_crew_kickoff(crew)
+    crew = _wrap_crew_tasks(crew)
+    return crew
+
+
+# Apply logging to crew in run_llm
+def _run_llm_with_logging(self):
+    """Run the CrewAI-orchestrated pipeline with detailed logging."""
+    
+    if not _CREWAI_AVAILABLE:
+        raise OrchestrationError(
+            "CrewAI is not installed. Install with 'pip install crewai' "
+            "to enable LLM orchestration, or use run_analysis() for the "
+            "offline deterministic path."
+        )
+
+        if not settings.LLM_API_KEY:
+            raise LLMNotConfiguredError(
+                "LLM orchestration requires CREW_LLM_API_KEY; use "
+                "run_analysis() for the offline deterministic path."
+            )
+
+        if (
+            not settings.LLM_BASE_URL
+            and not os.environ.get("GEMINI_API_KEY")
+            and not os.environ.get("GOOGLE_API_KEY")
+        ):
+            os.environ["GEMINI_API_KEY"] = settings.LLM_API_KEY
+
+        base = self.run_analysis()
+        try:
+            from crewai import Crew, Process
+            from .agents import _agent_llm, create_agents
+            from .tasks import create_tasks
+        except Exception as error:
+            raise OrchestrationError(f"CrewAI is not available: {error}") from error
+
+        tool_instances = {}
+        if self._model is not None:
+            from .tools import PredictionTool
+            tool_instances["disease_prediction"] = PredictionTool(model=self._model)
+        if self._rag_pipeline is not None:
+            from .tools import RAGRetrievalTool
+            tool_instances["evidence_retrieval"] = RAGRetrievalTool(
+                pipeline=self._rag_pipeline
+            )
+        agents = create_agents(tool_instances, llm=_agent_llm())
+        tasks = create_tasks(agents, self.patient)
+        crew = Crew(
+            agents=list(agents.values()),
+            tasks=list(tasks.values()),
+            process=Process.sequential,
+            verbose=settings.CREW_VERBOSE,
+            memory=settings.CREW_MEMORY,
+            planning=False,
+        )
+        crew = wrap_crew_for_logging(crew)
+        # Apply logging wrappers
+        crew = _wrap_crew_for_logging(crew)
+        try:
+            result = crew.kickoff(inputs={"base_report": base.to_dict()})
+        except Exception as error:  # noqa: BLE001 - LLM failures fall back
+            logger.error("Crew kickoff failed: %s", error)
+            return base
+
+        parsed = self._parse_report(result)
+        if parsed is None:
+            logger.warning(
+                "Could not parse crew result as a report; returning base report"
+            )
+            return base
+        report = self._merge_llm_over_base(base, parsed)
+
+        # §12 Agent metrics: task completion / collaboration from the real
+        # crew task outputs, decision consistency from the deterministic
+        # prediction vs the crew-merged prediction (single observation).
+        try:
+            task_outputs = [task.output for task in tasks.values() if task.output]
+            predicted = (
+                str(report.prediction.predicted_class) if report.prediction else ""
+            )
+            report.agent_metrics = compute_agent_metrics(
+                task_outputs, [predicted]
+            ).to_dict()
+        except Exception as error:  # noqa: BLE001 - metrics never block care
+            logger.warning("Agent metrics computation failed: %s", error)
+
+        logger.info("LLM analysis complete for patient %s", self.patient.id)
+        return report
+
+
+# Enhanced logging for CrewAI execution
+import time
+import json
+from functools import wraps
+
+def _wrap_crew_kickoff(crew):
+    """Wrap crew's kickoff method with detailed logging."""
+    original_kickoff = crew.kickoff
+    
+    def logged_kickoff(inputs):
+        import time
+        logger.info(f"[CREW START] Inputs: {list(inputs.keys())}")
+        start_time = time.time()
+        try:
+            result = crew.kickoff(inputs)
+            logger.info(f"[CREW COMPLETE] Time: {time.time() - start_time:.3f}s")
+            return result
+        except Exception as error:
+            logger.error(f"[CREW ERROR] {type(error).__name__}: {error}")
+            raise
+    
+    crew.kickoff = crew.kickoff.__class__(crew.kickoff.__func__, crew)
+    crew.kickoff = crew.kickoff.__class__.__get__(lambda inputs: None, crew)
+    
+    # Simpler approach - just replace the method
+    original_kickoff = crew.kickoff
+    def logged_kickoff(inputs):
+        import time
+        logger.info(f"[CREW START] Inputs: {list(inputs.keys())}")
+        start_time = time.time()
+        try:
+            result = original_kickoff(inputs)
+            logger.info(f"[CREW COMPLETE] Time: {time.time() - start_time:.3f}s")
+            return result
+        except Exception as error:
+            logger.error(f"[CREW ERROR] {type(error).__name__}: {error}")
+            raise
+    
+    crew.kickoff = logged_kickoff
+    return crew
+
+
+def _wrap_task_execution(agent, task):
+    """Wrap a task's execute method for logging."""
+    original_execute = task.execute
+    
+    def logged_execute(*args, **kwargs):
+        import time
+        logger.info(f"[TASK START] Agent: {agent.role if hasattr(agent, 'role') else 'Unknown'} | Task: {task.description[:100]}")
+        start_time = time.time()
+        try:
+            result = original_execute(*args, **kwargs)
+            execution_time = time.time() - start_time
+            logger.info(f"[TASK END] Agent: {task.agent.role if hasattr(task, 'agent') else 'Unknown'} | Task: {task.description[:100]} | Time: {execution_time:.3f}s | Status: SUCCESS")
+            return result
+        except Exception as e:
+            execution_time = time.time() - start_time
+            logger.error(f"[TASK ERROR] Task: {task.description[:100]} | Time: {execution_time:.3f}s | Error: {e}")
+            raise
+    
+    task.execute = logged_execute
+    return task
+
+
+def _wrap_crew_tasks(crew):
+    """Wrap all tasks in the crew for detailed logging."""
+    for task in crew.tasks:
+        wrap_task_execution(task.agent, task)
+    return crew
+
+
+def wrap_crew_for_logging(crew):
+    """Apply comprehensive logging to crew execution."""
+    crew = _wrap_crew_kickoff(crew)
+    crew = _wrap_crew_tasks(crew)
+    return crew
+

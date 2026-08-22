@@ -56,7 +56,7 @@ from dashboard.clinical import (
     is_flag_feature,
     is_integer_feature,
     normalize_feature_name,
-    parse_blood_pressure,
+    parse_blood_pressure_pair,
     validate_feature_values,
 )
 
@@ -480,7 +480,11 @@ def render_clinical_results(
 # ---------------------------------------------------------------------------
 
 
-def feature_widget(name: str) -> float | None:
+def feature_widget(
+    name: str,
+    bp_prefer: str = "diastolic",
+    bp_default: str = "120/80",
+) -> float | None:
     """
     Render the appropriate input widget for a model feature.
 
@@ -505,8 +509,8 @@ def feature_widget(name: str) -> float | None:
     if unit:
         label = f"{label} ({unit})"
     key = f"feature_{name}"
-    if name == "bloodpressure":
-        return _blood_pressure_widget(label, key)
+    if name in {"bloodpressure", "blood_pressure", "bp"}:
+        return _blood_pressure_widget(label, key, bp_prefer, bp_default)
     if is_flag_feature(name):
         return float(st.checkbox(label, value=False, key=key))
     if name in {"sex", "gender"}:
@@ -541,13 +545,21 @@ def feature_widget(name: str) -> float | None:
     )
 
 
-def _blood_pressure_widget(label: str, key: str) -> float | None:
+def _blood_pressure_widget(
+    label: str,
+    key: str,
+    prefer: str = "diastolic",
+    default: str = "120/80",
+) -> float | None:
     """
     Render a systolic/diastolic blood-pressure entry.
 
-    Accepts ``SYS/DIA`` (e.g. ``120/90``) or a lone value. The model's
-    ``bloodpressure`` feature is the diastolic reading (the PIMA diabetes
-    "Blood Pressure (mm Hg)" column), so ``120/90`` maps to ``90``.
+    The canonical ``blood_pressure`` feature carries DIFFERENT semantics
+    per source dataset: Pima diabetes and UCI CKD record the DIASTOLIC
+    reading, while UCI Heart (``trestbps``) and the MIMIC-style sepsis
+    data (``sbp_mean``) record SYSTOLIC. The widget therefore asks which
+    component the active model expects and uses exactly that one, saying
+    so in the UI.
 
     Parameters
     ----------
@@ -555,25 +567,53 @@ def _blood_pressure_widget(label: str, key: str) -> float | None:
         Feature display label.
     key : str
         Session-state key for the text input.
+    prefer : str
+        ``"diastolic"`` or ``"systolic"`` - which component to send.
+    default : str
+        Placeholder entry matching the dataset scale.
 
     Returns
     -------
     float | None
-        The parsed value (diastolic for ``SYS/DIA`` input), or None when
-        the entry is invalid (the caller reports it; nothing is silently
-        substituted).
+        The selected component, or None when unparseable.
     """
+    used = prefer.upper()  # DIASTOLIC or SYSTOLIC
     raw = st.text_input(
         label,
-        value="120/80",
+        value=default,  # dataset-typical single value, e.g. "80"
         key=key,
-        help="Enter as SYS/DIA, e.g. 120/90, or a single value. The "
-        "model's Blood Pressure feature uses the diastolic reading.",
+        help=(
+            f"The training dataset records only the {used} reading, so "
+            f"this field sends one number (dataset default: {default}). "
+            f"A SYS/DIA entry like 120/{default} is also accepted; the "
+            f"{used.lower()} component is used."
+        ),
     )
-    return parse_blood_pressure(raw)
+    pair = parse_blood_pressure_pair(raw)
+    if pair is None:
+        return None
+    return pair[0] if prefer == "systolic" else pair[1]
 
 
-def render_feature_groups(feature_names: list[str]) -> dict[str, float | None]:
+def _bp_widget_params(preset: str | None) -> tuple[str, str]:
+    """
+    Map a dataset preset to blood-pressure semantics.
+
+    Pima diabetes and UCI CKD store the DIASTOLIC reading; UCI Heart
+    (trestbps) and the MIMIC-style sepsis vitals (sbp_mean) store
+    SYSTOLIC. Defaults match each dataset's typical scale.
+    """
+    if preset == "heart":
+        return "systolic", "120"  # trestbps: resting systolic
+    if preset == "sepsis":
+        return "systolic", "125"  # sbp_mean: ICU mean systolic
+    return "diastolic", "80"      # Pima BloodPressure / CKD bp
+
+
+def render_feature_groups(
+    feature_names: list[str],
+    preset: str | None = None,
+) -> dict[str, float | None]:
     """
     Render the clinical inputs grouped per the research specification.
 
@@ -600,12 +640,15 @@ def render_feature_groups(feature_names: list[str]) -> dict[str, float | None]:
                 _render_group_inputs(group, grouped_names, values)
         else:
             st.markdown(f"**{group}**")
-            _render_group_inputs(group, grouped_names, values)
+            _render_group_inputs(group, grouped_names, values, preset=preset)
     return values
 
 
 def _render_group_inputs(
-    group: str, names: list[str], values: dict[str, float | None]
+    group: str,
+    names: list[str],
+    values: dict[str, float | None],
+    preset: str | None = None,
 ) -> None:
     """
     Render the inputs of one feature group in a multi-column grid.
@@ -622,7 +665,7 @@ def _render_group_inputs(
     columns = st.columns(min(len(names), 3))
     for index, name in enumerate(names):
         with columns[index % len(columns)]:
-            values[name] = feature_widget(name)
+            values[name] = feature_widget(name, *_bp_widget_params(preset))
 
 
 # ---------------------------------------------------------------------------
@@ -630,9 +673,150 @@ def _render_group_inputs(
 # ---------------------------------------------------------------------------
 
 
+def run_demo_console(client: HealthcareAPIClient, n8n_base_url: str) -> None:
+    """One-click demo console reproducing the README Step-8 scenarios."""
+    import json as _json
+
+    with st.expander("🎬 One-Click Demo Console (no terminal needed)", expanded=True):
+        c1, c2, c3 = st.columns(3)
+
+        healthy = {
+            "patient": {"name": "Alice", "id": "DEMO-1", "age": 30},
+            "features": {
+                "age": 30,
+                "gender": 0,
+                "bmi": 22,
+                "blood_pressure": 70,
+                "heart_rate": 68,
+                "spo2": 99,
+                "glucose": 85,
+                "creatinine": 0.8,
+                "cholesterol": 170,
+                "hemoglobin": 13.5,
+                "albumin": 4.2,
+            },
+            "markers": {"glucose": 85},
+        }
+        critical = {
+            "patient": {"name": "Bob", "id": "DEMO-2", "age": 70},
+            "features": {
+                "age": 70,
+                "gender": 1,
+                "bmi": 42,
+                "blood_pressure": 140,
+                "heart_rate": 110,
+                "spo2": 88,
+                "glucose": 195,
+                "creatinine": 5.0,
+                "cholesterol": 300,
+                "hemoglobin": 9,
+                "albumin": 1.5,
+            },
+            "markers": {"glucose": 195, "creatinine": 5.0},
+        }
+
+        with c1:
+            if st.button(
+                "🟢 Healthy patient", use_container_width=True, key="demo_healthy"
+            ):
+                try:
+                    body = client.webhook_raw(n8n_base_url, "clinical-full", healthy)
+                    risk = (body.get("risk") or {}).get("risk_level", "?")
+                    st.success(
+                        f"risk={risk} · stored={body.get('stored')} · "
+                        f"notified={body.get('notified', False)} · "
+                        f"evidence={len(body.get('evidence', []))}"
+                    )
+                except HealthcareAPIError as error:
+                    st.error(f"Workflow failed: {error}")
+
+        with c2:
+            if st.button(
+                "🔴 Critical patient", use_container_width=True, key="demo_critical"
+            ):
+                try:
+                    body = client.webhook_raw(n8n_base_url, "clinical-full", critical)
+                    risk = body.get("risk") or {}
+                    st.error(
+                        f"🚨 risk={risk.get('risk_level')} "
+                        f"({risk.get('risk_score')}) · notified="
+                        f"{body.get('notified', False)} · stored="
+                        f"{body.get('stored')}"
+                    )
+                    st.caption("Doctor pager log: `tail -f /tmp/demo_notify.log`")
+                except HealthcareAPIError as error:
+                    st.error(f"Workflow failed: {error}")
+
+        with c3:
+            if st.button(
+                "⛔ Rejection test", use_container_width=True, key="demo_reject"
+            ):
+                try:
+                    body = client.webhook_raw(
+                        n8n_base_url, "clinical-full", {"patient": {}}
+                    )
+                    st.info(_json.dumps(body))
+                except HealthcareAPIError as error:
+                    st.error(f"Unexpected failure: {error}")
+
+        st.divider()
+        st.markdown("**Feedback → Retrain loop**")
+
+        f1, f2, f3 = st.columns([1, 1.4, 1.4])
+        with f1:
+            if st.button(
+                "Add 5 feedback rows", use_container_width=True, key="demo_fb"
+            ):
+                row = {"age": 55, "glucose": 150}
+                done = 0
+                for i in range(5):
+                    try:
+                        client.submit_feedback(
+                            preset="diabetes",
+                            patient_id=f"FB-{i}",
+                            features=row,
+                            confirmed_label=1,
+                        )
+                        done += 1
+                    except HealthcareAPIError:
+                        pass
+                st.success(f"recorded {done}/5")
+        with f2:
+            try:
+                status = client.feedback_status()
+                d = next(p for p in status["presets"] if p["preset"] == "diabetes")
+                pending, thr = d["pending"], d["threshold"]
+                st.progress(
+                    min(pending / max(thr, 1), 1.0),
+                    text=f"diabetes: {pending}/{thr} pending",
+                )
+                st.caption("ready" if d["ready"] else "below threshold")
+            except (HealthcareAPIError, StopIteration) as error:
+                st.warning(f"status unavailable: {error}")
+                pending, thr = 0, 0
+        with f3:
+            if st.button(
+                "🧠 Trigger retrain (n8n)", use_container_width=True, key="demo_retrain"
+            ):
+                try:
+                    res = client.trigger_retrain_via_n8n(n8n_base_url, "diabetes")
+                    if res.get("status") == "success":
+                        t = res.get("train") or {}
+                        st.success(
+                            f"retrained acc={t.get('accuracy', 0):.4f} "
+                            f"| consumed={res.get('feedback_consumed')}"
+                        )
+                    else:
+                        st.info(_json.dumps(res)[:160])
+                except HealthcareAPIError as error:
+                    st.warning(f"Retrain not ready: {error}")
+
+
 def run_overview_tab(client: HealthcareAPIClient, n8n_base_url: str) -> None:
     """Render the Overview page."""
     st.header("Clinical Decision Support — Overview")
+    run_demo_console(client, n8n_base_url)
+    st.divider()
     st.caption(
         "Research prototype. Model outputs are estimates and must be "
         "reviewed by a licensed clinician."
@@ -802,7 +986,7 @@ def run_assessment_tab(client: HealthcareAPIClient) -> None:
                 "shown where verified by the dataset; unverified units are "
                 "left unspecified."
             )
-            feature_values = render_feature_groups(schema)
+            feature_values = render_feature_groups(schema, preset=selected)
         st.divider()
 
         st.markdown("**Optional clinical notes**")
@@ -1191,7 +1375,6 @@ def run_system_status_tab(client: HealthcareAPIClient, n8n_base_url: str) -> Non
 # ---------------------------------------------------------------------------
 
 
-
 def run_risk_monitoring_tab(client: HealthcareAPIClient) -> None:
     """Longitudinal risk monitoring: trends, alerts, and feedback entry."""
     import pandas as pd
@@ -1226,9 +1409,7 @@ def run_risk_monitoring_tab(client: HealthcareAPIClient) -> None:
                 scores = list(reversed(trend["recent_scores"]))
                 chart = pd.DataFrame(
                     {"risk_score": scores},
-                    index=pd.RangeIndex(
-                        len(scores) - len(scores), len(scores)
-                    ),
+                    index=pd.RangeIndex(len(scores) - len(scores), len(scores)),
                 )
                 st.line_chart(chart, height=220)
                 direction = trend.get("trend_direction", "stable")
@@ -1296,12 +1477,20 @@ def run_risk_monitoring_tab(client: HealthcareAPIClient) -> None:
                 key="fb_label",
             )
             predicted = st.number_input(
-                "Predicted label (optional)", min_value=-1, max_value=1,
-                value=-1, step=1, key="fb_pred",
+                "Predicted label (optional)",
+                min_value=-1,
+                max_value=1,
+                value=-1,
+                step=1,
+                key="fb_pred",
             )
             confidence = st.slider(
                 "Model confidence at analysis time",
-                0.0, 1.0, 0.9, 0.01, key="fb_conf",
+                0.0,
+                1.0,
+                0.9,
+                0.01,
+                key="fb_conf",
             )
         with fb_col2:
             features_raw = st.text_area(
@@ -1316,8 +1505,7 @@ def run_risk_monitoring_tab(client: HealthcareAPIClient) -> None:
 
         try:
             features = {
-                k: float(v)
-                for k, v in _json.loads(features_raw or "{}").items()
+                k: float(v) for k, v in _json.loads(features_raw or "{}").items()
             }
         except ValueError as error:
             st.error(f"Features JSON invalid: {error}")

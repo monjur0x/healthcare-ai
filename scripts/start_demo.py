@@ -88,7 +88,7 @@ def build_env():
         # API settings
         "CREW_LLM_API_KEY": "",
         "CREW_LLM_BASE_URL": "",
-        "API_MODEL_PATH": str(REPO_ROOT / "backend" / "artifacts" / "diabetes" / "global_model.joblib"),
+        "API_MODEL_PATH": str(REPO_ROOT / "backend" / "artifacts" / "multi_disease" / "global_model.joblib"),
         "DATASET_DIR": str(REPO_ROOT / "dataset"),
         "N8N_BLOCK_ENV_ACCESS_IN_NODE": "false",
         "DOCTOR_NOTIFY_WEBHOOK": f"http://{CONFIG['notify_receiver']['host']}:{CONFIG['notify_receiver']['port']}/doctor-notify",
@@ -239,6 +239,8 @@ def import_n8n_workflows():
         ("Healthcare End-to-End", N8N_DIR / "healthcare-endtoend.json"),
         ("Clinical Analysis", N8N_DIR / "clinical-analysis.json"),
         ("Feedback Retrain", N8N_DIR / "feedback-retrain.json"),
+        ("Clinical Full Pipeline", N8N_DIR / "clinical-full.json"),
+        ("Risk Monitoring", N8N_DIR / "risk-monitoring.json"),
     ]
     
     print("\nImporting n8n workflows...")
@@ -327,23 +329,23 @@ def print_demo_info():
 # 1. Full end-to-end analysis via n8n (triggers train + analyze + notify if high risk)
 curl -X POST http://127.0.0.1:5678/webhook/healthcare-endtoend \\
   -H "Content-Type: application/json" \\
-  -d '{"preset": "diabetes", "patient": {"name": "Demo Patient", "study_id": "DEMO001", "age": 55},
+  -d '{"preset": "multi_disease", "patient": {"name": "Demo Patient", "study_id": "DEMO001", "age": 55},
        "features": {"pregnancies": 6, "glucose": 190, "blood_pressure": 92, "skin_thickness": 35,
-                    "insulin": 180, "bmi": 42, "diabetes_pedigree_function": 1.2, "age": 55}}'
+                    "insulin": 180, "bmi": 42, "multi_disease_pedigree_function": 1.2, "age": 55}}'
 
 # 2. Direct API analyze (low risk - no notification)
 curl -X POST http://127.0.0.1:8000/api/v1/analyze \\
   -H "Content-Type: application/json" \\
-  -d '{"preset": "diabetes", "patient": {"name": "Healthy", "study_id": "HLT001", "age": 30},
+  -d '{"preset": "multi_disease", "patient": {"name": "Healthy", "study_id": "HLT001", "age": 30},
        "features": {"pregnancies": 1, "glucose": 85, "blood_pressure": 70, "skin_thickness": 20,
-                    "insulin": 50, "bmi": 22, "diabetes_pedigree_function": 0.2, "age": 30}}'
+                    "insulin": 50, "bmi": 22, "multi_disease_pedigree_function": 0.2, "age": 30}}'
 
 # 3. Submit clinician feedback
 curl -X POST http://127.0.0.1:8000/api/v1/feedback \\
   -H "Content-Type: application/json" \\
-  -d '{"preset": "diabetes", "patient_id": "FB001",
+  -d '{"preset": "multi_disease", "patient_id": "FB001",
        "features": {"pregnancies": 6, "glucose": 190, "blood_pressure": 92, "skin_thickness": 35,
-                    "insulin": 180, "bmi": 42, "diabetes_pedigree_function": 1.2, "age": 55},
+                    "insulin": 180, "bmi": 42, "multi_disease_pedigree_function": 1.2, "age": 55},
        "confirmed_label": 1, "predicted_label": 1, "confidence": 0.95}'
 
 # 4. Check risk history & alerts
@@ -353,7 +355,7 @@ curl http://127.0.0.1:8000/api/v1/risk/alerts
 # 5. Trigger feedback retrain via n8n
 curl -X POST http://127.0.0.1:5678/webhook/feedback-retrain \\
   -H "Content-Type: application/json" \\
-  -d '{"preset": "diabetes"}'
+  -d '{"preset": "multi_disease"}'
 """)
     print("\nPress Ctrl+C to stop all services\n")
 

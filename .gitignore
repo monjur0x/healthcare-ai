@@ -46,3 +46,6 @@ Thumbs.db
 # IDE
 .idea/
 .vscode/
+
+
+RUN_GUIDE.md
