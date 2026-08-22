@@ -608,7 +608,7 @@ def run_hospital_client(
     start_numpy_client(
         server_address=address,
         client=client,
-        certificates=_load_client_certificates(
+        root_certificates=_load_client_certificates(
             tls_enabled, tls_ca_cert, tls_client_cert, tls_client_key
         ),
     )
