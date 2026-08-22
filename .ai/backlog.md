@@ -32,9 +32,8 @@ mid-task (see AGENTS.md → Task Execution Rules).
 
 ## n8n
 
-- Single 10-step workflow matching the flowchart (validate → federated
-  prediction → RAG → treatment → explainability → store → notify),
-  replacing the current three-workflow split where sensible.
+- [x] DONE (M3.4): `n8n/clinical-full.json` implements the 10-step flowchart
+  workflow; verified rejection / low-risk / high-risk-notify paths live.
 - Risk-monitoring workflow polling `/api/v1/risk/alerts` on schedule.
 
 ## Dashboard

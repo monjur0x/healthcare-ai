@@ -223,6 +223,15 @@ service). The notification is best-effort: a failed notify never blocks
 the webhook response. There is a second minimal workflow,
 `n8n/clinical-analysis.json` (`POST /webhook/healthcare-analyze`).
 
+The `n8n/clinical-full.json` workflow implements the proposal's full
+10-step orchestration in one flow
+(`POST /webhook/clinical-full`): receive → validate/route → federated
+analysis (prediction + RAG) → evidence summary → treatment plan →
+explainability → report validation → store (risk history / registry) →
+doctor notification on high risk → respond. Invalid payloads get a
+structured rejection; the notify branch is best-effort and never blocks
+the clinical response.
+
 ### Feedback-Driven Retraining
 
 Clinicians can confirm (or correct) the outcome label of a past analysis

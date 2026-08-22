@@ -1,0 +1,499 @@
+{
+  "name": "Clinical Full Pipeline",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "clinical-full",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "cf000000-0000-4000-8000-000000000001",
+      "name": "1. Receive Patient Data",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -1160,
+        300
+      ],
+      "webhookId": "cf000000-0000-4000-8000-000000000002"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "has-features",
+              "leftValue": "={{ Object.keys($json.body.features || {}).length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            },
+            {
+              "id": "has-patient-id",
+              "leftValue": "={{ $json.body.patient && ($json.body.patient.id || $json.body.patient.name) ? 'yes' : '' }}",
+              "rightValue": "yes",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "cf000000-0000-4000-8000-000000000003",
+      "name": "2. Validate / Route Input",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -900,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8000/api/v1/analyze",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { patient: $json.body.patient || {}, features: $json.body.features, markers: $json.body.markers || {}, input_type: 'csv' } }}",
+        "options": {
+          "timeout": 600000
+        }
+      },
+      "id": "cf000000-0000-4000-8000-000000000004",
+      "name": "3.+4. Trigger Analysis / Federated Prediction",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -620,
+        180
+      ],
+      "onError": "continueErrorOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "PLACEHOLDER_CREDENTIAL_ID",
+          "name": "Healthcare API Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const resp = $json || {};\nconst evidence = Array.isArray(resp.evidence) ? resp.evidence : [];\nreturn [{ json: {\n  stage: 'rag',\n  query_hint: resp.prediction ? String(resp.prediction.predicted_class) : '',\n  evidence_count: evidence.length,\n  top_evidence: evidence.slice(0, 3).map((e) => ({\n    document_id: e.document_id,\n    source: e.source,\n    score: e.score,\n  })),\n} }];"
+      },
+      "id": "cf000000-0000-4000-8000-000000000005",
+      "name": "5. RAG Retrieval Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -360,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const resp = $('3.+4. Trigger Analysis \\/ Federated Prediction').item.json || {};\nconst recommendations = Array.isArray(resp.recommendations)\n  ? resp.recommendations\n  : [];\nconst monitoring = resp.risk && Array.isArray(resp.risk.monitoring_schedule)\n  ? resp.risk.monitoring_schedule\n  : [];\nreturn [{ json: {\n  stage: 'treatment',\n  treatment_plan: recommendations,\n  monitoring_schedule: monitoring,\n} }];"
+      },
+      "id": "cf000000-0000-4000-8000-000000000006",
+      "name": "6. Treatment Generation",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -100,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const resp = $('3.+4. Trigger Analysis \\/ Federated Prediction').item.json || {};\nconst pred = resp.prediction || {};\nconst risk = resp.risk || {};\nconst drivers = (risk.risk_factors || []).join('; ') || 'no elevated markers';\nreturn [{ json: {\n  stage: 'explainability',\n  explanation:\n    `The model predicted class ${pred.predicted_class} with ` +\n    `${((pred.confidence ?? 0) * 100).toFixed(1)}% confidence. ` +\n    `Risk level is ${risk.risk_level}, driven by: ${drivers}. ` +\n    (resp.limitations || ''),\n} }];"
+      },
+      "id": "cf000000-0000-4000-8000-000000000007",
+      "name": "7. Explainability Generation",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        160,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const analysis = $('3.+4. Trigger Analysis \\/ Federated Prediction').item.json || {};\nconst rag = $('5. RAG Retrieval Summary').item.json || {};\nconst treatment = $('6. Treatment Generation').item.json || {};\nconst explain = $('7. Explainability Generation').item.json || {};\nreturn [{ json: {\n  ...analysis,\n  rag_summary: rag,\n  treatment_plan: treatment.treatment_plan || [],\n  monitoring_schedule: treatment.monitoring_schedule || [],\n  explanation: explain.explanation || '',\n} }];"
+      },
+      "id": "cf000000-0000-4000-8000-000000000008",
+      "name": "Assemble Structured Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        420,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "valid-report",
+              "leftValue": "={{ typeof $json.patient_summary === 'string' && Array.isArray($json.evidence) }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "cf000000-0000-4000-8000-000000000009",
+      "name": "8. Validate Structured Report",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        680,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Persistence happens server-side during analyze(): every report's\n// risk assessment is written to the SQLite risk-history store and the\n// model artifact lives in the registry. This node marks the step and\n// emits storage pointers for audit trails.\nconst report = $json;\nreturn [{ json: {\n  ...report,\n  stored: true,\n  stored_at: new Date().toISOString(),\n  storage_targets: ['risk_history.db', 'model_registry'],\n} }];"
+      },
+      "id": "cf000000-0000-4000-8000-00000000000a",
+      "name": "9. Store Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        940,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "high-risk",
+              "leftValue": "={{ $json.risk ? $json.risk.risk_level : '' }}",
+              "rightValue": "high",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "cf000000-0000-4000-8000-00000000000b",
+      "name": "IF: High Risk?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1200,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.DOCTOR_NOTIFY_WEBHOOK }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { alert: 'clinical_full_high_risk', patient: $json.patient, risk_level: $json.risk.risk_level, confidence: $json.prediction ? $json.prediction.confidence : null, prediction: $json.prediction ? $json.prediction.predicted_class : null, recommendation: ($json.treatment_plan || []).slice(0, 3), notified_at: new Date().toISOString() } }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "cf000000-0000-4000-8000-00000000000c",
+      "name": "10. Doctor Notification",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1460,
+        -40
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "respondWith": "firstIncomingItem",
+        "options": {}
+      },
+      "id": "cf000000-0000-4000-8000-00000000000d",
+      "name": "Respond to Webhook (Success)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        1980,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const resp = $json || {};\nconst detail = resp.detail || (resp.body && resp.body.detail) || null;\nconst raw = (detail && (detail.message || detail.code))\n  || resp.message || resp.error\n  || (resp.body && (resp.body.message || resp.body.error))\n  || 'The clinical analysis request failed';\nconst msg = typeof raw === 'string' ? raw : JSON.stringify(raw);\nreturn [{ json: { status: 'error', stage: 'analysis_call', error_message: msg } }];"
+      },
+      "id": "cf000000-0000-4000-8000-00000000000f",
+      "name": "Format Analysis Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -360,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: {\n  status: 'rejected',\n  reason:\n    'payload must include patient identity and a non-empty features object',\n} }];"
+      },
+      "id": "cf000000-0000-4000-8000-000000000011",
+      "name": "Build Rejection Body",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -900,
+        520
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// The notify HTTP node's own output is the receiver ack; restore\n// the stored report so the webhook response stays the clinical payload.\nconst report = $('9. Store Results').item.json;\nreturn [{ json: { ...report, notified: true } }];"
+      },
+      "id": "cf000000-0000-4000-8000-000000000012",
+      "name": "Pass Report After Notify",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1720,
+        -60
+      ]
+    }
+  ],
+  "connections": {
+    "1. Receive Patient Data": {
+      "main": [
+        [
+          {
+            "node": "2. Validate / Route Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "2. Validate / Route Input": {
+      "main": [
+        [
+          {
+            "node": "3.+4. Trigger Analysis / Federated Prediction",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Rejection Body",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "3.+4. Trigger Analysis / Federated Prediction": {
+      "main": [
+        [
+          {
+            "node": "5. RAG Retrieval Summary",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Format Analysis Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "5. RAG Retrieval Summary": {
+      "main": [
+        [
+          {
+            "node": "6. Treatment Generation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "6. Treatment Generation": {
+      "main": [
+        [
+          {
+            "node": "7. Explainability Generation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "7. Explainability Generation": {
+      "main": [
+        [
+          {
+            "node": "Assemble Structured Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assemble Structured Report": {
+      "main": [
+        [
+          {
+            "node": "8. Validate Structured Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "8. Validate Structured Report": {
+      "main": [
+        [
+          {
+            "node": "9. Store Results",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Rejection Body",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "9. Store Results": {
+      "main": [
+        [
+          {
+            "node": "IF: High Risk?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF: High Risk?": {
+      "main": [
+        [
+          {
+            "node": "10. Doctor Notification",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond to Webhook (Success)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "10. Doctor Notification": {
+      "main": [
+        [
+          {
+            "node": "Pass Report After Notify",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Pass Report After Notify",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Analysis Error": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook (Success)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pass Report After Notify": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook (Success)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Rejection Body": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook (Success)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "instanceId": "n8n-workflow-clinical-full-pipeline"
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

@@ -31,3 +31,24 @@ Federated convergence: acc .742 → .889 across rounds; ~1.8 MB exchanged.
 M2 Definition of Done satisfied. Lint clean. Next backlog: data
 anonymization stage, shared-scaler study, n8n multi-step workflow,
 dashboard risk panel wiring.
+
+---
+
+## M3 Addendum (complete)
+
+1. Anonymization wired at both ingestion choke points
+   (`canonical.load_canonical_frame`, `hospitals.build_hospital_sites`);
+   sepsis `insurance` column verified dropped pre-training.
+2. `scripts/run_m3_evaluation.py`: §12 RAG + Agent metrics and §13
+   baselines B2-B5 computed & stored (`artifacts/experiments/m3_*`).
+   Faithfulness threshold shown miscalibrated for TF-IDF via raw-cosine
+   diagnostics (template .064 vs ceiling .337); use dense embedder for
+   RAGAS-style numbers.
+3. Baselines recorded: B2 FL-only acc .9250 evidence 0; B3 FL+RAG
+   evidence 3 completeness 1.00; B4 consistent=True; B5 full stack with
+   n8n probe. All five proposal baselines now on record (B1 in M2 file).
+4. `n8n/clinical-full.json` — single 10-step flowchart workflow, active
+   in local n8n; verified: structured rejection, low-risk silent path,
+   high-risk path fires DOCTOR_NOTIFY_WEBHOOK while still returning the
+   stored clinical report (`notified: true`). Owner login configured on
+   the local instance.
