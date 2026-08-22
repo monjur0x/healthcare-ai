@@ -67,7 +67,7 @@ def create_tasks(
     task_evidence_retrieval = Task(
         description=TASK_DESCRIPTIONS["evidence_retrieval"],
         expected_output=(
-            "Verifiable clinical evidence with source labels for each " "finding."
+            "Verifiable clinical evidence with source labels for each finding."
         ),
         agent=agents["medical_researcher"],
         context=[task_patient_analysis, task_disease_prediction],
@@ -96,7 +96,7 @@ def create_tasks(
     task_risk_monitoring = Task(
         description=TASK_DESCRIPTIONS["risk_monitoring"],
         expected_output=(
-            "A monitoring plan with alert thresholds and screening " "recommendations."
+            "A monitoring plan with alert thresholds and screening recommendations."
         ),
         agent=agents["risk_monitor"],
         context=[task_disease_prediction, task_treatment],

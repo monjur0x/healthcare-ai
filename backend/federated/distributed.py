@@ -387,19 +387,6 @@ class DistributedFedAvg(FedAvg):
         )
 
 
-def _resolve_model_spec(model_spec: dict[str, Any] | None) -> ModelSpec | None:
-    """Build a :class:`ModelSpec` from a dictionary (or ``None``)."""
-    if model_spec is None:
-        return None
-    return ModelSpec(
-        n_features=int(model_spec["n_features"]),
-        n_classes=int(model_spec["n_classes"]),
-        feature_names=tuple(model_spec.get("feature_names", ())),
-        differential_privacy=bool(model_spec.get("differential_privacy", False)),
-        seed=int(model_spec.get("seed", 42)),
-    )
-
-
 def run_distributed_server(
     address: str,
     num_rounds: int,
@@ -498,6 +485,10 @@ def run_distributed_server(
 
     global_model = model_spec.make_model()
     global_model.set_parameters(strategy.global_parameters)
+    if getattr(global_model, "_feature_names", "missing") != "missing":
+        global_model._feature_names = (
+            list(model_spec.feature_names) if model_spec.feature_names else None
+        )
 
     accuracy: float | None = None
     roc_auc: float | None = None
@@ -558,6 +549,7 @@ def run_hospital_client(
     tls_ca_cert: str | None = None,
     tls_client_cert: str | None = None,
     tls_client_key: str | None = None,
+    heterogeneous: bool = False,
 ) -> None:
     """
     Connect one hospital to the server as a Flower NumPy client.
@@ -578,9 +570,28 @@ def run_hospital_client(
         Optional cap on local rows.
     privacy : PrivacyConfig | None
         Local differential-privacy configuration.
+    tls_enabled : bool
+        Use TLS for the gRPC connection.
+    tls_ca_cert : str | None
+        CA certificate PEM path (TLS mode).
+    tls_client_cert : str | None
+        Client certificate PEM path (mutual TLS).
+    tls_client_key : str | None
+        Client key PEM path (mutual TLS).
+    heterogeneous : bool
+        When true the local CSV holds this hospital's own specialty
+        dataset; it is mapped onto the shared canonical schema
+        (:func:`federated.canonical.load_canonical_frame`) instead of the
+        single-preset loader.
     """
 
-    features, labels, _ = load_hospital_dataset(hospital, max_rows)
+    if heterogeneous:
+        from federated.canonical import HOSPITAL_PRESETS, load_canonical_frame
+
+        preset = HOSPITAL_PRESETS.get(hospital.hospital_id)
+        features, labels = load_canonical_frame(str(hospital.dataset_path), preset)
+    else:
+        features, labels, _ = load_hospital_dataset(hospital, max_rows)
     features = model_spec.align_features(features)
     if features.shape[0] < 2:
         raise ValueError(f"{hospital.hospital_id} has too few local samples.")

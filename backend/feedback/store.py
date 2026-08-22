@@ -209,17 +209,6 @@ class FeedbackStore:
         )
         return int(row[0])
 
-    def count_total(self, preset: str) -> int:
-        """Return the total number of stored samples for a preset."""
-        row = (
-            self.connect()
-            .execute(
-                "SELECT COUNT(*) FROM feedback_samples WHERE preset = ?", (preset,)
-            )
-            .fetchone()
-        )
-        return int(row[0])
-
     def recent(self, preset: str, limit: int = 5) -> list[FeedbackRecord]:
         """
         Return the most recent samples for a preset (newest first).

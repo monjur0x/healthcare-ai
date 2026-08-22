@@ -29,7 +29,7 @@ import numpy as np
 
 from federated.config import settings
 from federated.distributed import ModelSpec
-from federated.hospitals import PRESETS, build_hospital_sites
+from federated.hospitals import PRESETS, HospitalConfig, build_hospital_sites
 from federated.registry import ModelRegistry
 from preprocessing.logger import get_logger
 
@@ -63,6 +63,20 @@ def _spec_from_preset(preset: str, differential_privacy: bool, seed: int) -> Mod
     )
 
 
+def _spec_heterogeneous(differential_privacy: bool, seed: int) -> ModelSpec:
+    """Build the shared canonical model spec for multi-disease federation."""
+    from federated.canonical import CANONICAL_FEATURES, canonical_spec
+
+    n_features, n_classes, _ = canonical_spec()
+    return ModelSpec(
+        n_features=n_features,
+        n_classes=n_classes,
+        feature_names=CANONICAL_FEATURES,
+        differential_privacy=differential_privacy,
+        seed=seed,
+    )
+
+
 def _spec_from_args(
     n_features: int, n_classes: int, differential_privacy: bool, seed: int
 ) -> ModelSpec:
@@ -89,14 +103,14 @@ def _with_feature_names(spec: ModelSpec, feature_names: str | None) -> ModelSpec
     )
 
 
-def _preset_target(preset: str) -> str:
-    """Resolve the target column for a preset name."""
+def _preset_target(preset: str) -> str | None:
+    """Resolve the target column for a preset name (None if unknown)."""
     return {
         "diabetes": "outcome",
         "heart": "num",
         "kidney": "classification",
         "sepsis": "sepsis_label",
-    }[preset]
+    }.get(preset)
 
 
 def cmd_sites(args: argparse.Namespace) -> int:
@@ -126,7 +140,13 @@ def cmd_server(args: argparse.Namespace) -> int:
 
     holdout: tuple[Any, np.ndarray] | None = None
     holdout_csv = _hospital_root() / "central_holdout.csv"
-    if holdout_csv.is_file():
+    if not getattr(args, "heterogeneous", False) and (
+        holdout_csv.is_file() and _preset_target(args.preset) is not None
+    ):
+        # Single-preset mode only: evaluate on the legacy central hold-out.
+        # Heterogeneous mode leaves holdout=None because one disease's
+        # holdout cannot represent the multi-disease task; the registry
+        # then records client-weighted global accuracy instead.
         features, labels, _ = load_classification_frame(
             holdout_csv, _preset_target(args.preset)
         )
@@ -157,19 +177,36 @@ def cmd_server(args: argparse.Namespace) -> int:
 def cmd_client(args: argparse.Namespace) -> int:
     """Connect one hospital client to a running server."""
     from federated.distributed import run_hospital_client
+    from federated.hospitals import HospitalConfig
     from federated.privacy import PrivacyConfig
 
-    sites = build_hospital_sites(
-        preset=args.preset,
-        n_sites=args.hospitals,
-        dataset_dir=_dataset_dir(),
-        hospitals_dir=_hospital_root(),
-        seed=args.seed,
-    )
-    hospital = next((site for site in sites if site.hospital_id == args.hospital), None)
-    if hospital is None:
-        logger.error("Unknown hospital id %r", args.hospital)
-        return 1
+    if args.heterogeneous:
+        # Multi-specialty mode: use the hospital's own local CSV as-is.
+        # Never partition or overwrite anything.
+        dataset_path = _hospital_root() / args.hospital / "data.csv"
+        if not dataset_path.is_file():
+            logger.error("No local dataset at %s", dataset_path)
+            return 1
+        hospital = HospitalConfig(
+            hospital_id=args.hospital,
+            name=args.hospital.replace("_", " ").title(),
+            dataset_path=dataset_path,
+            target="has_disease",
+        )
+    else:
+        sites = build_hospital_sites(
+            preset=args.preset,
+            n_sites=args.hospitals,
+            dataset_dir=_dataset_dir(),
+            hospitals_dir=_hospital_root(),
+            seed=args.seed,
+        )
+        hospital = next(
+            (site for site in sites if site.hospital_id == args.hospital), None
+        )
+        if hospital is None:
+            logger.error("Unknown hospital id %r", args.hospital)
+            return 1
 
     spec = _spec_from_args(
         args.n_features, args.n_classes, args.differential_privacy, args.seed
@@ -194,6 +231,7 @@ def cmd_client(args: argparse.Namespace) -> int:
         tls_ca_cert=args.tls_ca_cert or None,
         tls_client_cert=args.tls_client_cert or None,
         tls_client_key=args.tls_client_key or None,
+        heterogeneous=args.heterogeneous,
     )
     return 0
 
@@ -203,15 +241,41 @@ def cmd_run(args: argparse.Namespace) -> int:
     registry_path = Path(settings.REGISTRY_PATH)
     hospitals_dir = _hospital_root()
 
-    sites = build_hospital_sites(
-        preset=args.preset,
-        n_sites=args.hospitals,
-        dataset_dir=_dataset_dir(),
-        hospitals_dir=hospitals_dir,
-        seed=args.seed,
-    )
+    if args.heterogeneous:
+        # Multi-specialty mode (per proposal): each hospital keeps its own
+        # disease dataset. Local CSVs are used as-is — never partitioned.
+        from federated.canonical import HOSPITAL_PRESETS
 
-    spec = _spec_from_preset(args.preset, args.differential_privacy, args.seed)
+        sites = []
+        for hospital_id, _preset in sorted(HOSPITAL_PRESETS.items()):
+            dataset_path = hospitals_dir / hospital_id / "data.csv"
+            if not dataset_path.is_file():
+                logger.error(
+                    "Heterogeneous run needs %s; run the data setup first.",
+                    dataset_path,
+                )
+                return 1
+            sites.append(
+                HospitalConfig(
+                    hospital_id=hospital_id,
+                    name=hospital_id.replace("_", " ").title(),
+                    dataset_path=dataset_path,
+                    target="has_disease",
+                )
+            )
+        args.hospitals = len(sites)
+        spec = _spec_heterogeneous(args.differential_privacy, args.seed)
+        preset_label = "multi_disease"
+    else:
+        sites = build_hospital_sites(
+            preset=args.preset,
+            n_sites=args.hospitals,
+            dataset_dir=_dataset_dir(),
+            hospitals_dir=hospitals_dir,
+            seed=args.seed,
+        )
+        spec = _spec_from_preset(args.preset, args.differential_privacy, args.seed)
+        preset_label = args.preset
     n_features = spec.n_features
     n_classes = spec.n_classes
     feature_names = ",".join(spec.feature_names)
@@ -224,7 +288,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         "--address",
         args.address,
         "--preset",
-        args.preset,
+        preset_label,
         "--hospitals",
         str(args.hospitals),
         "--rounds",
@@ -242,6 +306,8 @@ def cmd_run(args: argparse.Namespace) -> int:
         server_cmd.append("--secure-aggregation")
     if args.differential_privacy:
         server_cmd.append("--differential-privacy")
+    if getattr(args, "heterogeneous", False):
+        server_cmd.append("--heterogeneous")
     if args.tls_enabled:
         server_cmd.append("--tls-enabled")
         if args.tls_ca_cert:
@@ -259,7 +325,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         "--address",
         args.address,
         "--preset",
-        args.preset,
+        preset_label,
         "--hospitals",
         str(args.hospitals),
         "--n-features",
@@ -291,6 +357,8 @@ def cmd_run(args: argparse.Namespace) -> int:
             client_cmd += ["--tls-client-cert", args.tls_client_cert]
         if args.tls_client_key:
             client_cmd += ["--tls-client-key", args.tls_client_key]
+    if getattr(args, "heterogeneous", False):
+        client_cmd.append("--heterogeneous")
 
     logger.info("Starting distributed server process: %s", " ".join(server_cmd))
     server_proc = subprocess.Popen(server_cmd)
@@ -310,14 +378,14 @@ def cmd_run(args: argparse.Namespace) -> int:
             proc.kill()
 
     registry = ModelRegistry(registry_path)
-    latest = registry.latest_model(args.preset)
+    latest = registry.latest_model(preset_label)
     registry.close()
 
     if server_exit != 0:
         logger.error("Distributed server exited with code %d", server_exit)
         return server_exit
     if latest is None:
-        logger.error("No model was registered for preset %r", args.preset)
+        logger.error("No model was registered for preset %r", preset_label)
         return 1
 
     print(f"run_id={latest['run_id']}")
@@ -341,7 +409,7 @@ def build_parser() -> argparse.ArgumentParser:
     common.add_argument(
         "--preset",
         required=True,
-        choices=["diabetes", "heart", "kidney", "sepsis"],
+        choices=["diabetes", "heart", "kidney", "sepsis", "multi_disease"],
     )
     common.add_argument("--seed", type=int, default=42)
     # TLS arguments (common for server/client/run)
@@ -377,6 +445,11 @@ def build_parser() -> argparse.ArgumentParser:
     server.add_argument("--feature-names", default="")
     server.add_argument("--secure-aggregation", action="store_true")
     server.add_argument("--differential-privacy", action="store_true")
+    server.add_argument(
+        "--heterogeneous",
+        action="store_true",
+        help="Hospitals own different disease datasets (canonical schema).",
+    )
     server.set_defaults(func=cmd_server)
 
     client = subparsers.add_parser(
@@ -392,6 +465,11 @@ def build_parser() -> argparse.ArgumentParser:
     client.add_argument("--noise-multiplier", type=float, default=1.1)
     client.add_argument("--max-grad-norm", type=float, default=1.0)
     client.add_argument("--privacy-delta", type=float, default=1e-5)
+    client.add_argument(
+        "--heterogeneous",
+        action="store_true",
+        help="Load this hospital's own specialty CSV via the canonical schema.",
+    )
     client.set_defaults(func=cmd_client)
 
     run = subparsers.add_parser(
@@ -405,6 +483,12 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--noise-multiplier", type=float, default=1.1)
     run.add_argument("--max-grad-norm", type=float, default=1.0)
     run.add_argument("--privacy-delta", type=float, default=1e-5)
+    run.add_argument(
+        "--heterogeneous",
+        action="store_true",
+        help="Federate across different per-hospital disease datasets "
+        "(A=diabetes, B=heart, C=CKD, D=sepsis) without touching local data.",
+    )
     run.set_defaults(func=cmd_run)
 
     return parser

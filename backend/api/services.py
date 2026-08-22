@@ -36,6 +36,7 @@ from CrewAI.orchestrator.services import retrieve_evidence, run_prediction
 from evaluation import evaluate_classifier
 from federated import FedAvgServer, FederatedClient, make_global_evaluator
 from federated.config import settings as federation_settings
+from federated.hospitals import PRESETS
 from federated.privacy import (
     PrivacyConfig,
     data_leakage_rate,
@@ -74,14 +75,6 @@ DEFAULT_CORPUS: list[str] = [
     "sepsis is life-threatening organ dysfunction from infection and "
     "requires broad-spectrum antibiotics within one hour of recognition",
 ]
-
-#: Named dataset presets mapping a name to ``(file name, target column)``.
-PRESETS: dict[str, tuple[str, str]] = {
-    "diabetes": ("diabetes.csv", "Outcome"),
-    "heart": ("heart_disease_uci.csv", "num"),
-    "kidney": ("kidney_disease.csv", "classification"),
-    "sepsis": ("sepsis_icu_synthetic.csv", "sepsis_label"),
-}
 
 
 def _normalize_token(value: str) -> str:
