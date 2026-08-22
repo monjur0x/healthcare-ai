@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-08-22T06:04:02.855510+00:00",
+  "timestamp": "2026-08-22T19:41:30.668425+00:00",
   "model": "/home/monjur0x0/Healthcare-AI/backend/artifacts/multi_disease/global_model.joblib",
   "rag_metrics_per_query": {
     "diabetes": {
@@ -10,9 +10,9 @@
       "context_recall": 0.6666666666666666,
       "faithfulness": 0.0,
       "answer_relevancy": 0.0,
-      "faithfulness_mean_cosine": 0.0523,
-      "faithfulness_ceiling": 0.6111111111111112,
-      "faithfulness_ceiling_mean_cosine": 0.3402
+      "faithfulness_mean_cosine": 0.035,
+      "faithfulness_ceiling": 0.4444444444444444,
+      "faithfulness_ceiling_mean_cosine": 0.3242
     },
     "heart": {
       "precision_at_k": 0.6666666666666666,
@@ -21,10 +21,10 @@
       "context_precision": 0.6666666666666666,
       "context_recall": 1.0,
       "faithfulness": 0.0,
-      "answer_relevancy": 0.055196395389543,
-      "faithfulness_mean_cosine": 0.0843,
+      "answer_relevancy": 0.03397042495921174,
+      "faithfulness_mean_cosine": 0.0555,
       "faithfulness_ceiling": 0.6111111111111112,
-      "faithfulness_ceiling_mean_cosine": 0.3314
+      "faithfulness_ceiling_mean_cosine": 0.3169
     },
     "kidney": {
       "precision_at_k": 0.6666666666666666,
@@ -34,34 +34,34 @@
       "context_recall": 1.0,
       "faithfulness": 0.0,
       "answer_relevancy": 0.0,
-      "faithfulness_mean_cosine": 0.0656,
-      "faithfulness_ceiling": 0.7272727272727273,
-      "faithfulness_ceiling_mean_cosine": 0.3447
+      "faithfulness_mean_cosine": 0.0505,
+      "faithfulness_ceiling": 0.6818181818181818,
+      "faithfulness_ceiling_mean_cosine": 0.3299
     },
     "sepsis": {
-      "precision_at_k": 0.6666666666666666,
-      "recall_at_k": 1.0,
+      "precision_at_k": 0.3333333333333333,
+      "recall_at_k": 0.5,
       "mrr": 1.0,
-      "context_precision": 0.6666666666666666,
-      "context_recall": 1.0,
+      "context_precision": 0.3333333333333333,
+      "context_recall": 0.5,
       "faithfulness": 0.0,
       "answer_relevancy": 0.0,
-      "faithfulness_mean_cosine": 0.0518,
-      "faithfulness_ceiling": 0.6842105263157895,
-      "faithfulness_ceiling_mean_cosine": 0.3327
+      "faithfulness_mean_cosine": 0.0249,
+      "faithfulness_ceiling": 0.5789473684210527,
+      "faithfulness_ceiling_mean_cosine": 0.3157
     }
   },
   "rag_metrics_average": {
-    "precision_at_k": 0.6667,
-    "recall_at_k": 1.0,
+    "precision_at_k": 0.5833,
+    "recall_at_k": 0.875,
     "mrr": 1.0,
-    "context_precision": 0.6667,
-    "context_recall": 0.9167,
+    "context_precision": 0.5833,
+    "context_recall": 0.7917,
     "faithfulness": 0.0,
-    "answer_relevancy": 0.0138,
-    "faithfulness_mean_cosine": 0.0635,
-    "faithfulness_ceiling": 0.6584,
-    "faithfulness_ceiling_mean_cosine": 0.3372
+    "answer_relevancy": 0.0085,
+    "faithfulness_mean_cosine": 0.0415,
+    "faithfulness_ceiling": 0.5791,
+    "faithfulness_ceiling_mean_cosine": 0.3217
   },
   "agent_metrics": {
     "task_completion_rate": 1.0,
@@ -77,8 +77,8 @@
         "f1": 0.9230769230769231,
         "roc_auc": 0.98
       },
-      "predict_only_time_s": 0.002,
-      "analyze_latency_avg_s": 0.0006,
+      "predict_only_time_s": 0.001,
+      "analyze_latency_avg_s": 0.0004,
       "avg_evidence_items": 0.0,
       "report_completeness": 0.857,
       "decision_consistent": true,
@@ -93,7 +93,7 @@
         "roc_auc": 0.98
       },
       "predict_only_time_s": 0.001,
-      "analyze_latency_avg_s": 0.0013,
+      "analyze_latency_avg_s": 0.001,
       "avg_evidence_items": 3.0,
       "report_completeness": 1.0,
       "decision_consistent": true,
@@ -107,8 +107,8 @@
         "f1": 0.9230769230769231,
         "roc_auc": 0.98
       },
-      "predict_only_time_s": 0.001,
-      "analyze_latency_avg_s": 0.0004,
+      "predict_only_time_s": 0.002,
+      "analyze_latency_avg_s": 0.0008,
       "avg_evidence_items": 0.0,
       "report_completeness": 0.857,
       "decision_consistent": true,
@@ -128,7 +128,7 @@
         "roc_auc": 0.98
       },
       "predict_only_time_s": 0.001,
-      "analyze_latency_avg_s": 0.001,
+      "analyze_latency_avg_s": 0.0013,
       "avg_evidence_items": 3.0,
       "report_completeness": 1.0,
       "decision_consistent": true,
