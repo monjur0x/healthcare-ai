@@ -1110,7 +1110,14 @@ class AnalysisService:
         env = os.environ.copy()
         env["DATASET_DIR"] = str(self.dataset_dir)
         artifacts_root = Path(self.artifacts_dir)
-        env["FED_HOSPITALS_DIR"] = str(artifacts_root.parent / "hospitals")
+        # Hospital slices live under <backend>/data/hospitals (single
+        # source of truth shared with the federated CLI default
+        # FED_HOSPITALS_DIR). Fall back to the legacy sibling only when
+        # the standard location is absent (non-repo deployments).
+        hospitals_dir = Path("data/hospitals")
+        if not hospitals_dir.is_dir():
+            hospitals_dir = artifacts_root.parent / "hospitals"
+        env["FED_HOSPITALS_DIR"] = str(hospitals_dir)
         env["FED_REGISTRY_PATH"] = str(artifacts_root / "federation.db")
         env["FED_ARTIFACTS_DIR"] = str(artifacts_root)
 

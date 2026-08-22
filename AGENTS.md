@@ -8,11 +8,13 @@
 
 This repository implements a research-oriented healthcare AI framework integrating:
 
-- Federated Learning (Flower)
+- Federated Learning (Flower) — partitioned + heterogeneous multi-disease
 - Multi-Agent Systems (CrewAI)
 - Retrieval-Augmented Generation (RAG)
 - Medical Image Analysis
 - Electronic Health Record (CSV) Analysis
+- Clinician Feedback / Retrain Loop
+- Longitudinal Risk Monitoring & Escalation Alerts
 - FastAPI
 - n8n Orchestration
 - Streamlit Dashboard
@@ -35,19 +37,54 @@ Never skip this step.
 # Repository Structure
 
 backend/
-    preprocessing/
-    models/
-    federated/
-    rag/
-    CrewAI/
-    api/
-    evaluation/
+    preprocessing/        # CSV / image pipelines, canonical loaders (no ML)
+    models/               # ML/DL models only (tabular MLP, torch MLP, image CNN)
+    federated/            # Flower FL: server, clients, hospitals, canonical schema
+    rag/                  # Retrieval only (chunker, embedders, stores)
+    CrewAI/               # Agents, tasks, crew, prompts, tools
+    api/                  # FastAPI routes + AnalysisService
+    evaluation/           # Classifier metrics
+    feedback/             # Clinician feedback store + retrain loop
+    risk/                 # Risk history store, trends, escalation alerts
+    scripts/              # Experiment runners (e.g. run_m2_experiment.py)
+    data/hospitals/       # Per-hospital local datasets (NEVER committed raw PHI)
+    artifacts/            # Model artifacts, SQLite registries, experiment reports
 
 frontend/
+    dashboard/            # Dashboard client package
+    streamlit_app.py      # Doctor dashboard entry point
 
-n8n/
+n8n/                      # Workflow JSON exports (source of truth)
 
-.ai/
+.ai/                      # Session context, backlog, notes
+
+scripts/                  # Repo-level helpers (demo launcher)
+
+---
+
+# Multi-Hospital Data Layout (per research proposal)
+
+Each hospital owns a DIFFERENT specialty dataset; no hospital shares raw
+data:
+
+- Hospital A — Pima Diabetes        (`data/hospitals/hospital_A/data.csv`)
+- Hospital B — UCI Heart Disease    (`data/hospitals/hospital_B/data.csv`)
+- Hospital C — Chronic Kidney       (`data/hospitals/hospital_C/data.csv`)
+- Hospital D — MIMIC-IV-style sepsis(`data/hospitals/hospital_D/data.csv`)
+
+Two federation modes exist:
+
+1. **Single-preset (partitioned)** — one preset CSV split across N
+   hospitals via `build_hospital_sites`. Legacy/simulation mode.
+2. **Heterogeneous (`--heterogeneous`)** — each hospital trains on its
+   own specialty CSV as-is. Local files are NEVER overwritten or
+   repartitioned in this mode.
+
+FedAvg across different diseases works because every hospital maps its
+columns onto the shared canonical schema (`federated/canonical.py`,
+derived from the proposal's "Expected Inputs") with a binary
+`has_disease` target. Missing canonical features are zero-filled by
+`ModelSpec.align_features`.
 
 ---
 
@@ -93,13 +130,12 @@ Configuration belongs in `.env` or configuration classes.
 
 Python Version
 
-3.12+
+3.11+ (validated on 3.13/3.14; crewai and chromadb are optional
+extras — see requirements.txt)
 
 Formatting
 
-- Black
-- Ruff
-- isort
+- Ruff (`ruff check`, `ruff format`) — the only formatters/linters used
 
 Typing
 
@@ -185,9 +221,12 @@ No RAG.
 
 Only Flower/Federated Learning.
 
-Never perform preprocessing inside Flower clients.
+Preprocessing *logic* lives in `preprocessing/` (and the per-hospital
+schema adapters in `federated/canonical.py`); never duplicate it inside
+client/server code.
 
-Use preprocessing outputs.
+Preprocessing *execution* happens locally at each hospital on its own
+CSV — raw rows never leave a hospital; only model weights travel.
 
 ---
 
