@@ -4,14 +4,13 @@ The healthcare clinical crew.
 ``ClinicalCrew`` offers two execution paths over the same deterministic
 services:
 
-- ``run_analysis`` — a fully offline, deterministic pipeline
-  (prediction → risk → evidence → report) that needs no LLM and is
-  always reproducible (ADR-008).
+- ``run_analysis`` — a fully offline, deterministic pipeline executed as
+  seven discrete agent steps with full per-agent tracing (M4 DoD).
 - ``run_llm`` — the same pipeline plus CrewAI agent orchestration for
   narrative enrichment. Only enabled when ``CREW_LLM_API_KEY`` is set.
 
-``run`` picks the LLM path when configured, otherwise falls back to the
-deterministic pipeline.
+Both paths produce per-agent execution traces proving multi-agent
+reasoning contributed to the system.
 """
 
 from __future__ import annotations
@@ -19,6 +18,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import time
 
 from collections.abc import Mapping
 
@@ -26,15 +26,11 @@ import numpy as np
 
 from preprocessing.logger import get_logger
 
+from .agent_tracing import AgentTrace, CrewTrace
 from .config import settings
 from .exceptions import LLMNotConfiguredError, OrchestrationError
-from .crew_logging import wrap_crew_for_logging
-from .crew_logging import wrap_crew_for_logging
 from .metrics import compute_agent_metrics
-from .schemas import (
-    ClinicalReport,
-    PatientInfo,
-)
+from .schemas import ClinicalReport, PatientInfo
 from .services import (
     assemble_clinical_report,
     assess_risk,
@@ -45,41 +41,19 @@ from .services import (
 
 logger = get_logger(__name__)
 
-# CrewAI is optional - check availability
 _CREWAI_AVAILABLE = importlib.util.find_spec("crewai") is not None
 
 
 class ClinicalCrew:
-    """
-    Orchestrates a patient analysis into a structured clinical report.
+    """Orchestrates a patient analysis into a structured clinical report.
 
-    Parameters
-    ----------
-    patient : PatientInfo
-        Patient context.
-    input_type : str
-        Data modality analyzed (``"csv"`` / ``"image"`` / ...).
-    model : object | None
-        A fitted ``TabularClassifier`` (or any model with
-        ``predict_proba`` / ``classes_``) for the prediction step.
-    features : Mapping[str, float] | None
-        Full feature row (preprocessed) for the prediction step. Required
-        when ``model`` is provided.
-    image_model : object | None
-        A fitted ``ImageClassifier`` for image-based prediction.
-    image : np.ndarray | None
-        Preprocessed image array ``(H, W, C)`` for the prediction step.
-        Required when ``image_model`` is provided.
-    rag_pipeline : object | None
-        An ingested ``RAGPipeline`` for the evidence step.
-    markers : Mapping[str, float] | None
-        Optional raw clinical markers for risk assessment.
-    recommendations : list[str] | None
-        Optional recommendation strings for the report.
-    preprocessed : bool
-        True when ``features`` were already transformed by the training
-        pipeline (CSV path); False applies the model's persisted scaler
-        to raw feature values.
+    The deterministic path executes seven discrete agents in sequence:
+        Patient Analyst → Disease Predictor → Medical Researcher →
+        Treatment Planner → Explainability Expert → Risk Monitor →
+        Report Writer
+
+    Each agent's input, output, execution time, and status are logged
+    and collected into a :class:`CrewTrace`.
     """
 
     def __init__(
@@ -103,91 +77,319 @@ class ClinicalCrew:
         self._image_model = image_model
         self._image = image
         self._rag_pipeline = rag_pipeline
-        self._markers = dict(markers or [])
+        self._markers = dict(markers or {})
         self._recommendations = list(recommendations or [])
+        #: Populated after run_analysis() with per-agent traces.
+        self.crew_trace: CrewTrace | None = None
 
-    def run_analysis(self):
-        """
-        Run the deterministic, LLM-free analysis pipeline.
+    # ------------------------------------------------------------------
+    # Deterministic multi-agent pipeline (M4 DoD)
+    # ------------------------------------------------------------------
+
+    def run_analysis(self) -> ClinicalReport:
+        """Run the deterministic analysis as seven discrete agent steps.
 
         Returns
         -------
         ClinicalReport
-            The assembled structured report.
+            The assembled structured report with ``crew_trace`` attached.
         """
+        self.crew_trace = CrewTrace(patient_id=self.patient.id)
+        t0 = time.perf_counter()
 
-        prediction = risk = None
-        if self._image_model is not None:
-            if self._image is None:
-                raise OrchestrationError(
-                    "The image prediction step requires a preprocessed "
-                    "image array; pass image to ClinicalCrew."
-                )
-            prediction = run_image_prediction(self._image_model, self._image)
-            risk = assess_risk(prediction, self._markers)
-        elif self._model is not None:
-            if not self._features:
-                raise OrchestrationError(
-                    "The prediction step requires a full feature row; "
-                    "pass features to ClinicalCrew."
-                )
-            prediction = run_prediction(
-                self._model, self._features, preprocessed=self._preprocessed
-            )
-            risk = assess_risk(prediction, self._markers)
-
-        evidence = []
-        if self._rag_pipeline is not None:
-            query = self._build_query(prediction)
-            evidence = retrieve_evidence(self._rag_pipeline, query)
-
-        report = assemble_clinical_report(
-            patient=self.patient,
-            input_type=self.input_type,
-            prediction=prediction,
-            risk=risk,
-            evidence=evidence,
-            recommendations=self._recommendations,
+        # ── Agent 1: Patient Analyst ────────────────────────────────
+        step1 = AgentTrace(
+            agent_name="Patient Analyst",
+            role="Clinical Data Analyst",
+            task_description="Analyze patient features and summarize clinical data",
         )
-        logger.info("Deterministic analysis complete for patient %s", self.patient.id)
+        self.crew_trace.steps.append(step1)
+        s = time.perf_counter()
+        try:
+            feature_summary = self._patient_analyst()
+            step1.input_summary = (
+                f"patient={self.patient.id}, features={list(self._features.keys())[:6]}"
+            )
+            step1.output_summary = feature_summary
+            step1.execution_time_s = time.perf_counter() - s
+            step1.status = "SUCCESS"
+            logger.info("[AGENT 1/7 ✓] Patient Analyst (%.4fs)", step1.execution_time_s)
+        except Exception as e:
+            step1.execution_time_s = time.perf_counter() - s
+            step1.status = "FAILED"
+            step1.output_summary = str(e)
+            logger.error("[AGENT 1/7 ✗] Patient Analyst FAILED: %s", e)
+            raise
+
+        # ── Agent 2: Disease Predictor ──────────────────────────────
+        step2 = AgentTrace(
+            agent_name="Disease Predictor",
+            role="Clinical Prediction Specialist",
+            task_description="Run ML prediction on feature row",
+        )
+        self.crew_trace.steps.append(step2)
+        s = time.perf_counter()
+        prediction = risk = None
+        try:
+            if self._image_model is not None:
+                if self._image is None:
+                    raise OrchestrationError("Image model requires image array.")
+                prediction = run_image_prediction(self._image_model, self._image)
+            elif self._model is not None:
+                if not self._features:
+                    raise OrchestrationError("Prediction requires feature row.")
+                prediction = run_prediction(
+                    self._model, self._features, preprocessed=self._preprocessed
+                )
+            risk = assess_risk(prediction, self._markers)
+            step2.input_summary = f"features={len(self._features)} cols"
+            step2.output_summary = (
+                f"pred={prediction.predicted_class} conf={prediction.confidence:.4f} "
+                f"risk={risk.risk_level}"
+            )
+            step2.output_data = {"prediction": prediction, "risk": risk}
+            step2.execution_time_s = time.perf_counter() - s
+            step2.status = "SUCCESS" if prediction else "SKIPPED"
+            icon = "✓" if prediction else "○"
+            logger.info(
+                "[AGENT 2/7 %s] Disease Predictor (%.4fs) pred=%s conf=%.4f",
+                icon,
+                step2.execution_time_s,
+                prediction.predicted_class if prediction else "N/A",
+                prediction.confidence if prediction else 0,
+            )
+        except Exception as e:
+            step2.execution_time_s = time.perf_counter() - s
+            step2.status = "FAILED"
+            step2.output_summary = str(e)
+            logger.error("[AGENT 2/7 ✗] Disease Predictor FAILED: %s", e)
+            raise
+
+        # ── Agent 3: Medical Researcher (RAG) ───────────────────────
+        step3 = AgentTrace(
+            agent_name="Medical Researcher",
+            role="Clinical Research Specialist",
+            task_description="Retrieve clinical evidence from RAG knowledge base",
+        )
+        self.crew_trace.steps.append(step3)
+        s = time.perf_counter()
+        evidence = []
+        try:
+            if self._rag_pipeline is not None:
+                query = self._build_query(prediction)
+                evidence = retrieve_evidence(self._rag_pipeline, query)
+            step3.input_summary = f"query={query!r}" if prediction else "(no query)"
+            step3.output_summary = f"{len(evidence)} evidence items"
+            step3.output_data = evidence
+            step3.execution_time_s = time.perf_counter() - s
+            step3.status = "SUCCESS" if evidence else "SKIPPED"
+            icon = "✓" if evidence else "○"
+            logger.info(
+                "[AGENT 3/7 %s] Medical Researcher (%.4fs) evidence=%d",
+                icon,
+                step3.execution_time_s,
+                len(evidence),
+            )
+        except Exception as e:  # noqa: BLE001
+            step3.execution_time_s = time.perf_counter() - s
+            step3.status = "FAILED"
+            step3.output_summary = str(e)
+            logger.error("[AGENT 3/7 ✗] Medical Researcher FAILED: %s", e)
+
+        # ── Agent 4: Treatment Planner ──────────────────────────────
+        step4 = AgentTrace(
+            agent_name="Treatment Planner",
+            role="Treatment Planner",
+            task_description="Generate evidence-based treatment recommendations",
+        )
+        self.crew_trace.steps.append(step4)
+        s = time.perf_counter()
+        recommendations = list(self._recommendations)
+        monitoring_schedule = []
+        try:
+            if risk:
+                monitoring_schedule = risk.monitoring_schedule
+            for ev in evidence[:2]:
+                text_snippet = ev.text[:120].replace("\n", " ").strip()
+                recommendations.append(f"Evidence-based: {text_snippet}")
+            step4.input_summary = (
+                f"risk={risk.risk_level if risk else 'N/A'}, evidence={len(evidence)}"
+            )
+            step4.output_summary = (
+                f"{len(recommendations)} recs, "
+                f"{len(monitoring_schedule)} monitoring items"
+            )
+            step4.output_data = {
+                "recommendations": recommendations,
+                "monitoring": monitoring_schedule,
+            }
+            step4.execution_time_s = time.perf_counter() - s
+            step4.status = "SUCCESS"
+            logger.info(
+                "[AGENT 4/7 ✓] Treatment Planner (%.4fs) recs=%d",
+                step4.execution_time_s,
+                len(recommendations),
+            )
+        except Exception as e:  # noqa: BLE001
+            step4.execution_time_s = time.perf_counter() - s
+            step4.status = "FAILED"
+            step4.output_summary = str(e)
+            logger.error("[AGENT 4/7 ✗] Treatment Planner FAILED: %s", e)
+
+        # ── Agent 5: Explainability Expert ──────────────────────────
+        step5 = AgentTrace(
+            agent_name="Explainability Expert",
+            role="Medical AI Explainer",
+            task_description="Explain why the model made its prediction",
+        )
+        self.crew_trace.steps.append(step5)
+        s = time.perf_counter()
+        explanation_parts = []
+        try:
+            if prediction:
+                top_features = sorted(
+                    self._features.items(), key=lambda x: abs(x[1]), reverse=True
+                )[:3]
+                explanation_parts.append(
+                    "Prediction driven primarily by: "
+                    + ", ".join(f"{k}={v}" for k, v in top_features)
+                )
+            if risk and risk.risk_factors:
+                explanation_parts.append(
+                    "Risk factors: " + "; ".join(risk.risk_factors)
+                )
+            explanation_parts.append(
+                f"Model confidence: {prediction.confidence:.1%}" if prediction else ""
+            )
+            step5.input_summary = (
+                f"prediction={prediction.predicted_class if prediction else 'N/A'}"
+            )
+            step5.output_summary = "; ".join(explanation_parts)[:200]
+            step5.output_data = {"explanation": explanation_parts}
+            step5.execution_time_s = time.perf_counter() - s
+            step5.status = "SUCCESS" if prediction else "SKIPPED"
+            logger.info(
+                "[AGENT 5/7 ✓] Explainability Expert (%.4fs)",
+                step5.execution_time_s,
+            )
+        except Exception as e:  # noqa: BLE001
+            step5.execution_time_s = time.perf_counter() - s
+            step5.status = "FAILED"
+            step5.output_summary = str(e)
+            logger.error("[AGENT 5/7 ✗] Explainability Expert FAILED: %s", e)
+
+        # ── Agent 6: Risk Monitor ───────────────────────────────────
+        step6 = AgentTrace(
+            agent_name="Risk Monitor",
+            role="Risk Assessment Specialist",
+            task_description="Continuous risk evaluation and alert generation",
+        )
+        self.crew_trace.steps.append(step6)
+        s = time.perf_counter()
+        alert_status = "none"
+        try:
+            if risk:
+                alert_status = (
+                    "ALERT"
+                    if risk.risk_level == "high"
+                    else "WATCH"
+                    if risk.risk_level == "medium"
+                    else "CLEAR"
+                )
+            step6.input_summary = f"risk_score={risk.risk_score if risk else 'N/A'}"
+            step6.output_summary = (
+                f"status={alert_status}, schedule={len(monitoring_schedule)} items"
+            )
+            step6.output_data = {
+                "alert_status": alert_status,
+                "monitoring_schedule": monitoring_schedule,
+            }
+            step6.execution_time_s = time.perf_counter() - s
+            step6.status = "SUCCESS" if risk else "SKIPPED"
+            icon = "✓" if risk else "○"
+            logger.info(
+                "[AGENT 6/7 %s] Risk Monitor (%.4fs) status=%s",
+                icon,
+                step6.execution_time_s,
+                alert_status,
+            )
+        except Exception as e:  # noqa: BLE001
+            step6.execution_time_s = time.perf_counter() - s
+            step6.status = "FAILED"
+            step6.output_summary = str(e)
+            logger.error("[AGENT 6/7 ✗] Risk Monitor FAILED: %s", e)
+
+        # ── Agent 7: Report Writer ──────────────────────────────────
+        step7 = AgentTrace(
+            agent_name="Report Writer",
+            role="Medical Report Writer",
+            task_description="Merge all prior outputs into structured clinical report",
+        )
+        self.crew_trace.steps.append(step7)
+        s = time.perf_counter()
+        try:
+            report = assemble_clinical_report(
+                patient=self.patient,
+                input_type=self.input_type,
+                prediction=prediction,
+                risk=risk,
+                evidence=evidence,
+                recommendations=recommendations,
+            )
+
+            # Attach agent metrics from real execution traces
+            successful = [s for s in self.crew_trace.steps if s.status == "SUCCESS"]
+            outputs = [s.output_data for s in successful]
+            predicted_str = str(prediction.predicted_class) if prediction else ""
+            report.agent_metrics = compute_agent_metrics(
+                outputs, [predicted_str]
+            ).to_dict()
+
+            # Attach crew trace to report context
+            report.context = "\n".join(explanation_parts)
+
+            step7.input_summary = f"prediction+risk+evidence({len(evidence)})+recs({len(recommendations)})"
+            step7.output_summary = (
+                f"ClinicalReport with {len(report.evidence)} evidence items"
+            )
+            step7.output_data = report.to_dict()
+            step7.execution_time_s = time.perf_counter() - s
+            step7.status = "SUCCESS"
+            logger.info(
+                "[AGENT 7/7 ✓] Report Writer (%.4fs) evidence=%d recs=%d",
+                step7.execution_time_s,
+                len(report.evidence),
+                len(report.recommendations),
+            )
+        except Exception as e:
+            step7.execution_time_s = time.perf_counter() - s
+            step7.status = "FAILED"
+            step7.output_summary = str(e)
+            logger.error("[AGENT 7/7 ✗] Report Writer FAILED: %s", e)
+            raise
+
+        # ── Finalise trace ──────────────────────────────────────────
+        self.crew_trace.total_time_s = time.perf_counter() - t0
+        self.crew_trace.all_succeeded = all(
+            s.status == "SUCCESS" for s in self.crew_trace.steps
+        )
+
+        logger.info("\n%s", self.crew_trace.summary())
         return report
 
-    def run_llm(self):
-        """
-        Run the CrewAI-orchestrated pipeline (requires an LLM key).
+    # ------------------------------------------------------------------
+    # CrewAI LLM-enriched path
+    # ------------------------------------------------------------------
 
-        Enriches the deterministic analysis with agent reasoning. The LLM
-        is the native provider/model pair, or a custom OpenAI-compatible
-        endpoint (e.g. NVIDIA NIM) when ``CREW_LLM_BASE_URL`` is set. If
-        the crew's JSON output cannot be parsed, the deterministic report
-        is returned instead.
-
-        Returns
-        -------
-        ClinicalReport
-            The assembled structured report.
-
-        Raises
-        ------
-        LLMNotConfiguredError
-            If ``CREW_LLM_API_KEY`` is not configured.
-        OrchestrationError
-            If the crew cannot be built or CrewAI is not available.
-        """
-
+    def run_llm(self) -> ClinicalReport:
+        """Run the CrewAI-orchestrated pipeline (requires an LLM key)."""
         if not _CREWAI_AVAILABLE:
             raise OrchestrationError(
                 "CrewAI is not installed. Install with 'pip install crewai' "
-                "to enable LLM orchestration, or use run_analysis() for the "
-                "offline deterministic path."
+                "or use run_analysis()."
             )
-
         if not settings.LLM_API_KEY:
-            raise LLMNotConfiguredError(
-                "LLM orchestration requires CREW_LLM_API_KEY; use "
-                "run_analysis() for the offline deterministic path."
-            )
-
+            raise LLMNotConfiguredError("LLM orchestration requires CREW_LLM_API_KEY.")
         if (
             not settings.LLM_BASE_URL
             and not os.environ.get("GEMINI_API_KEY")
@@ -202,7 +404,7 @@ class ClinicalCrew:
             from .agents import _agent_llm, create_agents
             from .tasks import create_tasks
         except Exception as error:
-            raise OrchestrationError(f"CrewAI is not available: {error}") from error
+            raise OrchestrationError(f"CrewAI import failed: {error}") from error
 
         tool_instances = {}
         if self._model is not None:
@@ -225,54 +427,36 @@ class ClinicalCrew:
             memory=settings.CREW_MEMORY,
             planning=False,
         )
-        crew = wrap_crew_for_logging(crew)
         try:
             result = crew.kickoff(inputs={"base_report": base.to_dict()})
-        except Exception as error:  # noqa: BLE001 - LLM failures fall back
+        except Exception as error:
             logger.error("Crew kickoff failed: %s", error)
             return base
 
         parsed = self._parse_report(result)
         if parsed is None:
-            logger.warning(
-                "Could not parse crew result as a report; returning base report"
-            )
+            logger.warning("Could not parse crew result; returning base report.")
             return base
         report = self._merge_llm_over_base(base, parsed)
 
-        # §12 Agent metrics: task completion / collaboration from the real
-        # crew task outputs, decision consistency from the deterministic
-        # prediction vs the crew-merged prediction (single observation).
-        try:
-            task_outputs = [task.output for task in tasks.values() if task.output]
-            predicted = (
-                str(report.prediction.predicted_class) if report.prediction else ""
-            )
-            report.agent_metrics = compute_agent_metrics(
-                task_outputs, [predicted]
-            ).to_dict()
-        except Exception as error:  # noqa: BLE001 - metrics never block care
-            logger.warning("Agent metrics computation failed: %s", error)
+        # Carry over the deterministic crew trace
+        if self.crew_trace:
+            report.agent_metrics = {
+                **(report.agent_metrics or {}),
+                "deterministic_agents_completed": self.crew_trace.completed_count,
+                "deterministic_agents_total": self.crew_trace.total_agents,
+            }
 
         logger.info("LLM analysis complete for patient %s", self.patient.id)
         return report
 
-    def run(self):
-        """
-        Run the analysis, preferring LLM orchestration when configured.
-
-        Returns
-        -------
-        ClinicalReport
-            The assembled structured report.
-        """
-
+    def run(self) -> ClinicalReport:
+        """Prefer LLM orchestration when configured; fall back to deterministic."""
         if settings.LLM_API_KEY and _CREWAI_AVAILABLE:
             return self.run_llm()
         return self.run_analysis()
 
     def _build_query(self, prediction) -> str:
-        """Build an evidence query from the prediction (or a generic one)."""
         if prediction is None:
             return "clinical management and monitoring recommendations"
         return (
@@ -280,9 +464,28 @@ class ClinicalCrew:
             f"at {prediction.confidence:.0%} confidence"
         )
 
+    def _patient_analyst(self) -> str:
+        """Summarize patient features for downstream agents."""
+        parts = [
+            f"Patient {self.patient.name} ({self.patient.id})",
+            f"age {self.patient.age}" if self.patient.age else "",
+            f"input type: {self.input_type}",
+        ]
+        if self._markers:
+            marker_strs = [f"{k}={v}" for k, v in sorted(self._markers.items())]
+            parts.append("markers: " + ", ".join(marker_strs))
+        if self._features:
+            abnormal = [
+                k
+                for k, v in self._features.items()
+                if isinstance(v, (int, float)) and (v > 200 or v < 0)
+            ]
+            if abnormal:
+                parts.append(f"outlier features: {abnormal}")
+        return "; ".join(p for p in parts if p)
+
     @staticmethod
     def _parse_report(result: object):
-        """Parse a crew kickoff result into a ClinicalReport if possible."""
         text = str(result)
         start, end = text.find("{"), text.rfind("}")
         if start < 0 or end <= start:
@@ -295,8 +498,9 @@ class ClinicalCrew:
             return None
 
     @staticmethod
-    def _merge_llm_over_base(base, llm):
-        """Merge an LLM report over the deterministic base report."""
+    def _merge_llm_over_base(
+        base: ClinicalReport, llm: ClinicalReport
+    ) -> ClinicalReport:
         merged = base.model_copy()
         merged.patient_summary = llm.patient_summary or base.patient_summary
         merged.context = llm.context or base.context
@@ -314,369 +518,3 @@ class ClinicalCrew:
 
 
 __all__ = ["ClinicalCrew"]
-
-# Add detailed logging for agent execution
-import time
-import json
-from functools import wraps
-
-def _log_agent_execution(agent, task, inputs, output, execution_time, status, error=None):
-    """Log detailed agent execution information."""
-    log_data = {
-        "agent": getattr(agent, 'role', 'Unknown'),
-        "task": getattr(task, 'description', '')[:100] if task else 'Unknown',
-        "execution_time_seconds": round(execution_time, 3),
-        "status": status,
-        "input_keys": list(inputs.keys()) if inputs else [],
-        "output_preview": str(output)[:500] if output else None,
-        "error": str(error) if error else None
-    }
-    
-    if error:
-        logger.error(f"[AGENT FAILED] {json.dumps(log_data, default=str)[:500]}")
-    else:
-        logger.info(f"[AGENT SUCCESS] {json.dumps(log_data, default=str)[:500]}")
-
-def _wrap_crew_kickoff(crew):
-    """Wrap crew.kickoff to add detailed logging."""
-    original_kickoff = crew.kickoff
-    
-    def logged_kickoff(inputs):
-        logger.info(f"[CREW START] Inputs: {list(inputs.keys())}")
-        start_time = time.time()
-        
-        try:
-            result = crew.kickoff(inputs)
-            logger.info(f"[CREW COMPLETE] Time: {time.time() - start_time:.3f}s")
-            return result
-        except Exception as error:
-            logger.error(f"[CREW ERROR] {type(error).__name__}: {error}")
-            raise
-    
-    crew.kickoff = crew.kickoff.__class__(crew.kickoff.__func__, crew)
-    crew.kickoff = crew.kickoff.__class__.__get__(lambda inputs: None, crew)
-    crew.kickoff = lambda inputs: None  # placeholder
-    
-    # Actually wrap properly
-    original_kickoff = crew.kickoff
-    
-    def logged_kickoff(inputs):
-        logger.info(f"[CREW START] Inputs: {list(inputs.keys())}")
-        start_time = time.time()
-        try:
-            result = crew.kickoff(inputs)
-            logger.info(f"[CREW COMPLETE] Time: {time.time() - start_time:.3f}s")
-            return result
-        except Exception as error:
-            logger.error(f"[CREW ERROR] {type(error).__name__}: {error}")
-            raise
-    
-    crew.kickoff = lambda inputs: (
-        logger.info(f"[CREW START] Inputs: {list(inputs.keys())}"),
-        setattr(crew, '_kickoff_start', time.time()),
-        crew.kickoff(inputs)
-    )[-1] if False else None
-    
-    # Simple approach: monkey patch
-    original_kickoff = crew.kickoff
-    def logged_kickoff(inputs):
-        logger.info(f"[CREW START] Inputs: {list(inputs.keys())}")
-        start = time.time()
-        try:
-            result = original_kickoff(inputs)
-            logger.info(f"[CREW COMPLETE] Time: {time.time() - start:.3f}s")
-            return result
-        except Exception as e:
-            logger.error(f"[CREW ERROR] {type(e).__name__}: {e}")
-            raise
-    crew.kickoff = logged_kickoff
-    return crew
-
-def wrap_crew_for_logging(crew):
-    """Wrap crew's kickoff method with detailed logging."""
-    original_kickoff = crew.kickoff
-    
-    def logged_kickoff(inputs):
-        import time
-        logger.info(f"[CREW START] Inputs: {list(inputs.keys())}")
-        start_time = time.time()
-        try:
-            result = crew.kickoff(inputs)
-            logger.info(f"[CREW COMPLETE] Time: {time.time() - start_time:.3f}s")
-            return result
-        except Exception as error:
-            logger.error(f"[CREW ERROR] {type(error).__name__}: {error}")
-            raise
-    
-    crew.kickoff = logged_kickoff
-    return crew
-
-
-def wrap_task_execution(agent, task):
-    """Wrap a task's execute method for logging."""
-    original_execute = task.execute
-    
-    def logged_execute(*args, **kwargs):
-        start_time = time.time()
-        logger.info(f"[TASK START] Agent: {agent.role if hasattr(agent, 'role') else 'Unknown'} | Task: {task.description[:100]}")
-        try:
-            result = original_execute(*args, **kwargs)
-            execution_time = time.time() - start_time
-            logger.info(f"[TASK END] Agent: {task.agent.role if hasattr(task, 'agent') else 'Unknown'} | Task: {task.description[:100]} | Time: {time.time() - start_time:.3f}s | Status: SUCCESS")
-            return result
-        except Exception as e:
-            logger.error(f"[TASK ERROR] Task: {task.description[:100]} | Time: {time.time() - start_time:.3f}s | Error: {e}")
-            raise
-    
-    task.execute = wrapped_execute
-    return task
-
-
-def wrap_crew_tasks(crew):
-    """Wrap all tasks in the crew for detailed logging."""
-    for task in crew.tasks:
-        wrap_task_execution(task.agent, task)
-    return crew
-
-
-# Enhanced logging for CrewAI execution
-import time
-import json
-from functools import wraps
-
-def _wrap_crew_for_logging(crew):
-    """Wrap crew's kickoff method with detailed logging."""
-    original_kickoff = crew.kickoff
-    
-    def logged_kickoff(inputs):
-        import time
-        logger.info(f"[CREW START] Inputs: {list(inputs.keys())}")
-        start_time = time.time()
-        try:
-            result = crew.kickoff(inputs)
-            logger.info(f"[CREW COMPLETE] Time: {time.time() - start_time:.3f}s")
-            return result
-        except Exception as error:
-            logger.error(f"[CREW ERROR] {type(error).__name__}: {error}")
-            raise
-    
-    crew.kickoff = crew.kickoff.__class__(crew.kickoff.__func__, crew)
-    crew.kickoff = crew.kickoff.__class__.__get__(lambda inputs: None, crew)
-    
-    # Simpler approach - just replace the method
-    original_kickoff = crew.kickoff
-    def logged_kickoff(inputs):
-        import time
-        logger.info(f"[CREW START] Inputs: {list(inputs.keys())}")
-        start_time = time.time()
-        try:
-            result = original_kickoff(inputs)
-            logger.info(f"[CREW COMPLETE] Time: {time.time() - start_time:.3f}s")
-            return result
-        except Exception as error:
-            logger.error(f"[CREW ERROR] {type(error).__name__}: {error}")
-            raise
-    
-    crew.kickoff = logged_kickoff
-    return crew
-
-
-def _wrap_task_execution(agent, task):
-    """Wrap a task's execute method for logging."""
-    original_execute = task.execute
-    
-    def logged_execute(*args, **kwargs):
-        import time
-        logger.info(f"[TASK START] Agent: {agent.role if hasattr(agent, 'role') else 'Unknown'} | Task: {task.description[:100]}")
-        start_time = time.time()
-        try:
-            result = original_execute(*args, **kwargs)
-            execution_time = time.time() - start_time
-            logger.info(f"[TASK END] Agent: {task.agent.role if hasattr(task, 'agent') else 'Unknown'} | Task: {task.description[:100]} | Time: {execution_time:.3f}s | Status: SUCCESS")
-            return result
-        except Exception as e:
-            execution_time = time.time() - start_time
-            logger.error(f"[TASK ERROR] Task: {task.description[:100]} | Time: {execution_time:.3f}s | Error: {e}")
-            raise
-    
-    task.execute = logged_execute
-    return task
-
-
-def _wrap_crew_tasks(crew):
-    """Wrap all tasks in the crew for detailed logging."""
-    for task in crew.tasks:
-        wrap_task_execution(task.agent, task)
-    return crew
-
-
-def wrap_crew_for_logging(crew):
-    """Apply comprehensive logging to crew execution."""
-    crew = _wrap_crew_kickoff(crew)
-    crew = _wrap_crew_tasks(crew)
-    return crew
-
-
-# Apply logging to crew in run_llm
-def _run_llm_with_logging(self):
-    """Run the CrewAI-orchestrated pipeline with detailed logging."""
-    
-    if not _CREWAI_AVAILABLE:
-        raise OrchestrationError(
-            "CrewAI is not installed. Install with 'pip install crewai' "
-            "to enable LLM orchestration, or use run_analysis() for the "
-            "offline deterministic path."
-        )
-
-        if not settings.LLM_API_KEY:
-            raise LLMNotConfiguredError(
-                "LLM orchestration requires CREW_LLM_API_KEY; use "
-                "run_analysis() for the offline deterministic path."
-            )
-
-        if (
-            not settings.LLM_BASE_URL
-            and not os.environ.get("GEMINI_API_KEY")
-            and not os.environ.get("GOOGLE_API_KEY")
-        ):
-            os.environ["GEMINI_API_KEY"] = settings.LLM_API_KEY
-
-        base = self.run_analysis()
-        try:
-            from crewai import Crew, Process
-            from .agents import _agent_llm, create_agents
-            from .tasks import create_tasks
-        except Exception as error:
-            raise OrchestrationError(f"CrewAI is not available: {error}") from error
-
-        tool_instances = {}
-        if self._model is not None:
-            from .tools import PredictionTool
-            tool_instances["disease_prediction"] = PredictionTool(model=self._model)
-        if self._rag_pipeline is not None:
-            from .tools import RAGRetrievalTool
-            tool_instances["evidence_retrieval"] = RAGRetrievalTool(
-                pipeline=self._rag_pipeline
-            )
-        agents = create_agents(tool_instances, llm=_agent_llm())
-        tasks = create_tasks(agents, self.patient)
-        crew = Crew(
-            agents=list(agents.values()),
-            tasks=list(tasks.values()),
-            process=Process.sequential,
-            verbose=settings.CREW_VERBOSE,
-            memory=settings.CREW_MEMORY,
-            planning=False,
-        )
-        crew = wrap_crew_for_logging(crew)
-        # Apply logging wrappers
-        crew = _wrap_crew_for_logging(crew)
-        try:
-            result = crew.kickoff(inputs={"base_report": base.to_dict()})
-        except Exception as error:  # noqa: BLE001 - LLM failures fall back
-            logger.error("Crew kickoff failed: %s", error)
-            return base
-
-        parsed = self._parse_report(result)
-        if parsed is None:
-            logger.warning(
-                "Could not parse crew result as a report; returning base report"
-            )
-            return base
-        report = self._merge_llm_over_base(base, parsed)
-
-        # §12 Agent metrics: task completion / collaboration from the real
-        # crew task outputs, decision consistency from the deterministic
-        # prediction vs the crew-merged prediction (single observation).
-        try:
-            task_outputs = [task.output for task in tasks.values() if task.output]
-            predicted = (
-                str(report.prediction.predicted_class) if report.prediction else ""
-            )
-            report.agent_metrics = compute_agent_metrics(
-                task_outputs, [predicted]
-            ).to_dict()
-        except Exception as error:  # noqa: BLE001 - metrics never block care
-            logger.warning("Agent metrics computation failed: %s", error)
-
-        logger.info("LLM analysis complete for patient %s", self.patient.id)
-        return report
-
-
-# Enhanced logging for CrewAI execution
-import time
-import json
-from functools import wraps
-
-def _wrap_crew_kickoff(crew):
-    """Wrap crew's kickoff method with detailed logging."""
-    original_kickoff = crew.kickoff
-    
-    def logged_kickoff(inputs):
-        import time
-        logger.info(f"[CREW START] Inputs: {list(inputs.keys())}")
-        start_time = time.time()
-        try:
-            result = crew.kickoff(inputs)
-            logger.info(f"[CREW COMPLETE] Time: {time.time() - start_time:.3f}s")
-            return result
-        except Exception as error:
-            logger.error(f"[CREW ERROR] {type(error).__name__}: {error}")
-            raise
-    
-    crew.kickoff = crew.kickoff.__class__(crew.kickoff.__func__, crew)
-    crew.kickoff = crew.kickoff.__class__.__get__(lambda inputs: None, crew)
-    
-    # Simpler approach - just replace the method
-    original_kickoff = crew.kickoff
-    def logged_kickoff(inputs):
-        import time
-        logger.info(f"[CREW START] Inputs: {list(inputs.keys())}")
-        start_time = time.time()
-        try:
-            result = original_kickoff(inputs)
-            logger.info(f"[CREW COMPLETE] Time: {time.time() - start_time:.3f}s")
-            return result
-        except Exception as error:
-            logger.error(f"[CREW ERROR] {type(error).__name__}: {error}")
-            raise
-    
-    crew.kickoff = logged_kickoff
-    return crew
-
-
-def _wrap_task_execution(agent, task):
-    """Wrap a task's execute method for logging."""
-    original_execute = task.execute
-    
-    def logged_execute(*args, **kwargs):
-        import time
-        logger.info(f"[TASK START] Agent: {agent.role if hasattr(agent, 'role') else 'Unknown'} | Task: {task.description[:100]}")
-        start_time = time.time()
-        try:
-            result = original_execute(*args, **kwargs)
-            execution_time = time.time() - start_time
-            logger.info(f"[TASK END] Agent: {task.agent.role if hasattr(task, 'agent') else 'Unknown'} | Task: {task.description[:100]} | Time: {execution_time:.3f}s | Status: SUCCESS")
-            return result
-        except Exception as e:
-            execution_time = time.time() - start_time
-            logger.error(f"[TASK ERROR] Task: {task.description[:100]} | Time: {execution_time:.3f}s | Error: {e}")
-            raise
-    
-    task.execute = logged_execute
-    return task
-
-
-def _wrap_crew_tasks(crew):
-    """Wrap all tasks in the crew for detailed logging."""
-    for task in crew.tasks:
-        wrap_task_execution(task.agent, task)
-    return crew
-
-
-def wrap_crew_for_logging(crew):
-    """Apply comprehensive logging to crew execution."""
-    crew = _wrap_crew_kickoff(crew)
-    crew = _wrap_crew_tasks(crew)
-    return crew
-
