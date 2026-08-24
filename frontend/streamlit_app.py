@@ -38,6 +38,7 @@ analysis route (n8n workflow / direct to FastAPI) in the sidebar.
 from __future__ import annotations
 
 import json
+import re
 
 from typing import Any
 
@@ -282,12 +283,42 @@ def risk_badge_html(level: str | None) -> str:
     )
 
 
+#: Characters of each evidence item shown before the "Read full source"
+#: expander. Retrieved chunks are near-document sized (512-word chunks
+#: over a short clinical corpus), so a snippet keeps the assessment panel
+#: scannable while the full text stays one click away.
+EVIDENCE_SNIPPET_CHARS = 420
+
+
+def _restore_markdown_headings(text: str) -> str:
+    """
+    Restore markdown heading structure lost to word-based chunking.
+
+    The RAG chunker joins words with single spaces, which flattens the
+    source document into one long line; ``##`` markers then appear
+    mid-paragraph and render as literal text. Re-introducing line breaks
+    before headings makes the full-source view readable.
+
+    Parameters
+    ----------
+    text : str
+        Flattened chunk text.
+
+    Returns
+    -------
+    str
+        Text with line breaks re-inserted before markdown headings.
+    """
+    return re.sub(r"\s+(#{1,4}\s+)", r"\n\n\1", text)
+
+
 def render_evidence(evidence: list[dict[str, Any]]) -> None:
     """
     Render retrieved clinical evidence readably.
 
     Raw vector ids, similarity scores, and API internals are deliberately
-    hidden; only the knowledge-source label and text are shown.
+    hidden; only the knowledge-source label and a snippet are shown, with
+    the full chunk text available in an expander.
 
     Parameters
     ----------
@@ -296,8 +327,15 @@ def render_evidence(evidence: list[dict[str, Any]]) -> None:
     """
     for index, item in enumerate(evidence, start=1):
         source = item.get("source") or "Retrieved clinical knowledge"
+        text = (item.get("text") or "").strip()
         st.markdown(f"**{index}. {source}**")
-        st.write(item.get("text") or "")
+        if len(text) > EVIDENCE_SNIPPET_CHARS:
+            snippet = text[:EVIDENCE_SNIPPET_CHARS].rsplit(" ", 1)[0]
+            st.write(f"{snippet} …")
+            with st.expander("Read full source"):
+                st.markdown(_restore_markdown_headings(text))
+        else:
+            st.write(text)
         st.divider()
 
 
@@ -607,7 +645,7 @@ def _bp_widget_params(preset: str | None) -> tuple[str, str]:
         return "systolic", "120"  # trestbps: resting systolic
     if preset == "sepsis":
         return "systolic", "125"  # sbp_mean: ICU mean systolic
-    return "diastolic", "80"      # Pima BloodPressure / CKD bp
+    return "diastolic", "80"  # Pima BloodPressure / CKD bp
 
 
 def render_feature_groups(
