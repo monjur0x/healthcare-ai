@@ -1,0 +1,30 @@
+{
+    "guidelines": {
+        "kdigo": ["ckd", "aki", "anemia", "diabetes", "lipids", "glomerular-diseases"],
+        "acc_aha": ["hf", "acs", "afib", "hypertension", "valvular-heart-disease", "cholesterol"],
+        "nice": ["ckd", "diabetes", "heart-failure", "sepsis", "hypertension", "atrial-fibrillation", "chronic-kidney-disease"],
+        "ers": ["copd", "asthma", "lung-cancer", "pneumonia", "sleep-apnea"]
+    },
+    "pubmed_queries": [
+        "diabetes kidney disease treatment 2023",
+        "heart failure management 2023",
+        "sepsis early recognition bundles",
+        "ckd anemia treatment",
+        "sepsis early recognition qSOFA",
+        "acute coronary syndrome management",
+        "heart failure preserved ejection fraction",
+        "contrast induced nephropathy prevention"
+    ],
+    "who_reports": [
+        "9789240019678",
+        "9789240007058",
+        "9789240007126"
+    ],
+    "cdc_guidelines": [
+        "sepsis",
+        "antibiotic-use",
+        "infection-control",
+        "healthcare-associated-infections",
+        "antimicrobial-resistance"
+    ]
+}
