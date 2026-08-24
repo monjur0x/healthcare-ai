@@ -42,7 +42,7 @@ class FeedbackStore:
     def connect(self) -> sqlite3.Connection:
         """Open (and create) the SQLite database with the feedback table."""
         if self._connection is None:
-            self._connection = sqlite3.connect(self.db_path)
+            self._connection = sqlite3.connect(self.db_path, check_same_thread=False)
             self._connection.execute(
                 """
                 CREATE TABLE IF NOT EXISTS feedback_samples (

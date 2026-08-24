@@ -1,0 +1,60 @@
+{
+  "timestamp": "2026-08-24T10:27:03.830372+00:00",
+  "test_cases": [
+    {
+      "case": "Case 1 - Young Healthy Female",
+      "patient_id": "VS-001",
+      "prediction_class": "0",
+      "confidence": 0.9994,
+      "risk_level": "low",
+      "risk_score": 0.0006,
+      "risk_factors": [],
+      "evidence_count": 3,
+      "recommendations_count": 2,
+      "monitoring_items": 2,
+      "stored": true,
+      "notified": false,
+      "latency_s": 0.11,
+      "history_analyses": 0,
+      "system_alerts": 0
+    },
+    {
+      "case": "Case 2 - Middle-aged Borderline Male",
+      "patient_id": "VS-002",
+      "prediction_class": "0",
+      "confidence": 0.999,
+      "risk_level": "low",
+      "risk_score": 0.001,
+      "risk_factors": [
+        "Elevated glucose (142.0 > 126)"
+      ],
+      "evidence_count": 3,
+      "recommendations_count": 2,
+      "monitoring_items": 2,
+      "stored": true,
+      "notified": false,
+      "latency_s": 0.147,
+      "history_analyses": 0,
+      "system_alerts": 0
+    },
+    {
+      "case": "Case 3 - Elderly Critical Patient",
+      "patient_id": "VS-003",
+      "prediction_class": "1",
+      "confidence": 1.0,
+      "risk_level": "high",
+      "risk_score": 1,
+      "risk_factors": [
+        "Elevated glucose (310.0 > 126)"
+      ],
+      "evidence_count": 3,
+      "recommendations_count": 2,
+      "monitoring_items": 4,
+      "stored": true,
+      "notified": true,
+      "latency_s": 0.102,
+      "history_analyses": 0,
+      "system_alerts": 0
+    }
+  ]
+}
