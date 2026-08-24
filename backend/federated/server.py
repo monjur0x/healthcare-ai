@@ -14,6 +14,7 @@ import time
 
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 
@@ -130,6 +131,7 @@ class FedAvgServer:
             SecureAggregator(len(self._clients)) if secure_aggregation else None
         )
         self._epsilons: list[float] = []
+        self._payload_inspection: dict[str, Any] | None = None
         self._global_parameters: list[np.ndarray] | None = None
         self._history: list[RoundResult] = []
         self._round_durations: list[float] = []
@@ -144,6 +146,31 @@ class FedAvgServer:
     def max_epsilon(self) -> float | None:
         """Worst-case per-client epsilon across all rounds."""
         return max(self._epsilons) if self._epsilons else None
+
+    @property
+    def per_round_epsilons(self) -> list[float]:
+        """Per-round epsilon values (worst-case client per round)."""
+        return list(self._epsilons)
+
+    @property
+    def cumulative_epsilon_upper_bound(self) -> float | None:
+        """
+        Upper bound on cumulative epsilon across all rounds.
+
+        Uses basic composition (sum of per-round epsilons). This is a
+        conservative upper bound, NOT tight RDP composition. See
+        ``compute_cumulative_epsilon_upper_bound`` in privacy.py.
+        """
+        from federated.privacy import compute_cumulative_epsilon_upper_bound
+
+        if not self._epsilons:
+            return None
+        return compute_cumulative_epsilon_upper_bound(self._epsilons)
+
+    @property
+    def payload_inspection(self) -> dict[str, Any] | None:
+        """Evidence dict from payload inspection (leakage measurement)."""
+        return self._payload_inspection
 
     @property
     def history(self) -> tuple[RoundResult, ...]:
@@ -230,6 +257,31 @@ class FedAvgServer:
             self._history.append(
                 self._evaluate_round(round_index, round_duration_s, bytes_exchanged)
             )
+
+        # ── Measure data leakage from the last round's actual payloads ──
+        from federated.privacy import inspect_federation_payloads
+
+        try:
+            feature_names: list[str] | None = None
+            first_client = self._clients[0] if self._clients else None
+            if first_client and hasattr(first_client, "_X_train"):
+                cols = getattr(first_client._X_train, "columns", None)
+                if cols is not None:
+                    feature_names = [str(c) for c in cols]
+
+            # Use the last round's raw (pre-aggregation) updates
+            if updated:
+                self._payload_inspection = inspect_federation_payloads(
+                    updated, feature_names
+                )
+                logger.info(
+                    "Payload inspection: leakage_rate=%.4f, %d payloads, %d bytes",
+                    self._payload_inspection["leakage_rate"],
+                    self._payload_inspection["num_payloads_inspected"],
+                    self._payload_inspection["total_payload_bytes"],
+                )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Payload inspection failed (non-fatal): %s", exc)
 
         return self
 

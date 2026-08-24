@@ -39,7 +39,6 @@ from federated.config import settings as federation_settings
 from federated.hospitals import PRESETS
 from federated.privacy import (
     PrivacyConfig,
-    data_leakage_rate,
     membership_inference_auroc,
     privacy_metrics_summary,
 )
@@ -1030,16 +1029,47 @@ class AnalysisService:
             proba_member = global_model.predict_proba(member_x)[:, 1]
             proba_holdout = global_model.predict_proba(test_n)[:, 1]
             mia_auroc = membership_inference_auroc(proba_member, proba_holdout)
+
+            # ── Measure data leakage from actual federation payloads ──
+            from federated.privacy import inspect_federation_payloads
+
+            payload_inspection = None
+            if server._payload_inspection:
+                payload_inspection = server._payload_inspection
+                leakage_rate = payload_inspection["leakage_rate"]
+            else:
+                # Fallback: no secure aggregation → no masked payloads to
+                # inspect; use the raw client updates as evidence.
+                raw_updates = [
+                    client.get_parameters({}) for client in federated_clients
+                ]
+                payload_inspection = inspect_federation_payloads(
+                    raw_updates,
+                    feature_names=list(train_x.columns),
+                )
+                leakage_rate = payload_inspection["leakage_rate"]
+
+            mia_counts = {
+                "train_members": len(member_x),
+                "holdout_nonmembers": len(test_n),
+            }
+
             fed_metrics["privacy"] = privacy_metrics_summary(
                 epsilon=epsilon,
                 delta=privacy_delta,
                 mia_auroc=mia_auroc,
-                leakage_rate=data_leakage_rate(
-                    [{"exposed": False}]  # raw frames never leave the clients
-                ),
+                leakage_rate=leakage_rate,
                 num_samples=len(train_n),
                 epsilon_target=PrivacyConfig().epsilon_target,
                 secure_aggregation=secure_aggregation,
+                per_round_epsilons=server.per_round_epsilons or None,
+                epsilon_composition_method=(
+                    "naive_sum_upper_bound"
+                    if len(server.per_round_epsilons) > 1
+                    else "single_round"
+                ),
+                mia_sample_counts=mia_counts,
+                payload_inspection=payload_inspection,
             )
         if hasattr(global_model, "_feature_names"):
             global_model._feature_names = list(train_x.columns)
