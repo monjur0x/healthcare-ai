@@ -12,17 +12,18 @@ Streamlit doctor dashboard.
 ```mermaid
 flowchart TB
     subgraph IN["Input Layer"]
-        CSV["CSV / EHR<br/>diabetes · heart · kidney · sepsis"]
+        CSV["Hospital CSVs<br/>A: diabetes · B: heart<br/>C: kidney · D: sepsis"]
         IMG["Medical Image<br/>brain MRI"]
         MAN["Manual clinical form<br/>dashboard / n8n"]
     end
 
-    subgraph PP["Preprocessing"]
+    subgraph PP["Preprocessing + Anonymization"]
         P1["CSV Pipeline<br/>validate · clean · impute · encode<br/>feature-engineer · scale"]
+        ANON["anonymize_frame()<br/>drop PHI columns<br/>pseudonymize IDs"]
         P2["Image Pipeline<br/>validate · resize · normalize"]
     end
 
-    CSV --> P1
+    CSV --> ANON --> P1
     IMG --> P2
 
     subgraph ML["Prediction Models"]
@@ -36,16 +37,22 @@ flowchart TB
     P2 --> M3
 
     subgraph FL["Federated Learning (Flower)"]
+        CANON["Canonical Schema<br/>11 shared features<br/>per-disease adapters"]
         CL["FederatedClient<br/>local fit"]
-        SV["FedAvgServer<br/>weight aggregation"]
-        DP["Differential Privacy<br/>Opacus · secure aggregation"]
+        DP["DP-SGD (Opacus)<br/>per-round ε tracking"]
+        SEC["Secure Aggregation<br/>pairwise OTP masks"]
+        SV["FedAvgServer<br/>weight aggregation<br/>+ payload inspection"]
+        REG["Model Registry<br/>runs + artifacts"]
     end
 
-    M2 --> CL --> DP --> SV
-    SV --> M1
+    P1 --> CANON
+    CANON --> CL
+    M2 --> CL
+    CL --> DP --> SEC --> SV --> REG
+    REG --> M1
 
     subgraph RAG["RAG Knowledge Layer"]
-        DOC["Document ingestion"]
+        DOC["Document ingestion<br/>20 clinical sources"]
         EMB["Embedder<br/>TF-IDF / dense"]
         VDB["Vector store<br/>in-memory / ChromaDB"]
         RET["Similarity search"]
@@ -53,15 +60,16 @@ flowchart TB
 
     DOC --> EMB --> VDB --> RET
 
-    subgraph CREW["CrewAI Orchestrator"]
-        A1["Patient Data Analysis"]
-        A2["Disease Prediction"]
-        A3["RAG Knowledge"]
-        A4["Treatment Recommendation"]
-        A5["Explainability"]
-        A6["Risk Monitoring"]
-        A7["Report Synthesizer"]
-        LLM["LLM provider<br/>NVIDIA NIM / Gemini"]
+    subgraph CREW["CrewAI Orchestrator (7 traced agents)"]
+        A1["Patient Analyst"]
+        A2["Disease Predictor"]
+        A3["Medical Researcher"]
+        A4["Treatment Planner"]
+        A5["Explainability Expert"]
+        A6["Risk Monitor"]
+        A7["Report Writer"]
+        TRACE["AgentTrace / CrewTrace<br/>input · output · status · timing"]
+        LLM["LLM provider<br/>NVIDIA NIM / OpenRouter"]
     end
 
     M1 --> A2
@@ -78,50 +86,77 @@ flowchart TB
     A4 --> A7
     A5 --> A7
     A6 --> A7
+    CREW --> TRACE
 
     subgraph API["FastAPI"]
-        R["/api/v1 routes<br/>train · predict · retrieve<br/>analyze · analyze/image<br/>analyze/csv · model · presets"]
+        R["/api/v1 routes<br/>train · predict · retrieve<br/>analyze · analyze/image · model · presets"]
+        AG["Per-agent endpoints<br/>agents/patient-analyst<br/>agents/disease-predictor<br/>agents/evidence-retrieval<br/>agents/treatment-planner<br/>agents/explainability"]
     end
 
     MAN --> R
     CREW --> R
 
     subgraph N8N["n8n Orchestration"]
-        W["webhook /healthcare-endtoend<br/>route · validate · respond"]
+        W1["clinical-full-v2<br/>step-by-step agent calls"]
+        W2["risk-monitoring<br/>15-min alert polling"]
+        W3["feedback-retrain<br/>threshold-gated retrain"]
     end
 
-    R --> W
-    MAN --> W
-    W --> R
+    AG --> W1
+    MAN --> W1
+    W1 --> AG
 
-    subgraph UI["Doctor Dashboard (Streamlit)"]
-        T1["Overview"]
+    subgraph RISK["Risk Monitor"]
+        RH["risk_history.db<br/>trends per patient"]
+        AL["Escalation alerts<br/>score-jump threshold"]
+    end
+
+    R --> RH --> AL
+    AL --> W2
+
+    subgraph FBK["Feedback Loop"]
+        FS["feedback.db<br/>clinician labels"]
+        RT["Retrain trigger<br/>pending ≥ threshold"]
+    end
+
+    R --> FS --> RT
+    RT --> W3
+    W3 --> R
+
+    subgraph UI["Doctor Dashboard (Streamlit) — 7 tabs"]
+        T1["Overview +<br/>Demo Console"]
         T2["Clinical Assessment"]
         T3["Imaging"]
         T4["Results"]
         T5["System Status"]
         T6["Federation"]
+        T7["Risk Monitoring<br/>trend chart · alerts · feedback form"]
     end
 
+    R --> T1
     R --> T2
     R --> T3
     R --> T4
-    W --> T2
+    R --> T6
+    R --> T7
+    AL --> T7
 ```
 
 ## Components
 
 | Component | Entry point | Purpose |
 | --------- | ----------- | ------- |
-| FastAPI backend | `backend/api/main.py` | Train / predict / retrieve / analyze |
-| Multi-agent crew | `backend/CrewAI/orchestrator/` | Deterministic tool pipeline + LLM agents; merged clinical report |
-| RAG | `backend/rag/` | TF-IDF (default) or dense embedding + in-memory / ChromaDB store; bundled medical corpus in `backend/rag/corpus/` |
-| Federated learning | `backend/federated/` | Flower FedAvg with opt-in DP (Opacus) + secure aggregation |
+| FastAPI backend | `backend/api/main.py` | Train / predict / retrieve / analyze + per-agent endpoints for n8n step-by-step orchestration |
+| Multi-agent crew | `backend/CrewAI/orchestrator/` | 7 traced agents; deterministic tool pipeline + optional LLM layer; merged clinical report |
+| RAG | `backend/rag/` | TF-IDF (default) or dense embedding + in-memory / ChromaDB store; 20-doc medical corpus in `backend/rag/corpus/`; 18-query evaluation set |
+| Federated learning | `backend/federated/` | Flower FedAvg with opt-in DP-SGD (Opacus) + pairwise OTP secure aggregation; canonical schema adapters; payload inspection; model registry |
 | Models | `backend/models/` | Tabular (sklearn / PyTorch MLP) + image CNN classifiers |
-| Preprocessing | `backend/preprocessing/` | CSV pipeline + image pipeline |
-| Streamlit dashboard | `frontend/streamlit_app.py` | Doctor-facing CDS UI (Overview / Assessment / Imaging / Results / System Status / Federation) |
-| n8n automation | `n8n/healthcare-endtoend.json` | One workflow: train → analyze → respond |
-| Datasets | `~/dataset/` | `diabetes.csv`, `heart_disease_uci.csv`, `kidney_disease.csv`, `sepsis_icu_synthetic.csv`, brain-tumor MRI |
+| Preprocessing | `backend/preprocessing/` | CSV pipeline + image pipeline; anonymization wired at ingestion |
+| Feedback loop | `backend/feedback/` | Clinician feedback SQLite store + threshold-gated retrain trigger |
+| Risk monitoring | `backend/risk/` | Longitudinal risk history, trend analysis, escalation alerts |
+| Streamlit dashboard | `frontend/streamlit_app.py` | Doctor-facing CDS UI — 7 tabs incl. Risk Monitoring + One-Click Demo Console |
+| n8n automation | `n8n/*.json` | `clinical-full-v2` (per-agent), `risk-monitoring` (15-min polls), `feedback-retrain`, `healthcare-endtoend`, `clinical-analysis` |
+| Datasets | `backend/data/hospitals/` | Per-hospital specialty CSVs: A=diabetes, B=heart, C=kidney, D=sepsis (never committed raw PHI) |
 
 ## Quick Start
 
