@@ -647,3 +647,62 @@ __all__ = [
     "TrainRequest",
     "TrainResponse",
 ]
+
+
+class AgentStepRequest(BaseModel):
+    """
+    Base request for individual agent step execution via n8n.
+
+    Contains the shared context that accumulates across the pipeline.
+    """
+
+    patient: PatientInfo = Field(default_factory=PatientInfo)
+    features: dict[str, float] = Field(default_factory=dict)
+    markers: dict[str, float] | None = None
+
+
+class PatientAnalystResponse(BaseModel):
+    """Output of the Patient Analyst agent."""
+
+    patient_summary: str
+    data_quality_notes: str = ""
+    key_indicators: list[str] = Field(default_factory=list)
+
+
+class DiseasePredictorResponse(BaseModel):
+    """Output of the Disease Predictor agent."""
+
+    predicted_class: str
+    confidence: float
+    probabilities: dict[str, float] = Field(default_factory=dict)
+    risk_score: float = 0.0
+    risk_level: str = "unknown"
+    risk_factors: list[str] = Field(default_factory=list)
+
+
+class EvidenceRetrievalAgentResponse(BaseModel):
+    """Output of the RAG Medical Researcher agent."""
+
+    evidence: list[dict[str, Any]] = Field(default_factory=list)
+    total_found: int = 0
+
+
+class TreatmentPlannerResponse(BaseModel):
+    """Output of the Treatment Planner agent."""
+
+    recommendations: list[str] = Field(default_factory=list)
+    monitoring_schedule: list[dict[str, str]] = Field(default_factory=list)
+
+
+class ExplainabilityAgentResponse(BaseModel):
+    """Output of the Explainability Expert agent."""
+
+    explanation: str
+    contributing_features: list[str] = Field(default_factory=list)
+
+
+class ReportWriterResponse(BaseModel):
+    """Final structured clinical report from the Report Writer agent."""
+
+    report: dict[str, Any]
+    crew_trace: dict[str, Any] | None = None

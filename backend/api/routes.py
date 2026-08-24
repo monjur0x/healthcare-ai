@@ -20,6 +20,7 @@ from CrewAI.orchestrator.schemas import (
 
 from .exceptions import AuthenticationError, ServiceUnavailableError
 from .schemas import (
+    AgentStepRequest,
     AnalyzeCSVRequest,
     AnalyzeImageRequest,
     AnalyzeRequest,
@@ -618,3 +619,158 @@ def risk_alerts(service: ServiceDependency) -> list[EscalationAlert]:
 
 
 __all__ = ["router"]
+
+
+# ---------------------------------------------------------------------------
+# Per-Agent Step Endpoints (M5: n8n orchestrates each agent individually)
+# ---------------------------------------------------------------------------
+
+
+@router.post("/agents/patient-analyst")
+def agent_patient_analyst(
+    request: AgentStepRequest, service: ServiceDependency
+) -> dict:
+    """Patient Analyst agent: summarize and validate patient features."""
+    parts = [
+        f"Patient {request.patient.name} ({request.patient.id})",
+        f"age {request.patient.age}" if request.patient.age else "",
+        "input type: csv",
+    ]
+    if request.markers:
+        marker_strs = [f"{k}={v}" for k, v in sorted(request.markers.items())]
+        parts.append("markers: " + ", ".join(marker_strs))
+
+    abnormal = [
+        k
+        for k, v in request.features.items()
+        if isinstance(v, (int, float)) and (v > 200 or v < 0)
+    ]
+    if abnormal:
+        parts.append(f"outlier features: {abnormal}")
+
+    return {
+        "patient_summary": "; ".join(p for p in parts if p),
+        "data_quality_notes": "checked" if not abnormal else "outliers detected",
+        "key_indicators": list(request.features.keys())[:8],
+    }
+
+
+@router.post("/agents/disease-predictor")
+def agent_disease_predictor(
+    request: AgentStepRequest, service: ServiceDependency
+) -> dict:
+    """Disease Predictor agent: run ML prediction + risk assessment."""
+    prediction = service.predict(request.features)
+    from CrewAI.orchestrator.services import assess_risk
+
+    risk = assess_risk(prediction, request.markers)
+    return {
+        "predicted_class": prediction.predicted_class,
+        "confidence": prediction.confidence,
+        "probabilities": prediction.probabilities,
+        "risk_score": risk.risk_score,
+        "risk_level": risk.risk_level,
+        "risk_factors": risk.risk_factors,
+    }
+
+
+@router.post("/agents/evidence-retrieval")
+def agent_evidence_retrieval(
+    request: AgentStepRequest, service: ServiceDependency
+) -> list[dict]:
+    """Medical Researcher agent: retrieve clinical evidence via RAG."""
+    query = "clinical management and monitoring recommendations"
+    if request.features:
+        glucose = request.features.get("glucose", 0)
+        bmi = request.features.get("bmi", 0)
+        creatinine = request.features.get("creatinine", 0)
+        topic_parts = []
+        if glucose > 126:
+            topic_parts.append("diabetes hyperglycemia")
+        if creatinine > 1.5:
+            topic_parts.append("chronic kidney disease creatinine")
+        if bmi > 30:
+            topic_parts.append("obesity metabolic health")
+        if topic_parts:
+            query = " ".join(topic_parts) + " treatment guidelines"
+
+    evidence = service.retrieve(query, top_k=3)
+    return [e.model_dump() for e in evidence]
+
+
+@router.post("/agents/treatment-planner")
+def agent_treatment_planner(
+    request: AgentStepRequest, service: ServiceDependency
+) -> dict:
+    """Treatment Planner agent: generate recommendations from risk level."""
+    prediction = None
+    risk = None
+    try:
+        prediction = service.predict(request.features)
+        from CrewAI.orchestrator.services import assess_risk
+
+        risk = assess_risk(prediction, request.markers)
+    except Exception:
+        pass
+
+    level = risk.risk_level if risk else "medium"
+    monitoring = {
+        "low": [
+            {"test": "Annual physical examination", "frequency": "Yearly"},
+            {"test": "Blood pressure check", "frequency": "Annually"},
+        ],
+        "medium": [
+            {"test": "Medical consultation", "frequency": "Every 3-6 months"},
+            {"test": "Blood pressure monitoring", "frequency": "Monthly"},
+            {"test": "Lipid panel", "frequency": "Every 6-12 months"},
+        ],
+        "high": [
+            {"test": "Medical consultation", "frequency": "Monthly"},
+            {"test": "Blood pressure monitoring", "frequency": "Weekly"},
+            {"test": "Comprehensive metabolic panel", "frequency": "Monthly"},
+            {"test": "HbA1c", "frequency": "Every 3 months"},
+        ],
+    }
+
+    recs = []
+    if level == "high":
+        recs.append("Urgent medical review recommended based on elevated risk profile.")
+    elif level == "medium":
+        recs.append("Schedule follow-up consultation to monitor condition progression.")
+    else:
+        recs.append("Continue routine monitoring and healthy lifestyle practices.")
+    recs.append("All recommendations require physician review before implementation.")
+
+    return {
+        "recommendations": recs,
+        "monitoring_schedule": monitoring.get(level, monitoring["medium"]),
+    }
+
+
+@router.post("/agents/explainability")
+def agent_explainability(request: AgentStepRequest, service: ServiceDependency) -> dict:
+    """Explainability Expert agent: explain the prediction."""
+    prediction = None
+    try:
+        prediction = service.predict(request.features)
+    except Exception:
+        pass
+
+    top_features = sorted(
+        request.features.items(),
+        key=lambda x: abs(x[1] if isinstance(x[1], (int, float)) else 0),
+        reverse=True,
+    )[:3]
+
+    explanation = ""
+    if prediction:
+        explanation = (
+            "Prediction driven primarily by: "
+            + ", ".join(f"{k}={v}" for k, v in top_features)
+            + f". Model confidence: {prediction.confidence:.1%}."
+        )
+
+    return {
+        "explanation": explanation or "Insufficient data for explanation.",
+        "contributing_features": [k for k, _ in top_features],
+    }

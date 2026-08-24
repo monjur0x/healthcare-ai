@@ -1,0 +1,509 @@
+{
+  "name": "Clinical Full Pipeline v2",
+  "id": "cf200000-ffff-4000-8000-0000000000ff",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "clinical-full-v2",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "n01",
+      "name": "1.Receive Patient Data",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        300
+      ],
+      "webhookId": "n01-w"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "2.Validate-Input",
+              "leftValue": "={{ Object.keys($json.body.features || {}).length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "n02",
+      "name": "2.Validate Input",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8000/api/v1/agents/patient-analyst",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({patient:$json.body.patient,features:$json.body.features}) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "n03",
+      "name": "3.Patient Analyst",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8000/api/v1/agents/disease-predictor",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({patient:$('1.Receive Patient Data').first().json.body.patient,features:$('1.Receive Patient Data').first().json.body.features,markers:$('1.Receive Patient Data').first().json.body.markers}) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "n04",
+      "name": "4.Disease Predictor",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const pred=$json;\nconst parts=[];\nif(pred.risk_factors&&pred.risk_factors.length)parts.push(pred.risk_factors.join(' '));\nif(pred.predicted_class==='1')parts.push('diabetes treatment');\nelse parts.push('healthy lifestyle');\nreturn [{json:{query:parts.join(' ')}}];"
+      },
+      "id": "n05",
+      "name": "Build RAG Query",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8000/api/v1/agents/evidence-retrieval",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({query:$json.query,top_k:3}) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "n06",
+      "name": "5.Medical Researcher",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1200,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8000/api/v1/agents/treatment-planner",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({patient:$('1.Receive Patient Data').first().json.body.patient,features:$('1.Receive Patient Data').first().json.body.features,markers:$('1.Receive Patient Data').first().json.body.markers}) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "n07",
+      "name": "6.Treatment Planner",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1440,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8000/api/v1/agents/explainability",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({patient:$('1.Receive Patient Data').first().json.body.patient,features:$('1.Receive Patient Data').first().json.body.features}) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "n08",
+      "name": "7.Explainability Expert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const patient=$('1.Receive Patient Data').first().json.body.patient||{};\nconst analyst=$('3.Patient Analyst').first().json||{};\nconst pred=$('4.Disease Predictor').first().json||{};\nlet evidence=[];\ntry{const rag=$('5.Medical Researcher').all();evidence=rag.map(r=>({document_id:r.json.document_id||'',source:r.json.source||'',score:r.json.score||0,text:(r.json.text||'').substring(0,200)}));}catch(e){}\nconst treat=$('6.Treatment Planner').first().json||{};\nconst explain=$('7.Explainability Expert').first().json||{};\nreturn [{json:{status:'success',patient,input_type:'csv',\npatient_summary:analyst.patient_summary||'',\nprediction:{predicted_class:pred.predicted_class||'',probabilities:pred.probabilities||{},confidence:pred.confidence||0},\nrisk:{risk_score:pred.risk_score||0,risk_level:pred.risk_level||'unknown',risk_factors:pred.risk_factors||[]},\nevidence,recommendations:treat.recommendations||[],monitoring_schedule:treat.monitoring_schedule||[],\nexplanation:explain.explanation||'',limitations:'AI decision support tool.',doctor_notice:'AI-assisted report.',\nstored:true,stored_at:new Date().toISOString()}}];"
+      },
+      "id": "n09",
+      "name": "Assemble Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1920,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "IF:High-Risk?",
+              "leftValue": "={{ $json.risk ? $json.risk.risk_level : '' }}",
+              "rightValue": "high",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "n10",
+      "name": "IF:High Risk?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2160,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.DOCTOR_NOTIFY_WEBHOOK }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({alert:'high_risk',patient:$json.patient,risk_level:$json.risk.risk_level,notified_at:new Date().toISOString()}) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "n11",
+      "name": "Doctor Notify",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2400,
+        180
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const r=$('Assemble Report').first().json;\nreturn [{json:{...r,notified:true}}];"
+      },
+      "id": "n12",
+      "name": "Pass Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2640,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "firstIncomingItem",
+        "options": {}
+      },
+      "id": "n13",
+      "name": "Respond Success",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        2880,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const e=$json;\nreturn [{json:{status:'error',error:JSON.stringify(e).substring(0,200)}}];"
+      },
+      "id": "n14",
+      "name": "Format Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        540
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "firstIncomingItem",
+        "options": {}
+      },
+      "id": "n15",
+      "name": "Respond Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        720,
+        540
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{json:{status:'rejected',reason:'invalid'}}];"
+      },
+      "id": "n16",
+      "name": "Reject Body",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        540
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "firstIncomingItem",
+        "options": {}
+      },
+      "id": "n17",
+      "name": "Respond Rejected",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        480,
+        540
+      ]
+    }
+  ],
+  "connections": {
+    "1.Receive Patient Data": {
+      "main": [
+        [
+          {
+            "node": "2.Validate Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "2.Validate Input": {
+      "main": [
+        [
+          {
+            "node": "3.Patient Analyst",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reject Body",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "3.Patient Analyst": {
+      "main": [
+        [
+          {
+            "node": "4.Disease Predictor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "4.Disease Predictor": {
+      "main": [
+        [
+          {
+            "node": "Build RAG Query",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Format Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build RAG Query": {
+      "main": [
+        [
+          {
+            "node": "5.Medical Researcher",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "5.Medical Researcher": {
+      "main": [
+        [
+          {
+            "node": "6.Treatment Planner",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "6.Treatment Planner": {
+      "main": [
+        [
+          {
+            "node": "7.Explainability Expert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "7.Explainability Expert": {
+      "main": [
+        [
+          {
+            "node": "Assemble Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assemble Report": {
+      "main": [
+        [
+          {
+            "node": "IF:High Risk?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF:High Risk?": {
+      "main": [
+        [
+          {
+            "node": "Doctor Notify",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Doctor Notify": {
+      "main": [
+        [
+          {
+            "node": "Pass Report",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Pass Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pass Report": {
+      "main": [
+        [
+          {
+            "node": "Respond Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Error": {
+      "main": [
+        [
+          {
+            "node": "Respond Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reject Body": {
+      "main": [
+        [
+          {
+            "node": "Respond Rejected",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "instanceId": "clinical-v2"
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
