@@ -76,6 +76,7 @@ class TextChunker:
                     text=text,
                     index=index,
                     source=document.source,
+                    metadata=dict(document.metadata),
                 )
             )
         return chunks

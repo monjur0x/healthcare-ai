@@ -42,3 +42,31 @@ and pick the next backlog item.
 ## Open Questions
 
 - None blocking.
+---
+
+## Session: perf(crewai) free-tier tuning — deferred issues
+
+Noticed while wiring LLM execution limits; NOT fixed here (out of scope,
+execution-speed-only task):
+
+1. **RAG query-building bug** — `crew.py::_build_query()` builds the
+   retrieval query only from `predicted_class` + confidence
+   (e.g. "clinical evidence and management for 1 at 58% confidence").
+   It never includes patient markers/features or the predicted disease
+   NAME, so retrieval quality is degraded for every preset. The
+   deterministic Agent-3 path uses this same query.
+2. **Risk-scoring issue** — `services.py::assess_risk()` derives risk
+   purely from `_positive_class_probability(prediction)` and clamps
+   marker-based adjustments; with the current global model the score is
+   just the positive-class probability, so `risk_factors` (marker
+   thresholds) can disagree with the numeric score (e.g. glucose 210
+   flagged but score driven by model confidence).
+3. **LLM narrative faithfulness** — ox-alpha run claimed "no vital
+   signs / no labs" despite features being present in crew inputs.
+   Likely cause: task descriptions embed only `patient.model_dump()`
+   (demographics); clinical values reach agents only via base_report
+   JSON in context. Consider injecting features/markers into relevant
+   task descriptions.
+
+Priority for next session: fix #1 and #3 together (both are prompt/query
+content), re-run RAG evaluation afterwards.

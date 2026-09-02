@@ -41,6 +41,14 @@ def create_tasks(
         "report_schema": REPORT_SCHEMA_INSTRUCTIONS,
     }
 
+    # Concurrency: ``evidence_retrieval`` and ``explanation`` run
+    # asynchronously (concurrently). Both depend only on the two sync
+    # tasks before them (patient analysis, disease prediction) and not
+    # on each other, so parallel execution is safe. Any later task that
+    # lists them in its ``context`` (treatment, report generation)
+    # automatically waits for their results — CrewAI awaits all pending
+    # async tasks before executing the next sync task.
+
     task_patient_analysis = Task(
         description=(
             TASK_DESCRIPTIONS["patient_analysis"] + f"\nPatient: {context['patient']}"
@@ -71,6 +79,7 @@ def create_tasks(
         ),
         agent=agents["medical_researcher"],
         context=[task_patient_analysis, task_disease_prediction],
+        async_execution=True,
     )
 
     task_treatment = Task(
@@ -91,6 +100,7 @@ def create_tasks(
         ),
         agent=agents["explainability_expert"],
         context=[task_patient_analysis, task_disease_prediction],
+        async_execution=True,
     )
 
     task_risk_monitoring = Task(

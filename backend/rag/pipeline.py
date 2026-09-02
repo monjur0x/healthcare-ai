@@ -110,7 +110,12 @@ class RAGPipeline:
         ]
         return self.ingest_documents(documents)
 
-    def retrieve(self, query: str, top_k: int | None = None) -> list[RetrievalResult]:
+    def retrieve(
+        self,
+        query: str,
+        top_k: int | None = None,
+        topic: str | None = None,
+    ) -> list[RetrievalResult]:
         """
         Retrieve the nearest chunks for a query.
 
@@ -120,14 +125,16 @@ class RAGPipeline:
             Query text.
         top_k : int | None
             Number of results; defaults to the pipeline setting.
+        topic : str | None
+            Clinical topic tag to prioritize (e.g. ``"diabetes"``).
 
         Returns
         -------
         list[RetrievalResult]
-            Chunks ordered by descending score.
+            Chunks ordered by descending (possibly boosted) score.
         """
 
-        return self._retriever.retrieve(query, top_k=top_k)
+        return self._retriever.retrieve(query, top_k=top_k, topic=topic)
 
     def build_context(self, query: str, top_k: int | None = None) -> str:
         """

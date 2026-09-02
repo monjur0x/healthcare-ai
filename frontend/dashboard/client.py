@@ -62,7 +62,7 @@ class APIConfig:
 
     base_url: str = "http://localhost:8000"
     api_token: str = ""
-    timeout: float = 60.0
+    timeout: float = 1800.0
 
 
 class HealthcareAPIClient:

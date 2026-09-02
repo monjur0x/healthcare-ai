@@ -22,6 +22,45 @@ BUNDLED_CORPUS_DIR = Path(__file__).parent / "corpus"
 #: File extensions treated as knowledge documents.
 DOCUMENT_SUFFIXES = {".txt", ".md"}
 
+#: Filename keywords mapped to clinical topic tags. Used to derive
+#: ``metadata["topics"]`` for every document so retrieval can prioritize
+#: chunks matching the predicted disease. Order matters: the first
+#: matching keyword wins for single-condition topics; "general" is
+#: appended for laboratory / cross-cutting sources.
+TOPIC_KEYWORDS: list[tuple[str, str]] = [
+    ("diabetes", "diabetes"),
+    ("heart-failure", "heart_failure"),
+    ("coronary", "coronary_heart_disease"),
+    ("hypertension", "hypertension"),
+    ("kdigo", "chronic_kidney_disease"),
+    ("nice-ckd", "chronic_kidney_disease"),
+    ("kidney", "chronic_kidney_disease"),
+    ("sepsis", "sepsis"),
+    ("obesity", "obesity_metabolic"),
+    ("laboratory", "laboratory_values"),
+    ("trial", "clinical_trials"),
+    ("stewardship", "antimicrobial_stewardship"),
+]
+
+
+def extract_topics(path: Path) -> list[str]:
+    """
+    Derive clinical topic tags from a document's file path.
+
+    Parameters
+    ----------
+    path : Path
+        Document path (keywords are matched against the file name).
+
+    Returns
+    -------
+    list[str]
+        Topic tags; empty when no keyword matches.
+    """
+
+    name = path.name.lower()
+    return [topic for keyword, topic in TOPIC_KEYWORDS if keyword in name]
+
 
 def load_documents(directory: Path | str) -> list[Document]:
     """
@@ -54,6 +93,7 @@ def load_documents(directory: Path | str) -> list[Document]:
             id=path.stem,
             text=path.read_text(encoding="utf-8"),
             source=path.name,
+            metadata={"topics": extract_topics(path)},
         )
         for path in sorted(root.rglob("*"))
         if path.is_file() and path.suffix.lower() in DOCUMENT_SUFFIXES

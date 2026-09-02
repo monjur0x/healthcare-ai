@@ -427,6 +427,7 @@ class AnalysisService:
             rag_pipeline=rag_pipeline,
             artifacts_dir=artifacts_dir,
             dataset_dir=dataset_dir,
+            active_preset=cfg.ACTIVE_PRESET or None,
             feedback_store=FeedbackStore(feedback_db),
             risk_history_store=RiskHistoryStore(risk_history_db),
         )
@@ -1745,6 +1746,7 @@ class AnalysisService:
             markers=markers,
             recommendations=recommendations,
             preprocessed=preprocessed,
+            disease=self.active_preset,
         )
         try:
             report = crew.run()

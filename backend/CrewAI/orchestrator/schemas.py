@@ -43,19 +43,36 @@ class PredictionResult(BaseModel):
     Parameters
     ----------
     predicted_class : str
-        Predicted label.
+        Predicted label (raw class value; kept for technical detail).
     probabilities : dict[str, float]
         Probability per class label.
     confidence : float
-        Probability of the predicted class in ``[0, 1]``.
+        Probability of the predicted class in ``[0, 1]``. This is model
+        *confidence in the predicted class*, not disease probability.
     model_name : str
         Model identifier that produced the prediction.
+    disease : str
+        Clinical disease context (e.g. ``"diabetes"``); empty when the
+        assessment has no disease resolver match (e.g. image models).
+    predicted_label : str
+        Human-readable outcome (e.g. ``"No Diabetes"``); falls back to
+        ``predicted_class`` when no label map exists.
+    positive_probability : float | None
+        Probability of the disease (positive) class in ``[0, 1]``;
+        ``None`` when not resolvable.
+    negative_probability : float | None
+        Probability of the non-disease class in ``[0, 1]``; ``None``
+        when not resolvable.
     """
 
     predicted_class: str
     probabilities: dict[str, float]
     confidence: float = Field(ge=0.0, le=1.0)
     model_name: str = "tabular"
+    disease: str = ""
+    predicted_label: str = ""
+    positive_probability: float | None = Field(default=None, ge=0.0, le=1.0)
+    negative_probability: float | None = Field(default=None, ge=0.0, le=1.0)
 
 
 class RiskResult(BaseModel):
@@ -122,12 +139,16 @@ class EvidenceItem(BaseModel):
         Retrieval similarity score.
     text : str
         Retrieved text.
+    topics : list[str]
+        Clinical topic tags of the source document (e.g.
+        ``["diabetes"]``); empty when the document is unclassified.
     """
 
     document_id: str
     source: str = ""
     score: float = 0.0
     text: str = ""
+    topics: list[str] = Field(default_factory=list)
 
 
 class ClinicalReport(BaseModel):

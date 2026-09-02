@@ -78,6 +78,9 @@ class Chunk:
         Zero-based position within the document.
     source : str
         Source label inherited from the owning document.
+    metadata : dict[str, Any]
+        Provenance metadata inherited from the owning document (e.g.
+        ``{"topics": ["diabetes"]}`` for topic-aware retrieval).
     """
 
     id: str
@@ -85,6 +88,7 @@ class Chunk:
     text: str
     index: int
     source: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         """
@@ -102,6 +106,7 @@ class Chunk:
             "text": self.text,
             "index": self.index,
             "source": self.source,
+            "metadata": self.metadata,
         }
 
 

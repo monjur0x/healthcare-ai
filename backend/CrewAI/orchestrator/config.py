@@ -35,7 +35,28 @@ class CrewSettings(BaseSettings):
 
     LLM_TEMPERATURE: float = 0.3
 
-    LLM_MAX_ITERATIONS: int = 10
+    # Capped low because each iteration is a full LLM round-trip (very
+    # slow on free-tier providers); 4 leaves an agent room to
+    # self-correct without dominating wall-clock time. Not a correctness
+    # requirement.
+    LLM_MAX_ITERATIONS: int = 4
+
+    # Cap on completion tokens per agent call; bounds the worst-case
+    # latency of a single round-trip on slow/free providers. Keep above
+    # ~1k: smaller caps truncate tool-call JSON mid-emit and providers
+    # return empty/invalid completions.
+    LLM_MAX_TOKENS: int = 1024
+
+    # Per-call timeout in seconds for the provider client; bounds how
+    # long one hung request can stall an agent. Must stay above
+    # free-tier queue+generation latency (~1-2 min), or every call dies
+    # and the crew silently falls back to the deterministic report.
+    LLM_TIMEOUT_SECONDS: int = 120
+
+    # Retries per LLM call (with exponential backoff) so shared-pool
+    # 429 rate limits wait out their window instead of failing the
+    # kickoff.
+    LLM_MAX_RETRIES: int = 4
 
     LLM_BASE_URL: str = ""
 

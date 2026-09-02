@@ -85,9 +85,20 @@ class Retriever:
         self._chunks.update({chunk.id: chunk for chunk in chunks})
         logger.info("Ingested %d chunks (%d total)", len(chunks), len(self._chunks))
 
-    def retrieve(self, query: str, top_k: int | None = None) -> list[RetrievalResult]:
+    def retrieve(
+        self,
+        query: str,
+        top_k: int | None = None,
+        topic: str | None = None,
+    ) -> list[RetrievalResult]:
         """
         Retrieve the nearest chunks for a query.
+
+        When ``topic`` is given, a wider candidate pool is fetched and
+        chunks whose document metadata lists that topic are score-boosted
+        before the pool is cut to ``top_k``. This prioritizes
+        disease-relevant evidence without hard-excluding general
+        clinical sources (e.g. laboratory reference values).
 
         Parameters
         ----------
@@ -95,11 +106,13 @@ class Retriever:
             Query text.
         top_k : int | None
             Number of results; defaults to the retriever's setting.
+        topic : str | None
+            Clinical topic tag (e.g. ``"diabetes"``) to prioritize.
 
         Returns
         -------
         list[RetrievalResult]
-            Chunks ordered by descending score.
+            Chunks ordered by descending (possibly boosted) score.
 
         Raises
         ------
@@ -118,10 +131,21 @@ class Retriever:
 
         limit = self._top_k if top_k is None else int(top_k)
         query_vector = self._embedder.embed([query])[0]
-        hits = self._store.search(query_vector, top_k=limit)
-        results = [
-            RetrievalResult(chunk=self._chunks[id_], score=score) for id_, score in hits
-        ]
+        candidate_k = limit * 4 if topic else limit
+        hits = self._store.search(query_vector, top_k=candidate_k)
+
+        results = []
+        for id_, score in hits:
+            chunk = self._chunks[id_]
+            adjusted = float(score)
+            if topic and topic in (chunk.metadata or {}).get("topics", []):
+                # Multiplicative boost keeps relative ordering inside the
+                # matching group while lifting it above general sources.
+                adjusted *= 1.5
+            results.append(RetrievalResult(chunk=chunk, score=adjusted))
+        if topic:
+            results.sort(key=lambda result: result.score, reverse=True)
+        results = results[:limit]
         logger.info("Retrieved %d chunks for query", len(results))
         return results
 

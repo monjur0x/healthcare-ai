@@ -372,6 +372,26 @@ deterministic report is returned unchanged.
 From `backend/`: `cp .env.example .env`, set `CREW_LLM_API_KEY` (NVIDIA
 NIM key by default, or Gemini). Never commit `.env` — it is gitignored.
 
+### Tuning for free-tier LLM providers
+
+Free-tier models queue requests, so the 7-agent kickoff can take many
+minutes. These settings trade a little quality for wall-clock time:
+
+- `CREW_LLM_MAX_ITERATIONS` (default `4`) — max think→act→observe loops
+  per agent; each iteration is a full LLM round-trip, so a struggling
+  agent burns minutes here. Lower = faster; a genuinely complex case has
+  less room to self-correct.
+- `CREW_LLM_MAX_TOKENS` (default `1024`) — completion cap per call;
+  bounds worst-case latency of one round-trip. Lower = faster; very low
+  values truncate longer narratives.
+- `CREW_LLM_TIMEOUT_SECONDS` (default `120`) — per-call provider
+  timeout; bounds how long one hung request stalls an agent. Keep it
+  above the provider's queue+generation latency, otherwise calls die
+  and the deterministic fallback kicks in.
+- Async execution — `evidence_retrieval` and `explanation` run
+  concurrently (they share no data dependency); tasks that consume them
+  wait automatically. No config needed.
+
 ## Privacy & Security
 
 - **Data protection (in-process)** — PHI stays on the client. Federated

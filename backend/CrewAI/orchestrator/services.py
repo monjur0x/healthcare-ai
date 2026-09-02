@@ -39,6 +39,176 @@ from .schemas import (
 
 logger = get_logger(__name__)
 
+# ---------------------------------------------------------------------------
+# Disease / target resolver
+# ---------------------------------------------------------------------------
+
+#: Clinical context per supported dataset preset. ``labels`` maps raw
+#: class values to human-readable outcomes; the positive class is the
+#: disease outcome. ``rag_topic`` is the corpus topic tag used to
+#: prioritize disease-relevant evidence.
+DISEASE_REGISTRY: dict[str, dict[str, object]] = {
+    "diabetes": {
+        "disease": "diabetes",
+        "positive_class": "1",
+        "labels": {"0": "No Diabetes", "1": "Diabetes"},
+        "rag_topic": "diabetes",
+    },
+    "heart": {
+        "disease": "heart_disease",
+        "positive_class": "1",
+        "labels": {"0": "No Heart Disease", "1": "Heart Disease"},
+        "rag_topic": "heart_failure",
+    },
+    "kidney": {
+        "disease": "chronic_kidney_disease",
+        "positive_class": "1",
+        "labels": {"0": "No Chronic Kidney Disease", "1": "Chronic Kidney Disease"},
+        "rag_topic": "chronic_kidney_disease",
+    },
+    "sepsis": {
+        "disease": "sepsis",
+        "positive_class": "1",
+        "labels": {"0": "No Sepsis", "1": "Sepsis"},
+        "rag_topic": "sepsis",
+    },
+}
+
+
+def resolve_disease(preset: str | None) -> dict[str, object] | None:
+    """
+    Resolve a dataset preset to its clinical disease context.
+
+    Parameters
+    ----------
+    preset : str | None
+        Dataset preset name (e.g. ``"diabetes"``); may be ``None``.
+
+    Returns
+    -------
+    dict[str, object] | None
+        The registry entry, or ``None`` when the preset has no disease
+        mapping (custom CSVs, image models).
+    """
+
+    if not preset:
+        return None
+    return DISEASE_REGISTRY.get(str(preset).strip().lower())
+
+
+def enrich_prediction(
+    prediction: PredictionResult,
+    disease_context: dict[str, object] | None,
+) -> PredictionResult:
+    """
+    Attach resolved disease context to a model prediction.
+
+    Builds the structured prediction object: raw class plus human
+    label, per-class probabilities split into positive (disease) and
+    negative probabilities. The returned object is a copy; the input is
+    not mutated.
+
+    Parameters
+    ----------
+    prediction : PredictionResult
+        Raw model prediction.
+    disease_context : dict[str, object] | None
+        Entry from :data:`DISEASE_REGISTRY`, or ``None``.
+
+    Returns
+    -------
+    PredictionResult
+        Prediction with ``disease``, ``predicted_label``,
+        ``positive_probability``, and ``negative_probability`` filled.
+    """
+
+    if not disease_context:
+        return prediction.model_copy(
+            update={"predicted_label": prediction.predicted_class}
+        )
+
+    labels = disease_context["labels"]
+    assert isinstance(labels, dict)
+    predicted_label = str(labels.get(prediction.predicted_class, ""))
+    positive_class = str(disease_context["positive_class"])
+    positive_prob = (
+        float(prediction.probabilities[positive_class])
+        if positive_class in prediction.probabilities
+        else None
+    )
+    negative_prob = None
+    if positive_prob is not None and len(prediction.probabilities) == 2:
+        negative_prob = 1.0 - positive_prob
+
+    return prediction.model_copy(
+        update={
+            "disease": str(disease_context["disease"]),
+            "predicted_label": predicted_label or prediction.predicted_class,
+            "positive_probability": positive_prob,
+            "negative_probability": negative_prob,
+        }
+    )
+
+
+def build_disease_query(prediction: PredictionResult | None) -> str:
+    """
+    Build a disease-specific RAG query from a prediction.
+
+    The query always carries the clinical condition name — never a raw
+    class integer — so retrieval stays anchored to the predicted
+    disease whether the outcome is positive or negative.
+
+    Parameters
+    ----------
+    prediction : PredictionResult | None
+        Enriched prediction (with ``disease`` / ``predicted_label``).
+
+    Returns
+    -------
+    str
+        Query text for the evidence-retrieval step.
+    """
+
+    if prediction is None:
+        return "clinical evidence and management recommendations"
+    if prediction.disease:
+        positive = (
+            prediction.positive_probability is not None
+            and prediction.negative_probability is not None
+            and prediction.positive_probability >= prediction.negative_probability
+        )
+        if positive:
+            return (
+                f"{prediction.disease} clinical guidelines diagnosis "
+                f"management treatment"
+            )
+        return f"{prediction.disease} prevention risk factors screening guidelines"
+    return f"clinical evidence for {prediction.predicted_label} management"
+
+
+def build_rag_topic(prediction: PredictionResult | None) -> str | None:
+    """
+    Map an enriched prediction to its corpus topic tag.
+
+    Parameters
+    ----------
+    prediction : PredictionResult | None
+        Enriched prediction.
+
+    Returns
+    -------
+    str | None
+        Topic tag (e.g. ``"diabetes"``), or ``None`` when unknown.
+    """
+
+    if prediction is None or not prediction.disease:
+        return None
+    topic_by_disease = {
+        str(ctx["disease"]): str(ctx["rag_topic"]) for ctx in DISEASE_REGISTRY.values()
+    }
+    return topic_by_disease.get(prediction.disease)
+
+
 MONITORING_SCHEDULES: dict[str, list[dict[str, str]]] = {
     "low": [
         {"test": "Annual physical examination", "frequency": "Yearly"},
@@ -54,6 +224,73 @@ MONITORING_SCHEDULES: dict[str, list[dict[str, str]]] = {
         {"test": "Blood pressure monitoring", "frequency": "Weekly"},
         {"test": "Comprehensive metabolic panel", "frequency": "Monthly"},
         {"test": "HbA1c", "frequency": "Every 3 months"},
+    ],
+}
+
+#: Disease-specific monitoring layered over the risk-level schedule.
+#: Keyed by ``(disease, level)``; missing combinations fall back to the
+#: level-only generic schedule above.
+DISEASE_MONITORING: dict[tuple[str, str], list[dict[str, str]]] = {
+    ("diabetes", "low"): [
+        {"test": "Fasting glucose or HbA1c screening", "frequency": "Annually"},
+        {"test": "Weight and BMI review", "frequency": "Annually"},
+        {"test": "Physical activity and diet review", "frequency": "Annually"},
+    ],
+    ("diabetes", "medium"): [
+        {"test": "HbA1c", "frequency": "Every 3-6 months"},
+        {"test": "Fasting glucose", "frequency": "Every 3-6 months"},
+        {"test": "Foot examination", "frequency": "Annually"},
+        {"test": "Dilated eye examination", "frequency": "Annually"},
+    ],
+    ("diabetes", "high"): [
+        {"test": "HbA1c", "frequency": "Every 3 months"},
+        {"test": "Home blood glucose monitoring", "frequency": "Daily"},
+        {"test": "Foot examination", "frequency": "Every visit"},
+        {"test": "Dilated eye examination", "frequency": "Annually"},
+        {"test": "Urine albumin-to-creatinine ratio", "frequency": "Annually"},
+    ],
+    ("heart_disease", "low"): [
+        {"test": "Blood pressure check", "frequency": "Annually"},
+        {"test": "Lipid panel", "frequency": "Every 4-6 years"},
+    ],
+    ("heart_disease", "medium"): [
+        {"test": "Lipid panel", "frequency": "Every 6-12 months"},
+        {"test": "Blood pressure monitoring", "frequency": "Monthly"},
+        {"test": "ECG review", "frequency": "As advised by clinician"},
+    ],
+    ("heart_disease", "high"): [
+        {"test": "Cardiology consultation", "frequency": "Every 3 months"},
+        {"test": "BNP / NT-proBNP", "frequency": "As directed by cardiologist"},
+        {"test": "Blood pressure monitoring", "frequency": "Weekly"},
+    ],
+    ("chronic_kidney_disease", "low"): [
+        {"test": "Serum creatinine / eGFR", "frequency": "Annually"},
+        {"test": "Urine albumin-to-creatinine ratio", "frequency": "Annually"},
+    ],
+    ("chronic_kidney_disease", "medium"): [
+        {"test": "eGFR", "frequency": "Every 3-6 months"},
+        {"test": "Urine albumin-to-creatinine ratio", "frequency": "Every 3-6 months"},
+        {"test": "Serum potassium", "frequency": "Every 3-6 months"},
+    ],
+    ("chronic_kidney_disease", "high"): [
+        {"test": "Nephrology consultation", "frequency": "Every 1-3 months"},
+        {"test": "eGFR", "frequency": "Every 1-3 months"},
+        {"test": "Electrolyte panel", "frequency": "Monthly"},
+    ],
+    ("sepsis", "low"): [
+        {"test": "Infection surveillance education", "frequency": "At discharge"},
+    ],
+    ("sepsis", "medium"): [
+        {
+            "test": "Clinical review for persistent infection signs",
+            "frequency": "Weekly until resolved",
+        },
+        {"test": "Inflammatory markers (CRP)", "frequency": "As directed by clinician"},
+    ],
+    ("sepsis", "high"): [
+        {"test": "Immediate escalation to acute care", "frequency": "Immediately"},
+        {"test": "Lactate", "frequency": "Per sepsis protocol"},
+        {"test": "Blood cultures before antibiotics", "frequency": "Immediately"},
     ],
 }
 
@@ -259,9 +496,15 @@ def _positive_class_probability(prediction: PredictionResult) -> float:
 def assess_risk(
     prediction: PredictionResult,
     markers: Mapping[str, float] | None = None,
+    disease_context: dict[str, object] | None = None,
 ) -> RiskResult:
     """
-    Score risk from prediction confidence and elevated clinical markers.
+    Score risk from positive-class probability and elevated markers.
+
+    The risk score is the probability of the disease (positive) class —
+    not the model's confidence in whichever class it predicted. The
+    monitoring schedule is disease-specific when a disease context is
+    available, falling back to the generic risk-level schedule.
 
     Parameters
     ----------
@@ -270,6 +513,9 @@ def assess_risk(
     markers : Mapping[str, float] | None
         Optional numeric clinical markers (e.g. glucose, bmi) compared
         against ``settings.MARKER_THRESHOLDS``.
+    disease_context : dict[str, object] | None
+        Entry from :data:`DISEASE_REGISTRY` for disease-specific
+        monitoring; ``None`` keeps the generic schedule.
 
     Returns
     -------
@@ -303,32 +549,42 @@ def assess_risk(
         if value > threshold:
             factors.append(f"Elevated {marker} ({value:.1f} > {threshold:.0f})")
 
+    schedule = list(MONITORING_SCHEDULES.get(level, MONITORING_SCHEDULES["medium"]))
+    if disease_context is not None:
+        disease_key = str(disease_context["disease"])
+        specific = DISEASE_MONITORING.get((disease_key, level))
+        if specific:
+            schedule = [dict(item) for item in specific]
+
     result = RiskResult(
         risk_score=round(score, 4),
         risk_level=level,
         risk_factors=factors,
-        monitoring_schedule=list(
-            MONITORING_SCHEDULES.get(level, MONITORING_SCHEDULES["medium"])
-        ),
+        monitoring_schedule=schedule,
     )
     logger.info("Risk level %s (score %.4f)", level, score)
     return result
 
 
 def retrieve_evidence(
-    pipeline: RAGPipeline, query: str, top_k: int | None = None
+    pipeline: RAGPipeline,
+    query: str,
+    top_k: int | None = None,
+    topic: str | None = None,
 ) -> list[EvidenceItem]:
     """
-    Retrieve evidence chunks for a query from a RAG pipeline.
+    Retrieve evidence chunks for a query from the RAG pipeline.
 
     Parameters
     ----------
     pipeline : RAGPipeline
         Ingested retrieval pipeline.
     query : str
-        Query text.
+        Query text (should carry the disease context).
     top_k : int | None
         Number of results; defaults to ``settings.RAG_TOP_K``.
+    topic : str | None
+        Clinical topic tag to prioritize (e.g. ``"diabetes"``).
 
     Returns
     -------
@@ -343,7 +599,7 @@ def retrieve_evidence(
 
     limit = settings.RAG_TOP_K if top_k is None else int(top_k)
     try:
-        results = pipeline.retrieve(query, top_k=limit)
+        results = pipeline.retrieve(query, top_k=limit, topic=topic)
     except (EmptyCorpusError, EmptyQueryError) as error:
         raise RetrievalToolError(str(error)) from error
 
@@ -353,11 +609,117 @@ def retrieve_evidence(
             source=result.chunk.source,
             score=result.score,
             text=result.chunk.text,
+            topics=list((result.chunk.metadata or {}).get("topics", [])),
         )
         for result in results
     ]
     logger.info("Retrieved %d evidence items", len(evidence))
     return evidence
+
+
+# ---------------------------------------------------------------------------
+# Disease-specific treatment playbooks
+# ---------------------------------------------------------------------------
+
+#: Deterministic treatment recommendations keyed by ``(disease,
+#: predicted_positive, risk_level)`` with a per-disease fallback. These
+#: are clinical decision-support prompts for clinician review, not
+#: prescriptions; they keep recommendations anchored to the assessed
+#: condition instead of echoing whatever evidence chunks were retrieved.
+TREATMENT_PLAYBOOKS: dict[tuple[str, bool], dict[str, list[str]]] = {
+    ("diabetes", False): {
+        "low": [
+            "Maintain regular physical activity (>=150 min/week moderate "
+            "intensity) and a balanced diet.",
+            "Repeat diabetes screening (fasting glucose or HbA1c) annually, "
+            "or earlier if symptoms appear.",
+            "Keep BMI within the recommended range; discuss weight-management "
+            "strategies with your clinician.",
+        ],
+        "medium": [
+            "Discuss prediabetes-range results with your clinician; consider "
+            "a structured lifestyle program.",
+            "Repeat HbA1c in 3-6 months to confirm trend before any diagnosis.",
+            "Review diet, activity, and sleep habits that affect glycemic control.",
+        ],
+        "high": [
+            "Elevated diabetes probability despite class assignment - request "
+            "clinician review of glycemic markers.",
+            "Consider confirmatory HbA1c and fasting plasma glucose testing.",
+        ],
+    },
+    ("diabetes", True): {
+        "low": [
+            "Confirm the diagnosis with HbA1c on a separate day before "
+            "starting pharmacotherapy.",
+            "Start lifestyle modification (diet, activity, weight target) as "
+            "first-line therapy.",
+        ],
+        "medium": [
+            "First-line management: medical nutrition therapy plus physical "
+            "activity; metformin per clinician.",
+            "Monitor HbA1c every 3-6 months until stable at target.",
+            "Screen for diabetic complications (feet, eyes, kidneys) at baseline.",
+        ],
+        "high": [
+            "Prompt clinician review required; assess for symptomatic hyperglycemia.",
+            "Initiate guideline-based glucose-lowering therapy per ADA "
+            "Standards of Care.",
+            "Baseline complication screen: retinal exam, foot exam, urine "
+            "albumin, lipid panel.",
+        ],
+    },
+}
+
+#: Generic fallback when no disease-specific playbook matches.
+GENERIC_PLAYBOOK: dict[str, list[str]] = {
+    "low": [
+        "Continue routine preventive care and annual review with your clinician.",
+    ],
+    "medium": [
+        "Schedule a clinical consultation to review the assessment findings.",
+    ],
+    "high": [
+        "Seek prompt clinical review of this assessment by a physician.",
+    ],
+}
+
+
+def build_treatment_recommendations(
+    prediction: PredictionResult | None,
+    risk: RiskResult | None,
+) -> tuple[list[str], list[dict[str, str]]]:
+    """
+    Produce disease-specific treatment recommendations and monitoring.
+
+    Parameters
+    ----------
+    prediction : PredictionResult | None
+        Enriched prediction carrying disease context.
+    risk : RiskResult | None
+        Risk assessment providing the risk level.
+
+    Returns
+    -------
+    tuple[list[str], list[dict[str, str]]]
+        Recommendation strings and the monitoring schedule.
+    """
+
+    level = risk.risk_level if risk else "low"
+    monitoring = list(risk.monitoring_schedule) if risk else []
+
+    playbook: dict[str, list[str]] = GENERIC_PLAYBOOK
+    if prediction and prediction.disease:
+        positive = (
+            prediction.positive_probability is not None
+            and prediction.negative_probability is not None
+            and prediction.positive_probability >= prediction.negative_probability
+        )
+        playbook = TREATMENT_PLAYBOOKS.get(
+            (prediction.disease, positive), GENERIC_PLAYBOOK
+        )
+    recommendations = [str(item) for item in playbook.get(level, [])]
+    return recommendations, monitoring
 
 
 def assemble_clinical_report(
@@ -413,12 +775,22 @@ def assemble_clinical_report(
         f"using {input_type} input.",
     ]
     if prediction is not None:
-        summary_parts.append(
-            f"Primary prediction: {prediction.predicted_class} "
-            f"(confidence {prediction.confidence:.2f})."
-        )
+        outcome = prediction.predicted_label or prediction.predicted_class
+        if prediction.disease:
+            disease_name = prediction.disease.replace("_", " ")
+            prob_text = (
+                f"; {disease_name} probability {prediction.positive_probability:.1%}"
+                if prediction.positive_probability is not None
+                else ""
+            )
+            summary_parts.append(f"Predicted condition: {outcome}{prob_text}.")
+        else:
+            summary_parts.append(
+                f"Predicted condition: {outcome} "
+                f"(model confidence {prediction.confidence:.2f})."
+            )
     if risk is not None:
-        summary_parts.append(f"Overall risk: {risk.risk_level}.")
+        summary_parts.append(f"Overall risk: {risk.risk_level.upper()}.")
 
     report = ClinicalReport(
         patient=patient,
@@ -435,8 +807,14 @@ def assemble_clinical_report(
 
 
 __all__ = [
+    "DISEASE_REGISTRY",
     "assemble_clinical_report",
     "assess_risk",
+    "build_disease_query",
+    "build_rag_topic",
+    "build_treatment_recommendations",
+    "enrich_prediction",
+    "resolve_disease",
     "retrieve_evidence",
     "run_image_prediction",
     "run_prediction",

@@ -425,8 +425,9 @@ def render_clinical_results(
     if risk:
         score = float(risk.get("risk_score", 0.0))
         level = risk.get("risk_level")
-        confidence = (
-            float(prediction.get("confidence", 0.0))
+        prediction = report.get("prediction")
+        pos_prob = (
+            prediction.get("positive_probability")
             if isinstance(prediction, dict)
             else None
         )
@@ -434,8 +435,10 @@ def render_clinical_results(
         left.metric("Model-estimated risk score", f"{score:.2f}")
         middle.markdown("**Risk level**")
         middle.markdown(risk_badge_html(level), unsafe_allow_html=True)
-        if confidence is not None:
-            right.metric("Model confidence", f"{confidence:.1%}")
+        if pos_prob is not None:
+            # Disease probability (positive-class), distinct from model
+            # confidence in the predicted class.
+            right.metric("P(condition)", f"{float(pos_prob):.1%}")
         factors = risk.get("risk_factors") or []
         if factors:
             st.markdown("**Contributing factors**")
@@ -455,11 +458,31 @@ def render_clinical_results(
             "for this analysis."
         )
     if isinstance(prediction, dict):
-        st.caption(
-            "Model-estimated primary condition: "
-            f"**{prediction.get('predicted_class')}** "
-            f"(confidence {prediction.get('confidence', 0.0):.0%})."
+        outcome = prediction.get("predicted_label") or prediction.get(
+            "predicted_class", "unknown"
         )
+        st.markdown(f"**Predicted condition:** {outcome}")
+        if prediction.get("positive_probability") is not None:
+            disease_name = (prediction.get("disease") or "condition").replace(
+                "_", " "
+            )
+            st.markdown(
+                f"**{disease_name.title()} probability:** "
+                f"{float(prediction['positive_probability']):.1%}"
+            )
+        st.markdown(f"**Risk level:** {(risk or {}).get('risk_level', 'N/A')}")
+        with st.expander("Technical details"):
+            prob_rows = "\n".join(
+                f"- P(class={label}) = {value:.4f}"
+                for label, value in sorted(
+                    (prediction.get("probabilities") or {}).items()
+                )
+            )
+            st.text(
+                f"disease: {prediction.get('disease') or 'N/A'}\n"
+                f"predicted_class: {prediction.get('predicted_class')}\n"
+                f"model: {prediction.get('model_name')}\n{prob_rows}"
+            )
 
     st.markdown("### Mortality Risk")
     st.info(

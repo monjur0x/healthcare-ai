@@ -29,6 +29,11 @@ def _agent_llm() -> str | dict[str, object]:
             "base_url": settings.LLM_BASE_URL,
             "api_key": settings.LLM_API_KEY,
             "temperature": settings.LLM_TEMPERATURE,
+            "max_tokens": settings.LLM_MAX_TOKENS,
+            "timeout": settings.LLM_TIMEOUT_SECONDS,
+            # Free-tier shared pools throttle per-minute; retry with
+            # backoff instead of failing the whole agent on a 429.
+            "max_retries": settings.LLM_MAX_RETRIES,
         }
     return f"{settings.LLM_PROVIDER}/{settings.LLM_MODEL}"
 
@@ -63,6 +68,11 @@ def create_agents(
         "verbose": settings.CREW_VERBOSE,
         "allow_delegation": False,
         "max_iter": settings.LLM_MAX_ITERATIONS,
+        # Applies to every agent regardless of which LLM branch is
+        # active (native provider string or custom OpenAI endpoint):
+        # CrewAI reads these from the Agent itself.
+        "max_tokens": settings.LLM_MAX_TOKENS,
+        "max_execution_time": settings.LLM_TIMEOUT_SECONDS,
     }
     if llm is not None:
         common["llm"] = llm

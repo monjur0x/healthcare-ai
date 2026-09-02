@@ -42,6 +42,12 @@ class APISettings(BaseSettings):
     #: Empty disables the prediction step until configured.
     MODEL_PATH: str = ""
 
+    #: Dataset preset the served tabular model was trained on (e.g.
+    #: ``"diabetes"``). Declares the clinical disease context for
+    #: path-loaded models, which carry no preset metadata; overridden
+    #: by ``/api/v1/train`` when a new model is fitted in-process.
+    ACTIVE_PRESET: str = ""
+
     #: Path to a persisted ``ImageClassifier`` artifact (torch).
     #: Empty disables image-based analysis until configured.
     IMAGE_MODEL_PATH: str = ""

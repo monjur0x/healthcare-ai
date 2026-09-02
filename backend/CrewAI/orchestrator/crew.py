@@ -18,6 +18,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import re
 import time
 
 from collections.abc import Mapping
@@ -34,6 +35,11 @@ from .schemas import ClinicalReport, PatientInfo
 from .services import (
     assemble_clinical_report,
     assess_risk,
+    build_disease_query,
+    build_rag_topic,
+    build_treatment_recommendations,
+    enrich_prediction,
+    resolve_disease,
     retrieve_evidence,
     run_image_prediction,
     run_prediction,
@@ -68,6 +74,7 @@ class ClinicalCrew:
         markers: Mapping[str, float] | None = None,
         recommendations: list[str] | None = None,
         preprocessed: bool = False,
+        disease: str | None = None,
     ) -> None:
         self.patient = patient
         self.input_type = input_type
@@ -79,6 +86,9 @@ class ClinicalCrew:
         self._rag_pipeline = rag_pipeline
         self._markers = dict(markers or {})
         self._recommendations = list(recommendations or [])
+        #: Resolved clinical context for the assessed dataset preset;
+        #: ``None`` when the analysis has no disease mapping.
+        self._disease_context = resolve_disease(disease)
         #: Populated after run_analysis() with per-agent traces.
         self.crew_trace: CrewTrace | None = None
 
@@ -138,25 +148,32 @@ class ClinicalCrew:
             elif self._model is not None:
                 if not self._features:
                     raise OrchestrationError("Prediction requires feature row.")
-                prediction = run_prediction(
-                    self._model, self._features, preprocessed=self._preprocessed
+                prediction = enrich_prediction(
+                    run_prediction(
+                        self._model, self._features, preprocessed=self._preprocessed
+                    ),
+                    self._disease_context,
                 )
-            risk = assess_risk(prediction, self._markers)
+            risk = assess_risk(
+                prediction, self._markers, disease_context=self._disease_context
+            )
             step2.input_summary = f"features={len(self._features)} cols"
             step2.output_summary = (
-                f"pred={prediction.predicted_class} conf={prediction.confidence:.4f} "
-                f"risk={risk.risk_level}"
+                f"disease={prediction.disease or 'N/A'} "
+                f"label={prediction.predicted_label} "
+                f"p_pos={prediction.positive_probability} risk={risk.risk_level}"
             )
             step2.output_data = {"prediction": prediction, "risk": risk}
             step2.execution_time_s = time.perf_counter() - s
             step2.status = "SUCCESS" if prediction else "SKIPPED"
             icon = "✓" if prediction else "○"
             logger.info(
-                "[AGENT 2/7 %s] Disease Predictor (%.4fs) pred=%s conf=%.4f",
+                "[AGENT 2/7 %s] Disease Predictor (%.4fs) label=%s p_pos=%s risk=%s",
                 icon,
                 step2.execution_time_s,
-                prediction.predicted_class if prediction else "N/A",
-                prediction.confidence if prediction else 0,
+                prediction.predicted_label if prediction else "N/A",
+                prediction.positive_probability if prediction else "N/A",
+                risk.risk_level if risk else "N/A",
             )
         except Exception as e:
             step2.execution_time_s = time.perf_counter() - s
@@ -177,8 +194,13 @@ class ClinicalCrew:
         try:
             if self._rag_pipeline is not None:
                 query = self._build_query(prediction)
-                evidence = retrieve_evidence(self._rag_pipeline, query)
-            step3.input_summary = f"query={query!r}" if prediction else "(no query)"
+                topic = build_rag_topic(prediction)
+                evidence = retrieve_evidence(self._rag_pipeline, query, topic=topic)
+            step3.input_summary = (
+                f"query={query!r}, topic={build_rag_topic(prediction)!r}"
+                if prediction
+                else "(no query)"
+            )
             step3.output_summary = f"{len(evidence)} evidence items"
             step3.output_data = evidence
             step3.execution_time_s = time.perf_counter() - s
@@ -209,9 +231,15 @@ class ClinicalCrew:
         try:
             if risk:
                 monitoring_schedule = risk.monitoring_schedule
-            for ev in evidence[:2]:
-                text_snippet = ev.text[:120].replace("\n", " ").strip()
-                recommendations.append(f"Evidence-based: {text_snippet}")
+            playbook_recs, _ = build_treatment_recommendations(prediction, risk)
+            recommendations.extend(playbook_recs)
+            # One evidence-derived pointer (source label, not a raw text
+            # dump) so the report stays traceable to retrieved knowledge.
+            for ev in evidence[:1]:
+                recommendations.append(
+                    f"Evidence source consulted: {ev.document_id} "
+                    f"(topics: {', '.join(ev.topics) or 'general'})"
+                )
             step4.input_summary = (
                 f"risk={risk.risk_level if risk else 'N/A'}, evidence={len(evidence)}"
             )
@@ -250,6 +278,20 @@ class ClinicalCrew:
                 top_features = sorted(
                     self._features.items(), key=lambda x: abs(x[1]), reverse=True
                 )[:3]
+                outcome = prediction.predicted_label or prediction.predicted_class
+                if prediction.disease and prediction.positive_probability is not None:
+                    disease_name = prediction.disease.replace("_", " ")
+                    explanation_parts.append(
+                        f"Predicted outcome: {outcome}; {disease_name} "
+                        f"probability {prediction.positive_probability:.1%} "
+                        f"(model confidence in this class: "
+                        f"{prediction.confidence:.1%})"
+                    )
+                else:
+                    explanation_parts.append(
+                        f"Predicted outcome: {outcome} "
+                        f"(model confidence {prediction.confidence:.1%})"
+                    )
                 explanation_parts.append(
                     "Prediction driven primarily by: "
                     + ", ".join(f"{k}={v}" for k, v in top_features)
@@ -258,11 +300,8 @@ class ClinicalCrew:
                 explanation_parts.append(
                     "Risk factors: " + "; ".join(risk.risk_factors)
                 )
-            explanation_parts.append(
-                f"Model confidence: {prediction.confidence:.1%}" if prediction else ""
-            )
             step5.input_summary = (
-                f"prediction={prediction.predicted_class if prediction else 'N/A'}"
+                f"prediction={prediction.predicted_label if prediction else 'N/A'}"
             )
             step5.output_summary = "; ".join(explanation_parts)[:200]
             step5.output_data = {"explanation": explanation_parts}
@@ -348,7 +387,10 @@ class ClinicalCrew:
             # Attach crew trace to report context
             report.context = "\n".join(explanation_parts)
 
-            step7.input_summary = f"prediction+risk+evidence({len(evidence)})+recs({len(recommendations)})"
+            step7.input_summary = (
+                f"prediction+risk+evidence({len(evidence)})"
+                f"+recs({len(recommendations)})"[:200]
+            )
             step7.output_summary = (
                 f"ClinicalReport with {len(report.evidence)} evidence items"
             )
@@ -428,8 +470,17 @@ class ClinicalCrew:
             planning=False,
         )
         try:
-            result = crew.kickoff(inputs={"base_report": base.to_dict()})
-        except Exception as error:
+            result = crew.kickoff(
+                inputs={
+                    "base_report": base.to_dict(),
+                    **(
+                        {"disease_context": self._disease_context}
+                        if self._disease_context
+                        else {}
+                    ),
+                }
+            )
+        except Exception as error:  # noqa: BLE001
             logger.error("Crew kickoff failed: %s", error)
             return base
 
@@ -457,12 +508,8 @@ class ClinicalCrew:
         return self.run_analysis()
 
     def _build_query(self, prediction) -> str:
-        if prediction is None:
-            return "clinical management and monitoring recommendations"
-        return (
-            f"clinical evidence and management for {prediction.predicted_class} "
-            f"at {prediction.confidence:.0%} confidence"
-        )
+        """Build a disease-anchored RAG query (never a raw class integer)."""
+        return build_disease_query(prediction)
 
     def _patient_analyst(self) -> str:
         """Summarize patient features for downstream agents."""
@@ -485,17 +532,34 @@ class ClinicalCrew:
         return "; ".join(p for p in parts if p)
 
     @staticmethod
+    @staticmethod
+    def _repair_json(text: str) -> str:
+        """Apply bounded fixes for common small-model JSON mistakes.
+
+        Strips markdown code fences, removes trailing commas, replaces
+        control characters inside the payload, and normalizes curly
+        quotes. Deliberately conservative: no structural rewriting.
+        """
+        cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", text.strip())
+        cleaned = re.sub(r",\s*([}\]])", r"\1", cleaned)
+        cleaned = cleaned.replace("“", '"').replace("”", '"')
+        cleaned = " ".join(cleaned.splitlines())
+        return cleaned
+
     def _parse_report(result: object):
         text = str(result)
         start, end = text.find("{"), text.rfind("}")
         if start < 0 or end <= start:
             return None
-        try:
-            payload = json.loads(text[start : end + 1])
-            return ClinicalReport.model_validate(payload)
-        except (json.JSONDecodeError, ValueError, TypeError) as error:
-            logger.warning("Report parse failed: %s", error)
-            return None
+        candidate = text[start : end + 1]
+        for attempt_text in (candidate, ClinicalCrew._repair_json(candidate)):
+            try:
+                payload = json.loads(attempt_text)
+                return ClinicalReport.model_validate(payload)
+            except (json.JSONDecodeError, ValueError, TypeError) as error:
+                last_error = error
+        logger.warning("Report parse failed: %s", last_error)
+        return None
 
     @staticmethod
     def _merge_llm_over_base(
