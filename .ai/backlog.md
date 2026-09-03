@@ -105,9 +105,6 @@ load-bearing claims verified by read (`crew.py:555`, `store_chroma.py:137`,
   skipped-scaling path at `CrewAI/orchestrator/services.py:435` when a
   torch model is served, and engages the existing `hasattr` wiring in
   `train()` for federated torch models.
-- [ ] `backend/models/csv/torch_mlp.py:103,236` — no `scaler_params`,
-  `save()` omits scaler; `backend/api/services.py:1664` raises
-  `AttributeError` when serving a torch model.
 - [ ] `backend/preprocessing/image/normalization.py:189` — `_standard` on
   `uint8 0-255` with `~0.5` means, missing `/255` → values `~±500`.
 - [ ] `backend/federated/client.py:103-106` — DP return discarded, original
@@ -118,8 +115,11 @@ load-bearing claims verified by read (`crew.py:555`, `store_chroma.py:137`,
 - [ ] `backend/federated/registry.py:39` (+ `risk/store.py:49`,
   `feedback/store.py:45`) — shared SQLite connection, no lock/WAL →
   gRPC/API thread races.
-- [ ] `backend/rag/store_chroma.py:137` — trailing flag forces Chroma
-  `ImportError` even when installed.
+- [x] FIXED: `backend/rag/store_chroma.py:137` — trailing
+  `_CHROMADB_AVAILABLE = False` overwrote the import probe, forcing
+  `ImportError` even when installed; line removed so the probe governs.
+  Verified: absent package → helpful `ImportError`, stubbed package →
+  init/add/search/len functional.
 - [ ] `backend/federated/distributed.py:619-624` — cert tuple passed as
   `root_certificates` → mTLS broken; `config.py:49` TLS off by default →
   plaintext hospital↔server gRPC.

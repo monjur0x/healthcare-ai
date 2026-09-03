@@ -62,6 +62,9 @@ the marker-aware queries improved retrieval quality.
    artifact persistence, verified 5/5 checks incl. legacy torch
    artifact compat, `ruff` clean). Next: Chroma flag, DP return,
    registry locking.
+7. Update 2026-09-04: P0 batch 3 done (Chroma flag line removed, probe
+   governs; absent/stubbed paths verified 2/2, `ruff` clean). Next:
+   DP return, registry locking.
 
 ## Open Questions
 

@@ -17,6 +17,8 @@ M5 — Bug-fix sweep against the research proposal (deferred clinical issues)
   (`TorchMLPClassifier` params interface + artifact persistence,
   fixes `analyze_csv` / crew-scaler `AttributeError` for served torch
   models)
+- ✅ P0 batch 3 completed: Chroma availability-flag fix (import probe
+  governs again; both absent/stubbed paths verified)
 
 ## Completed
 - ✅ M3.1: Privacy layer (anonymize_frame) wired into hospital data loading
@@ -32,8 +34,8 @@ M5 — Bug-fix sweep against the research proposal (deferred clinical issues)
 - Corpus expansion
 - Six-agent pipeline as distinct CrewAI agents in run_llm
 - Full-project review P0/P1/P2 items (see .ai/backlog.md "Full-project
-  review (2026-09-03)") — batches 1-2 done (crew parse bug, encoder
-  persistence, torch scaler parity); next candidates: Chroma flag,
+  review (2026-09-03)") — batches 1-3 done (crew parse bug, encoder
+  persistence, torch scaler parity, Chroma flag); next candidates:
   DP return, registry locking
 
 ## Next Steps
