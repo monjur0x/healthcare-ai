@@ -142,9 +142,14 @@ load-bearing claims verified by read (`crew.py:555`, `store_chroma.py:137`,
 
 ### P1 — invalid science / metrics / silent corruption
 
-- [ ] FedAvg weighting: `federated/parameters.py:55`,
-  `federated/server.py:250` unweighted; secure forces equal weights while
-  non-secure is count-weighted (`distributed.py:290-293`).
+- [x] FIXED FedAvg weighting: `average_weights` accepts optional
+  `sample_counts` (uniform default preserves the `AggregateFn`
+  contract); in-process server passes fit counts (custom fns still
+  single-arg); both secure paths pre-scale via new `scale_updates`
+  so masks cancel exactly into the count-weighted mean
+  (`SecureAggregator.aggregate(..., average=False)`); distributed
+  secure path matches its weighted non-secure path. Verified:
+  secure == non-secure globals on both servers.
 - [ ] DP accounting: fresh `PrivacyEngine` per fit, flat client×round eps
   summed (`privacy.py:207-213`, `server.py:242-244`).
 - [ ] OTP masks: fixed derivation, no seed/round nonce

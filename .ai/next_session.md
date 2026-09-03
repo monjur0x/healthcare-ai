@@ -72,6 +72,9 @@ the marker-aware queries improved retrieval quality.
    versioning + duplicate rollback + registry try/finally; 8-thread
    contention verified on all three stores, `ruff` clean). All P0
    closed — P1 next.
+10. Update 2026-09-04: P1 batch 1 done (FedAvg count-weighting both
+    servers, secure/non-secure parity; 12/12 checks incl. end-to-end
+    server runs, `ruff` clean). P1 next: DP accounting, OTP nonce.
 
 ## Open Questions
 

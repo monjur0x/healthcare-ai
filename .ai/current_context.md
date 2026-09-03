@@ -25,6 +25,9 @@ M5 — Bug-fix sweep against the research proposal (deferred clinical issues)
 - ✅ P0 batch 5 completed: SQLite locking across registry + risk +
   feedback stores (RLock, WAL, atomic versioning, duplicate-round
   rollback, registry try/finally; 8-thread contention verified)
+- ✅ P1 batch 1 completed: FedAvg count-weighting on both servers with
+  secure/non-secure parity (optional counts, pre-scaled masked mean;
+  verified identical globals)
 
 ## Completed
 - ✅ M3.1: Privacy layer (anonymize_frame) wired into hospital data loading
@@ -42,9 +45,9 @@ M5 — Bug-fix sweep against the research proposal (deferred clinical issues)
 - Full-project review P0/P1/P2 items (see .ai/backlog.md "Full-project
   review (2026-09-03)") — all P0 batches done (crew parse bug, encoder
   persistence, torch scaler parity, Chroma flag, DP return, registry
-  locking); P1 next (FedAvg weighting, DP accounting, OTP nonce,
-  canonical mappings, agent metrics, API hardening, risk/feedback
-  semantics, baseline rigor)
+  locking); P1 batch 1 done (FedAvg weighting); P1 next (DP accounting,
+  OTP nonce, canonical mappings, agent metrics, API hardening,
+  risk/feedback semantics, baseline rigor)
 
 ## Next Steps
 1. ~~Commit the bug-fix sweep~~ — done (see session log below).
