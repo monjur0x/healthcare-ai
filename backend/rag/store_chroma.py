@@ -132,6 +132,3 @@ class ChromaVectorStore:
         # Convert distances to similarity scores (cosine: 1 - distance)
         scores = [1.0 - d for d in distances]
         return list(zip(ids, scores, strict=True))
-
-
-_CHROMADB_AVAILABLE = False
