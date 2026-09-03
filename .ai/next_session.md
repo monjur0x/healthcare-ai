@@ -65,6 +65,13 @@ the marker-aware queries improved retrieval quality.
 7. Update 2026-09-04: P0 batch 3 done (Chroma flag line removed, probe
    governs; absent/stubbed paths verified 2/2, `ruff` clean). Next:
    DP return, registry locking.
+8. Update 2026-09-04: P0 batch 4 done (DP weight sync-back incl.
+   prefix-strip + fail-loud mismatch, verified 5/5 through real
+   `_train_locally`, `ruff` clean). Next: registry locking.
+9. Update 2026-09-04: P0 batch 5 done (SQLite RLock + WAL + atomic
+   versioning + duplicate rollback + registry try/finally; 8-thread
+   contention verified on all three stores, `ruff` clean). All P0
+   closed — P1 next.
 
 ## Open Questions
 

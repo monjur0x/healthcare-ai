@@ -107,14 +107,25 @@ load-bearing claims verified by read (`crew.py:555`, `store_chroma.py:137`,
   `train()` for federated torch models.
 - [ ] `backend/preprocessing/image/normalization.py:189` — `_standard` on
   `uint8 0-255` with `~0.5` means, missing `/255` → values `~±500`.
-- [ ] `backend/federated/client.py:103-106` — DP return discarded, original
-  weights returned → DP-SGD has zero effect on shared weights.
+- [x] FIXED: `backend/federated/client.py:103-106` — DP return
+  discarded, original weights returned → DP-SGD had zero effect on
+  shared weights. `_train_locally` now syncs the trained module back
+  via `_apply_trained_weights` (direct `load_state_dict`, Opacus
+  `_module.`-prefix strip on mismatch, loud `RuntimeError` on
+  persistent mismatch instead of stale weights).
 - [ ] `backend/federated/hospitals.py:211` + `distributed.py:595` —
   per-slice scalers never synced; heterogeneous canonical path unscaled vs
   partitioned scaled → FedAvg over incomparable spaces.
-- [ ] `backend/federated/registry.py:39` (+ `risk/store.py:49`,
-  `feedback/store.py:45`) — shared SQLite connection, no lock/WAL →
-  gRPC/API thread races.
+- [x] FIXED: `backend/federated/registry.py:39` (+ `risk/store.py`,
+  `feedback/store.py`) — shared SQLite connection, no lock. All three
+  stores gained an `RLock` (nested summary helpers are re-entrant),
+  `check_same_thread=False` + `timeout=10`, and WAL journal mode for
+  cross-process readers/writers; registry `register_model`
+  count-then-insert is atomic under the lock, duplicate
+  `record_round` rolls back then fails loud; `api/services.py`
+  `_train_distributed` registry read wrapped in `try/finally`.
+  Verified: 8-thread hammering on all three stores, unique versions,
+  rollback-usable connection.
 - [x] FIXED: `backend/rag/store_chroma.py:137` — trailing
   `_CHROMADB_AVAILABLE = False` overwrote the import probe, forcing
   `ImportError` even when installed; line removed so the probe governs.

@@ -19,6 +19,12 @@ M5 — Bug-fix sweep against the research proposal (deferred clinical issues)
   models)
 - ✅ P0 batch 3 completed: Chroma availability-flag fix (import probe
   governs again; both absent/stubbed paths verified)
+- ✅ P0 batch 4 completed: DP-trained weights sync back into the client
+  model (`_apply_trained_weights` with prefix-strip + fail-loud
+  mismatch; DP/non-DP paths verified 5/5)
+- ✅ P0 batch 5 completed: SQLite locking across registry + risk +
+  feedback stores (RLock, WAL, atomic versioning, duplicate-round
+  rollback, registry try/finally; 8-thread contention verified)
 
 ## Completed
 - ✅ M3.1: Privacy layer (anonymize_frame) wired into hospital data loading
@@ -34,9 +40,11 @@ M5 — Bug-fix sweep against the research proposal (deferred clinical issues)
 - Corpus expansion
 - Six-agent pipeline as distinct CrewAI agents in run_llm
 - Full-project review P0/P1/P2 items (see .ai/backlog.md "Full-project
-  review (2026-09-03)") — batches 1-3 done (crew parse bug, encoder
-  persistence, torch scaler parity, Chroma flag); next candidates:
-  DP return, registry locking
+  review (2026-09-03)") — all P0 batches done (crew parse bug, encoder
+  persistence, torch scaler parity, Chroma flag, DP return, registry
+  locking); P1 next (FedAvg weighting, DP accounting, OTP nonce,
+  canonical mappings, agent metrics, API hardening, risk/feedback
+  semantics, baseline rigor)
 
 ## Next Steps
 1. ~~Commit the bug-fix sweep~~ — done (see session log below).
