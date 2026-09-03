@@ -552,7 +552,7 @@ class ClinicalCrew:
         cleaned = " ".join(cleaned.splitlines())
         return cleaned
 
-    def _parse_report(result: object):
+    def _parse_report(self, result: object) -> ClinicalReport | None:
         text = str(result)
         start, end = text.find("{"), text.rfind("}")
         if start < 0 or end <= start:

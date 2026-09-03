@@ -97,7 +97,7 @@ def _normalize_columns(dataframe: pd.DataFrame) -> pd.DataFrame:
 
 def prepare_tabular_data(
     dataset: Path, target: str, max_rows: int | None
-) -> tuple[pd.DataFrame, pd.Series, dict[str, object]]:
+) -> tuple[pd.DataFrame, pd.Series, dict[str, object], dict[str, object]]:
     """
     Load and preprocess a CSV into a feature frame and encoded labels.
 
@@ -112,9 +112,10 @@ def prepare_tabular_data(
 
     Returns
     -------
-    tuple[pd.DataFrame, pd.Series, dict[str, object]]
+    tuple[pd.DataFrame, pd.Series, dict[str, object], dict[str, object]]
         Engineered feature frame, integer-encoded label series aligned
-        by index, and the fitted scaler's serializable parameters.
+        by index, the fitted scaler's serializable parameters, and the
+        fitted encoder's serializable parameters.
 
     Raises
     ------
@@ -162,7 +163,7 @@ def prepare_tabular_data(
         labels.nunique(),
         dataset,
     )
-    return features, labels, pipeline.scaler_params()
+    return features, labels, pipeline.scaler_params(), pipeline.encoder_params()
 
 
 def _partition_shards(
@@ -531,7 +532,7 @@ class AnalysisService:
 
         dataset_path, target = self._resolve_dataset(preset, dataset, target)
         try:
-            features, labels, scaler_params = prepare_tabular_data(
+            features, labels, scaler_params, encoder_params = prepare_tabular_data(
                 dataset_path, target, max_rows
             )
         except (OSError, ValueError) as error:
@@ -588,9 +589,12 @@ class AnalysisService:
                     )
                 if hasattr(fitted, "set_scaler_params"):
                     fitted.set_scaler_params(scaler_params)
+                if hasattr(fitted, "set_encoder_params"):
+                    fitted.set_encoder_params(encoder_params)
             else:
                 fitted = TabularClassifier(model_name=model).fit(train_x, train_y)
                 fitted.set_scaler_params(scaler_params)
+                fitted.set_encoder_params(encoder_params)
                 fed_metrics = None
         except InvalidInputError:
             raise
@@ -1661,7 +1665,10 @@ class AnalysisService:
                 "analysis cannot align the data."
             )
         try:
-            pipeline = CSVPipeline(scaler_params=self.model.scaler_params)
+            pipeline = CSVPipeline(
+                scaler_params=self.model.scaler_params,
+                encoder_params=getattr(self.model, "encoder_params", None),
+            )
             result = pipeline.run(csv)
         except Exception as error:
             raise InvalidInputError(f"CSV preprocessing failed: {error}") from error

@@ -7,6 +7,7 @@ label encoding or one-hot encoding.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 
 import pandas as pd
@@ -53,6 +54,9 @@ class CSVEncoder:
         self._columns = columns
         self._mode = mode
         self._drop_first = drop_first
+        self._label_mapping: dict[str, dict[str, int]] = {}
+        self._one_hot_columns: tuple[str, ...] = ()
+        self._fitted = False
 
     def fit(self, dataframe: pd.DataFrame) -> CSVEncoder:
         """
@@ -73,7 +77,7 @@ class CSVEncoder:
             self._columns = tuple(
                 dataframe.select_dtypes(include=["object", "category"]).columns
             )
-        self._label_mapping: dict[str, dict[object, int]] = {}
+        self._label_mapping = {}
 
         if self._mode == "label":
             for col in self._columns:
@@ -82,6 +86,19 @@ class CSVEncoder:
                     category: idx
                     for idx, category in enumerate(sorted(map(str, categories)))
                 }
+            self._one_hot_columns = ()
+        elif self._mode == "onehot":
+            present = [col for col in self._columns if col in dataframe.columns]
+            if present:
+                dummies = pd.get_dummies(
+                    dataframe[present],
+                    columns=present,
+                    drop_first=self._drop_first,
+                    dtype=int,
+                )
+                self._one_hot_columns = tuple(dummies.columns)
+            else:
+                self._one_hot_columns = ()
 
         self._fitted = True
         return self
@@ -106,6 +123,8 @@ class CSVEncoder:
             If ``fit`` was not called before ``transform``.
         RuntimeError
             If an unsupported encoding mode is requested.
+        ValueError
+            If label mode meets a non-null category unseen during ``fit``.
         """
 
         if not getattr(self, "_fitted", False):
@@ -122,7 +141,15 @@ class CSVEncoder:
                 if col not in work.columns:
                     continue
                 mapping = self._label_mapping.get(col, {})
-                work[col] = work[col].astype(str).map(mapping)
+                raw = work[col]
+                values = raw.astype(str)
+                unseen = sorted(set(values[raw.notna()].unique()) - set(mapping))
+                if unseen:
+                    raise ValueError(
+                        f"Column '{col}' contains categories unseen during "
+                        f"fitting: {unseen}."
+                    )
+                work[col] = values.map(mapping)
                 label_encoded.append(col)
         elif self._mode == "onehot":
             columns_list = list(self._columns)
@@ -132,6 +159,15 @@ class CSVEncoder:
                 drop_first=self._drop_first,
                 dtype=int,
             )
+            if self._one_hot_columns:
+                extra = [
+                    col for col in encoded.columns if col not in self._one_hot_columns
+                ]
+                if extra:
+                    logger.warning("Dropping unseen one-hot columns: %s", extra)
+                encoded = encoded.reindex(
+                    columns=list(self._one_hot_columns), fill_value=0
+                )
             work = work.drop(columns=columns_list)
             work = pd.concat([work, encoded], axis=1)
             one_hot_encoded = self._columns
@@ -154,3 +190,56 @@ class CSVEncoder:
             len(label_encoded) + len(one_hot_encoded),
         )
         return work, report
+
+    def params(self) -> dict[str, object]:
+        """
+        Return the fitted encoding state as a serializable mapping.
+
+        Returns
+        -------
+        dict[str, object]
+            Encoding mode, column list, label mappings, and one-hot
+            column list (empty when not fitted).
+        """
+
+        if not self._fitted:
+            return {}
+        return {
+            "columns": list(self._columns or ()),
+            "mode": self._mode,
+            "drop_first": self._drop_first,
+            "label_mapping": {
+                column: dict(mapping) for column, mapping in self._label_mapping.items()
+            },
+            "one_hot_columns": list(self._one_hot_columns),
+        }
+
+    @classmethod
+    def from_params(cls, params: Mapping[str, object]) -> CSVEncoder:
+        """
+        Rebuild a fitted encoder from persisted parameters.
+
+        Parameters
+        ----------
+        params : Mapping[str, object]
+            Output of :meth:`params`.
+
+        Returns
+        -------
+        CSVEncoder
+            A fitted encoder reproducing the original transform.
+        """
+
+        encoder = cls(
+            columns=tuple(params.get("columns") or ()),
+            mode=str(params.get("mode") or "label"),
+            drop_first=bool(params.get("drop_first", False)),
+        )
+        raw_mapping = params.get("label_mapping") or {}
+        encoder._label_mapping = {
+            str(column): {str(value): int(code) for value, code in mapping.items()}
+            for column, mapping in raw_mapping.items()
+        }
+        encoder._one_hot_columns = tuple(params.get("one_hot_columns") or ())
+        encoder._fitted = True
+        return encoder

@@ -71,6 +71,9 @@ class CSVPipeline:
     scaler_params : dict[str, object] | None
         Persisted ``CSVScaler.params()`` to reuse at inference instead of
         re-fitting on this batch (None re-fits as before).
+    encoder_params : dict[str, object] | None
+        Persisted ``CSVEncoder.params()`` to reuse at inference instead of
+        re-fitting on this batch (None fits as before).
     enable_feature_engineering : bool | None
         Whether to create derived features. Defaults to
         ``settings.ENABLE_FEATURE_ENGINEERING``.
@@ -85,6 +88,7 @@ class CSVPipeline:
         scale_columns: tuple[str, ...] | None = None,
         scale_method: str | None = None,
         scaler_params: dict[str, object] | None = None,
+        encoder_params: dict[str, object] | None = None,
         enable_feature_engineering: bool | None = None,
     ) -> None:
         self._transformer = CSVTransformer(
@@ -95,6 +99,7 @@ class CSVPipeline:
             scale_columns=scale_columns,
             scale_method=scale_method,
             scaler_params=scaler_params,
+            encoder_params=encoder_params,
             enable_feature_engineering=enable_feature_engineering,
         )
 
@@ -203,6 +208,19 @@ class CSVPipeline:
         """
 
         return self._transformer.scaler_params()
+
+    def encoder_params(self) -> dict[str, object]:
+        """
+        Return the fitted encoder's serializable parameters.
+
+        Returns
+        -------
+        dict[str, object]
+            ``CSVEncoder.params()`` output; empty dict when the encoder
+            has not been fitted yet.
+        """
+
+        return self._transformer.encoder_params()
 
 
 def _asdict_optional(report) -> dict | None:

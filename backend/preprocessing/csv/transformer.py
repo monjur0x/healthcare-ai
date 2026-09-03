@@ -61,6 +61,9 @@ class CSVTransformer:
         columns are scaled.
     scale_method : str | None
         Scaling method; defaults to ``settings.SCALER``.
+    encoder_params : dict[str, object] | None
+        Persisted ``CSVEncoder.params()`` to reuse at inference instead of
+        re-fitting on this batch (None fits as before).
     enable_feature_engineering : bool | None
         Whether to create derived features. Defaults to
         ``settings.ENABLE_FEATURE_ENGINEERING``.
@@ -75,18 +78,25 @@ class CSVTransformer:
         scale_columns: tuple[str, ...] | None = None,
         scale_method: str | None = None,
         scaler_params: dict[str, object] | None = None,
+        encoder_params: dict[str, object] | None = None,
         enable_feature_engineering: bool | None = None,
     ) -> None:
         self._validator = CSVValidator(required_columns=required_columns)
         self._cleaner = CSVCleaner()
         self._imputer = CSVImputer()
-        self._encoder = CSVEncoder(columns=encode_columns, mode=encode_mode)
+        if encoder_params is not None:
+            self._encoder = CSVEncoder.from_params(encoder_params)
+        else:
+            self._encoder = CSVEncoder(columns=encode_columns, mode=encode_mode)
         self._engineer = CSVFeatureEngineer()
         self._scaler_params = scaler_params
         if scaler_params is not None:
             self._scaler = CSVScaler.from_params(scaler_params)
         else:
             self._scaler = CSVScaler(columns=scale_columns, method=scale_method)
+        self._encoder_params = encoder_params
+        self._encode_columns = encode_columns
+        self._encode_mode = encode_mode
         self._input_columns = input_columns
         self._enable_feature_engineering = (
             settings.ENABLE_FEATURE_ENGINEERING
@@ -109,6 +119,10 @@ class CSVTransformer:
             Self, fit and ready for transform.
         """
 
+        if self._encoder_params is None:
+            self._encoder = CSVEncoder(
+                columns=self._encode_columns, mode=self._encode_mode
+            )
         self.transform(dataframe)
         self._fitted = True
         return self
@@ -152,8 +166,14 @@ class CSVTransformer:
             self._scaler.fit(work)
         work, scaling = self._scaler.transform(work)
 
-        # 6. Encode categorical columns last.
-        self._encoder.fit(work)
+        # 6. Encode categorical columns last. A re-fit on every batch
+        #    would remap categories (a single-row batch always maps its
+        #    sole value to 0), so reuse persisted params — or the
+        #    first fit — for inference-time consistency.
+        if self._encoder_params is None and not getattr(
+            self._encoder, "_fitted", False
+        ):
+            self._encoder.fit(work)
         work, encoding = self._encoder.transform(work)
 
         if self._input_columns is not None:
@@ -188,4 +208,19 @@ class CSVTransformer:
 
         if getattr(self._scaler, "_fitted", False):
             return self._scaler.params()
+        return {}
+
+    def encoder_params(self) -> dict[str, object]:
+        """
+        Return the fitted encoder's serializable parameters.
+
+        Returns
+        -------
+        dict[str, object]
+            ``CSVEncoder.params()`` output; empty dict when the encoder
+            has not been fitted yet.
+        """
+
+        if getattr(self._encoder, "_fitted", False):
+            return self._encoder.params()
         return {}
