@@ -24,6 +24,45 @@ from models.base import BaseModel
 
 ModelFactory = Callable[[], BaseModel]
 
+#: Prefix Opacus uses for wrapped-module keys in ``state_dict`` output.
+_OPACUS_STATE_PREFIX = "_module."
+
+
+def _apply_trained_weights(module: Any, trained_module: Any) -> None:
+    """
+    Copy DP-trained weights back into the model's own module.
+
+    ``train_with_differential_privacy`` trains the Opacus-wrapped copy
+    of the module, so the returned weights must be synced back before
+    the client reads parameters from its model. Opacus prefixes wrapped
+    keys with ``_module.``; that prefix is stripped when the direct
+    load fails. A persistent mismatch raises instead of silently
+    sharing stale weights.
+
+    Parameters
+    ----------
+    module : Any
+        The model's underlying torch module to update in place.
+    trained_module : Any
+        The trained (possibly Opacus-wrapped) module to copy from.
+    """
+
+    if trained_module is module:
+        return
+    try:
+        module.load_state_dict(trained_module.state_dict())
+        return
+    except (RuntimeError, ValueError):
+        pass
+    state = trained_module.state_dict()
+    stripped = {
+        key[len(_OPACUS_STATE_PREFIX) :]
+        if key.startswith(_OPACUS_STATE_PREFIX)
+        else key: value
+        for key, value in state.items()
+    }
+    module.load_state_dict(stripped)
+
 
 class FederatedClient(NumPyClient):
     """
@@ -100,9 +139,10 @@ class FederatedClient(NumPyClient):
                 "Differential privacy requires a torch-backed model "
                 "(e.g. TorchMLPClassifier) exposing a 'module'."
             )
-        _, epsilon = train_with_differential_privacy(
+        trained_module, epsilon = train_with_differential_privacy(
             module, self._X_train, self._y_train, self._privacy
         )
+        _apply_trained_weights(module, trained_module)
         return model.get_parameters(), {"epsilon": float(epsilon)}
 
     def get_parameters(self, config: dict[str, Any] | None = None) -> list[np.ndarray]:
