@@ -254,15 +254,20 @@ class RiskHistoryStore:
         w = window or settings.TREND_WINDOW
         recent = self.get_recent_scores(patient_id, preset, w)
         if len(recent) < settings.MIN_TREND_POINTS:
+            # Too few points for a slope, but report the real latest
+            # values (never fabricated zeros) so callers can show
+            # progress toward the minimum.
+            scores = [r[0] for r in recent]
+            levels = [r[1] for r in recent]
             return RiskTrend(
                 patient_id=patient_id,
                 preset=preset,
-                recent_scores=[],
+                recent_scores=scores,
                 trend_direction="stable",
                 slope=0.0,
-                avg_score=0.0,
-                latest_score=0.0,
-                latest_level="low",
+                avg_score=sum(scores) / len(scores) if scores else 0.0,
+                latest_score=scores[0] if scores else 0.0,
+                latest_level=levels[0] if levels else "low",
                 n_points=len(recent),
             )
 
@@ -293,7 +298,7 @@ class RiskHistoryStore:
 
         # Escalation alert: check if latest jump exceeds threshold
         escalation = False
-        if len(scores) >= 2:
+        if settings.ALERTS_ENABLED and len(scores) >= 2:
             delta = scores[0] - scores[1]
             if delta > settings.ESCALATION_THRESHOLD:
                 escalation = True
@@ -379,8 +384,11 @@ class RiskHistoryStore:
         Returns
         -------
         list[EscalationAlert]
-            Active alerts sorted by timestamp (newest first).
+            Active alerts sorted by timestamp (newest first); empty when
+            alerting is disabled (``RISK_HISTORY_ALERTS_ENABLED=false``).
         """
+        if not settings.ALERTS_ENABLED:
+            return []
         alerts = []
         pairs = self.get_all_patients()
         for patient_id, preset in pairs:

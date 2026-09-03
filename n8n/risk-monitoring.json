@@ -39,7 +39,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// httpRequest v4 auto-splits the JSON array so each item is one\n// escalation alert; normalize it for the notification payload.\nconst alert = $json;\nreturn [{ json: {\n  alert: 'risk_escalation',\n  patient_id: alert.patient_id,\n  preset: alert.preset,\n  previous_score: alert.previous_score,\n  current_score: alert.current_score,\n  delta: alert.delta,\n  threshold: alert.threshold,\n  detected_at: alert.timestamp || new Date().toISOString(),\n} }];"
+        "jsCode": "// httpRequest v4 auto-splits the JSON array so each item is one\n// escalation alert. Drop already-notified alerts (workflow static data\n// persists across polls) so a standing escalation notifies once;\n// normalize survivors for the notification payload.\nconst alert = $json;\nconst staticData = $getWorkflowStaticData('global');\nstaticData.seenAlerts = staticData.seenAlerts || {};\nconst now = Date.now();\nfor (const key of Object.keys(staticData.seenAlerts)) {\n  if (now - staticData.seenAlerts[key] > 7 * 24 * 60 * 60 * 1000) {\n    delete staticData.seenAlerts[key];\n  }\n}\nconst key = `${alert.patient_id}|${alert.preset}|${alert.timestamp}`;\nif (staticData.seenAlerts[key]) { return []; }\nstaticData.seenAlerts[key] = now;\nreturn [{ json: {\n  alert: 'risk_escalation',\n  patient_id: alert.patient_id,\n  preset: alert.preset,\n  previous_score: alert.previous_score,\n  current_score: alert.current_score,\n  delta: alert.delta,\n  threshold: alert.threshold,\n  detected_at: alert.timestamp || new Date().toISOString(),\n} }];"
       },
       "id": "rm000000-0000-4000-8000-000000000003",
       "name": "Format Alert",
