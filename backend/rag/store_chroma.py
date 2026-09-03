@@ -43,6 +43,7 @@ class ChromaVectorStore:
             )
         persist = persist_dir or settings.CHROMA_PERSIST_DIR
         self._client = chromadb.PersistentClient(path=persist)
+        self._collection_name = collection_name
         self._collection = self._client.get_or_create_collection(
             name=collection_name,
             metadata={"hnsw:space": "cosine"},
@@ -57,6 +58,14 @@ class ChromaVectorStore:
     def __len__(self) -> int:
         """Number of stored vectors."""
         return self._collection.count()
+
+    def clear(self) -> None:
+        """Drop the collection contents (used when the index is rebuilt)."""
+        self._client.delete_collection(self._collection_name)
+        self._collection = self._client.get_or_create_collection(
+            name=self._collection_name,
+            metadata={"hnsw:space": "cosine"},
+        )
 
     def add(self, ids: list[str], vectors: np.ndarray) -> None:
         """

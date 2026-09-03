@@ -32,6 +32,10 @@ class Embedder(ABC):
     Maps texts to a dense embedding matrix.
     """
 
+    #: True when embeddings depend on the fitted corpus vocabulary and
+    #: must be recomputed for every chunk if new documents arrive.
+    corpus_dependent: bool = False
+
     @abstractmethod
     def fit(self, texts: list[str]) -> Embedder:
         """
@@ -93,6 +97,26 @@ class Embedder(ABC):
 
         return self.fit(texts).embed(texts)
 
+    def embed_query(self, query: str) -> np.ndarray:
+        """
+        Embed one retrieval query.
+
+        Defaults to plain :meth:`embed`; dense models with asymmetric
+        query handling (e.g. BGE instructions) override this.
+
+        Parameters
+        ----------
+        query : str
+            Query text.
+
+        Returns
+        -------
+        np.ndarray
+            ``(D,)`` query vector.
+        """
+
+        return self.embed([query])[0]
+
 
 class TfidfEmbedder(Embedder):
     """
@@ -105,6 +129,8 @@ class TfidfEmbedder(Embedder):
     seed : int | None
         Unused, kept for interface consistency.
     """
+
+    corpus_dependent = True
 
     def __init__(
         self,
@@ -233,16 +259,25 @@ class SentenceTransformerEmbedder(Embedder):
         return self
 
     def embed(self, texts: list[str]) -> np.ndarray:
-        """Embed texts with the loaded sentence-transformer model."""
+        """Embed document texts with the loaded sentence-transformer model."""
         if not texts:
             raise EmbeddingError("Cannot embed an empty list of texts.")
-        model = self._load_model()
+        return self._encode(texts)
+
+    def embed_query(self, query: str) -> np.ndarray:
+        """Embed a query, prepending the BGE instruction (queries only)."""
+        if not query.strip():
+            raise EmbeddingError("Cannot embed an empty query.")
+        texts = [query]
         if self._query_instruction:
-            prefixed = [
-                f"Represent this sentence for searching relevant passages: {text}"
-                for text in texts
+            texts = [
+                f"Represent this sentence for searching relevant passages: {query}"
             ]
-            texts = prefixed
+        return self._encode(texts)[0]
+
+    def _encode(self, texts: list[str]) -> np.ndarray:
+        """Run the model and cache the embedding width."""
+        model = self._load_model()
         embeddings = np.asarray(model.encode(texts, convert_to_numpy=True))
         if self._dims is None:
             self._dims = embeddings.shape[1]

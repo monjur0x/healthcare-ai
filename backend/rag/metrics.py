@@ -121,7 +121,7 @@ def _cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
 #: Minimum best cosine similarity for a sentence to count as grounded.
 # Default grounded-similarity cutoff; overridden by
 # ``settings.FAITHFULNESS_THRESHOLD`` at call time.
-_FAITHFULNESS_THRESHOLD_DEFAULT = 0.5
+_FAITHFULNESS_THRESHOLD_DEFAULT = 0.3
 
 
 def context_precision(

@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from rag import RAGPipeline
 from rag.corpus import load_bundled_corpus
+from rag.metrics import mean_reciprocal_rank, precision_at_k, recall_at_k
 
 logger = logging.getLogger(__name__)
 
@@ -82,74 +83,74 @@ EVALUATION_QUERIES = [
     {
         "query": "Anemia management in chronic kidney disease",
         "expected_topic": "CKD complications",
-        "relevant_docs": ["chronic-kidney-disease", "anemia"],
+        "relevant_docs": ["chronic-kidney-disease", "kdigo-ckd-2024"],
         "category": "kidney",
     },
     {
         "query": "Sepsis recognition and early management",
         "expected_topic": "sepsis recognition",
-        "relevant_docs": ["sepsis", "sepsis-icu-synthetic"],
+        "relevant_docs": ["sepsis", "surviving-sepsis-campaign-2021"],
         "category": "sepsis",
     },
     {
         "query": "Septic shock fluid resuscitation protocol",
         "expected_topic": "septic shock treatment",
-        "relevant_docs": ["sepsis", "sepsis-icu-synthetic"],
+        "relevant_docs": ["sepsis", "surviving-sepsis-campaign-2021"],
         "category": "sepsis",
     },
     {
         "query": "Diabetic ketoacidosis emergency management",
         "expected_topic": "diabetic emergency",
-        "relevant_docs": ["diabetes-mellitus", "diabetic-ketoacidosis"],
+        "relevant_docs": ["diabetes-mellitus", "hospital-protocol-diabetes-management"],
         "category": "diabetes",
     },
     {
         "query": "Acute coronary syndrome immediate management",
         "expected_topic": "ACS treatment",
-        "relevant_docs": ["coronary-heart-disease", "acute-coronary-syndrome"],
+        "relevant_docs": ["coronary-heart-disease", "key-clinical-trials-evidence"],
         "category": "heart",
     },
     {
         "query": "Heart failure with reduced ejection fraction treatment",
         "expected_topic": "HFrEF treatment",
-        "relevant_docs": ["heart-failure", "coronary-heart-disease"],
+        "relevant_docs": ["acc-aha-heart-failure-2022", "coronary-heart-disease"],
         "category": "heart",
     },
     {
         "query": "Contrast-induced nephropathy prevention",
         "expected_topic": "kidney injury prevention",
-        "relevant_docs": ["chronic-kidney-disease", "contrast-nephropathy"],
+        "relevant_docs": ["chronic-kidney-disease", "nice-ckd-guideline"],
         "category": "kidney",
     },
     {
         "query": "Sepsis-induced AKI management",
         "expected_topic": "sepsis AKI",
-        "relevant_docs": ["sepsis", "acute-kidney-injury"],
+        "relevant_docs": ["sepsis", "chronic-kidney-disease"],
         "category": "sepsis",
     },
     {
         "query": "Diabetic foot ulcer prevention and management",
         "expected_topic": "diabetic foot care",
-        "relevant_docs": ["diabetes-mellitus", "diabetic-foot"],
+        "relevant_docs": ["diabetes-mellitus", "ada-diabetes-standards-2024"],
         "category": "diabetes",
     },
     {
         "query": "Heart failure with preserved ejection fraction treatment",
         "expected_topic": "HFpEF treatment",
-        "relevant_docs": ["heart-failure", "coronary-heart-disease"],
+        "relevant_docs": ["acc-aha-heart-failure-2022", "coronary-heart-disease"],
         "category": "heart",
     },
     {
         "query": "Renal replacement therapy indications in AKI",
         "expected_topic": "AKI dialysis indications",
-        "relevant_docs": ["acute-kidney-injury", "renal-replacement-therapy"],
+        "relevant_docs": ["kdigo-ckd-2024", "surviving-sepsis-campaign-2021"],
         "category": "kidney",
     },
 ]
 
 
 def run_evaluation(
-    output_path: str = "artifacts/experiments/rag_evaluation.json",
+    output_path: str | None = None,
 ) -> dict:
     """Run the full RAG evaluation pipeline.
 
@@ -157,11 +158,22 @@ def run_evaluation(
     aggregates the means over all queries, and persists them to
     ``output_path``.
 
+    A relative ``output_path`` resolves against the backend directory
+    (not the caller CWD) so runs from the repo root land next to the
+    other experiment artifacts.
+
     Returns
     -------
     dict
         The aggregate metrics payload that was persisted.
     """
+    backend_dir = Path(__file__).resolve().parent.parent
+    if output_path is None:
+        target = backend_dir / "artifacts" / "experiments" / "rag_evaluation.json"
+    else:
+        target = Path(output_path)
+        if not target.is_absolute():
+            target = backend_dir / target
     logger.info("Initializing RAG pipeline...")
     corpus = load_bundled_corpus()
     pipeline = RAGPipeline()
@@ -178,21 +190,16 @@ def run_evaluation(
         results = pipeline.retrieve(q["query"], top_k=10)
         retrieved_ids = [r.chunk.document_id for r in results]
 
-        # Precision / recall at the standard k cut-offs
+        # Precision / recall at the standard k cut-offs (shared helpers,
+        # exact-match — same relevance rule as MRR below).
         for k in (1, 3, 5, 10):
-            hits = sum(1 for doc_id in retrieved_ids[:k] if doc_id in relevant)
-            precision = hits / k
-            recall = hits / len(relevant) if relevant else 0.0
+            precision = precision_at_k(relevant, retrieved_ids, k)
+            recall = recall_at_k(relevant, retrieved_ids, k)
             all_precisions[k].append(precision)
             all_recalls[k].append(recall)
             logger.info("  P@%d: %.4f, R@%d: %.4f", k, precision, k, recall)
 
-        # MRR over prefix-matched relevant document IDs
-        mrr = 0.0
-        for rank, doc_id in enumerate(retrieved_ids, 1):
-            if any(doc_id.startswith(rel) for rel in q["relevant_docs"]):
-                mrr = 1.0 / rank
-                break
+        mrr = mean_reciprocal_rank(relevant, retrieved_ids)
         all_mrrs.append(mrr)
         logger.info("Query: %s", q["query"])
         logger.info("  MRR: %.4f", mrr)
@@ -210,11 +217,11 @@ def run_evaluation(
         "mrr": sum(all_mrrs) / total if total else 0.0,
     }
 
-    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-    with open(output_path, "w") as handle:
+    Path(target).parent.mkdir(parents=True, exist_ok=True)
+    with open(target, "w") as handle:
         json.dump(metrics, handle, indent=2)
 
-    logger.info("Results saved to %s", output_path)
+    logger.info("Results saved to %s", target)
     return metrics
 
 

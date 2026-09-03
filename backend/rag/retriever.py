@@ -68,6 +68,11 @@ class Retriever:
         """
         Embed and index a set of chunks.
 
+        Corpus-dependent embedders (TF-IDF) refit on the full known
+        corpus and the index is rebuilt, so earlier vectors stay
+        comparable and re-ingested ids cannot duplicate. Other
+        embedders only index previously unseen ids.
+
         Parameters
         ----------
         chunks : Sequence[Chunk]
@@ -77,12 +82,28 @@ class Retriever:
         if not chunks:
             logger.warning("No chunks to ingest; skipping.")
             return
-        if not self._chunks:
-            self._embedder.fit([chunk.text for chunk in chunks])
-        texts = [chunk.text for chunk in chunks]
-        vectors = self._embedder.embed(texts)
-        self._store.add([chunk.id for chunk in chunks], vectors)
-        self._chunks.update({chunk.id: chunk for chunk in chunks})
+        merged: dict[str, Chunk] = dict(self._chunks)
+        for chunk in chunks:
+            previous = merged.get(chunk.id)
+            if previous is not None and previous.text != chunk.text:
+                logger.warning(
+                    "Chunk %s re-ingested with new text; refresh the "
+                    "corpus-dependent index to update its vector.",
+                    chunk.id,
+                )
+            merged[chunk.id] = chunk
+        ids = [chunk.id for chunk in merged.values()]
+        texts = [chunk.text for chunk in merged.values()]
+        if self._embedder.corpus_dependent or not self._chunks:
+            self._embedder.fit(texts)
+            self._store.clear()
+            self._store.add(ids, self._embedder.embed(texts))
+        else:
+            fresh = [cid for cid in merged if cid not in self._chunks]
+            if fresh:
+                fresh_texts = [merged[cid].text for cid in fresh]
+                self._store.add(fresh, self._embedder.embed(fresh_texts))
+        self._chunks = merged
         logger.info("Ingested %d chunks (%d total)", len(chunks), len(self._chunks))
 
     def retrieve(
@@ -130,7 +151,7 @@ class Retriever:
             )
 
         limit = self._top_k if top_k is None else int(top_k)
-        query_vector = self._embedder.embed([query])[0]
+        query_vector = self._embedder.embed_query(query)
         candidate_k = limit * 4 if topic else limit
         hits = self._store.search(query_vector, top_k=candidate_k)
 

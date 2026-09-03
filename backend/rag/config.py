@@ -52,8 +52,9 @@ class RAGSettings(BaseSettings):
 
     #: Minimum best cosine similarity for a generated-answer sentence to
     #: count as grounded in retrieved context (rag.metrics.faithfulness).
-    #: Calibrated for dense embedders; lower it (~0.3) for TF-IDF.
-    FAITHFULNESS_THRESHOLD: float = 0.5
+    #: Calibrated for the default TF-IDF embedder; raise it (~0.5) for
+    #: dense embedders.
+    FAITHFULNESS_THRESHOLD: float = 0.3
 
     ##########################################
     # Vector store

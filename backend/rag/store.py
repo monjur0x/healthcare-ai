@@ -48,6 +48,11 @@ class VectorStore:
         """Number of stored vectors."""
         return len(self._ids)
 
+    def clear(self) -> None:
+        """Drop all stored vectors (used when the index is rebuilt)."""
+        self._ids = []
+        self._vectors = np.empty((0, 0), dtype=np.float64)
+
     def add(self, ids: Sequence[str], vectors: np.ndarray) -> None:
         """
         Insert vectors keyed by chunk id.
