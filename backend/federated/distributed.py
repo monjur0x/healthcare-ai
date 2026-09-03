@@ -284,17 +284,25 @@ class DistributedFedAvg(FedAvg):
         updates = [parameters_to_ndarrays(result.parameters) for _, result in results]
         weights = [float(result.num_examples) for _, result in results]
 
+        round_epsilons: list[float] = []
         for _, result in results:
             epsilon = result.metrics.get("epsilon")
             if epsilon is not None:
-                self._epsilons.append(float(epsilon))
+                round_epsilons.append(float(epsilon))
+        if round_epsilons:
+            # Worst case across this round's clients (see in-process
+            # server): appending every client would overcount by N.
+            self._epsilons.append(max(round_epsilons))
 
         if self._aggregator is not None:
             # Pre-scale by sample share (masks still cancel exactly), so
             # the secure path matches the count-weighted non-secure path.
             scaled = scale_updates(updates, weights)
             aggregated = self._aggregator.aggregate(
-                scaled, [1.0] * len(scaled), average=False
+                scaled,
+                [1.0] * len(scaled),
+                average=False,
+                round_number=server_round,
             )
         else:
             aggregated = self._aggregate_weighted(updates, weights)

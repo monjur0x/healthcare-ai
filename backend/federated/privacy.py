@@ -238,7 +238,7 @@ class SecureAggregator:
         if num_clients < 1:
             raise ValueError("num_clients must be positive.")
         self.num_clients = num_clients
-        self.rng = np.random.default_rng(seed)
+        self.seed = int(seed)
 
     def _flatten(self, state: list[np.ndarray]) -> np.ndarray:
         parts = [np.asarray(value, dtype=np.float64).ravel() for value in state]
@@ -255,13 +255,23 @@ class SecureAggregator:
             offset += size
         return out
 
-    def client_mask(self, client_idx: int, total_size: int) -> np.ndarray:
-        """
-        Mask a client adds; the sum of all masks is zero.
+    def _pair_seed(self, lo: int, hi: int, round_number: int) -> int:
+        """Deterministic seed binding pair key, round, and instance seed."""
+        digest = hashlib.blake2b(
+            f"{self.seed}:{round_number}:{lo}:{hi}".encode(), digest_size=8
+        )
+        return int.from_bytes(digest.digest(), "little")
 
-        Pair ``(i, j)`` is seeded by the unordered pair key alone, so
-        client ``i`` and client ``j`` derive identical masks with
-        opposite signs and they cancel when summed on the server.
+    def client_mask(
+        self, client_idx: int, total_size: int, round_number: int = 0
+    ) -> np.ndarray:
+        """
+        Per-round mask a client adds; the masks of all clients sum to
+        zero within a round. Pair ``(i, j)`` is derived from the instance seed, the
+        round number, and the unordered pair key, so client ``i`` and
+        client ``j`` derive identical masks with opposite signs within
+        a round, while masks differ across rounds and seeds (repeated
+        use of one mask would let differenced aggregates leak updates).
 
         Parameters
         ----------
@@ -269,6 +279,8 @@ class SecureAggregator:
             Zero-based client index.
         total_size : int
             Flattened parameter length.
+        round_number : int
+            Federated round number mixed into the derivation.
 
         Returns
         -------
@@ -281,7 +293,7 @@ class SecureAggregator:
             if other == client_idx:
                 continue
             lo, hi = min(client_idx, other), max(client_idx, other)
-            pair_rng = np.random.default_rng(100_000 + lo * 7919 + hi)
+            pair_rng = np.random.default_rng(self._pair_seed(lo, hi, round_number))
             pair = pair_rng.standard_normal(total_size)
             mask += pair if client_idx < other else -pair
         return mask
@@ -292,6 +304,7 @@ class SecureAggregator:
         weights: list[float],
         *,
         average: bool = True,
+        round_number: int = 0,
     ) -> list[np.ndarray]:
         """
         Masked aggregation of client updates.
@@ -313,6 +326,9 @@ class SecureAggregator:
         average : bool
             Divide the masked sum by the number of clients (uniform
             mean). Set False when the updates were pre-scaled.
+        round_number : int
+            Round number mixed into mask derivation; masks differ
+            across rounds so differenced aggregates do not leak updates.
 
         Returns
         -------
@@ -338,7 +354,9 @@ class SecureAggregator:
         total_size = len(self._flatten(updates[0]))
         accum = np.zeros(total_size, dtype=np.float64)
         for i, state in enumerate(updates):
-            masked = self._flatten(state) + self.client_mask(i, total_size)
+            masked = self._flatten(state) + self.client_mask(
+                i, total_size, round_number
+            )
             accum += masked
         if average:
             accum /= len(updates)

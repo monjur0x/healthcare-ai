@@ -132,6 +132,8 @@ class FedAvgServer:
         self._aggregator = (
             SecureAggregator(len(self._clients)) if secure_aggregation else None
         )
+        # Per-round worst-case client epsilon (basic-composition input for
+        # cumulative_epsilon_upper_bound). See run().
         self._epsilons: list[float] = []
         self._payload_inspection: dict[str, Any] | None = None
         self._global_parameters: list[np.ndarray] | None = None
@@ -241,9 +243,14 @@ class FedAvgServer:
                 *[client.fit(self._global_parameters, {}) for client in self._clients],
                 strict=True,
             )
-            self._epsilons.extend(
+            # Worst case across this round's clients: the basic-composition
+            # input. Extending with every client's value would overcount
+            # the budget by the number of clients.
+            round_epsilons = [
                 float(item["epsilon"]) for item in fit_metrics if "epsilon" in item
-            )
+            ]
+            if round_epsilons:
+                self._epsilons.append(max(round_epsilons))
             sample_counts = [float(count) for count in counts]
             if self._aggregator is not None:
                 # Pre-scale by sample share: masks added to pre-scaled
@@ -251,7 +258,10 @@ class FedAvgServer:
                 # the count-weighted mean (no secure/non-secure flip).
                 scaled = scale_updates(list(updated), sample_counts)
                 self._global_parameters = self._aggregator.aggregate(
-                    scaled, [1.0] * len(scaled), average=False
+                    scaled,
+                    [1.0] * len(scaled),
+                    average=False,
+                    round_number=round_index,
                 )
             elif self._aggregate_fn is average_weights:
                 self._global_parameters = average_weights(list(updated), sample_counts)
