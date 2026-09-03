@@ -18,6 +18,14 @@ canonical-schema mechanism expects.
 
 No raw rows leave a hospital; only the mapped numeric frame is used for
 local training.
+
+Schema note: the proposal's "Expected Inputs" also names Previous
+Diseases and Medication History, but none of the four specialty CSVs
+(Pima, UCI Heart, UCI CKD, MIMIC-IV-style sepsis) carry those fields,
+so they are omitted rather than added as always-zero columns. Coverage
+is asymmetric by design (e.g. heart maps 5/11 features); missing
+canonical features are zero-filled, which is exactly what heterogeneous
+FedAvg averages over.
 """
 
 from __future__ import annotations
@@ -67,7 +75,12 @@ def _pick(frame: pd.DataFrame, *names: str) -> pd.Series | None:
 
 
 def _gender01(series: pd.Series | None) -> pd.Series | None:
-    """Map a gender/sex column to binary 1=male / 0=female."""
+    """
+    Map a gender/sex column to binary 1=male / 0=female.
+
+    Tokens outside the known sets stay NaN and become 0.0 through the
+    canonical zero-fill (documented convention, not a diagnosis).
+    """
     if series is None:
         return None
     text = series.astype(str).str.strip().str.upper()
@@ -78,18 +91,22 @@ def _gender01(series: pd.Series | None) -> pd.Series | None:
 def _binary_from_threshold(
     series: pd.Series | None, threshold: float
 ) -> pd.Series | None:
-    """Return ``series > threshold`` as float labels."""
+    """Return ``series > threshold`` as float labels, NaN where missing."""
     if series is None:
         return None
-    return (pd.to_numeric(series, errors="coerce").fillna(0) > threshold).astype(float)
+    numeric = pd.to_numeric(series, errors="coerce")
+    labels = (numeric.fillna(0) > threshold).astype(float)
+    labels[numeric.isna()] = float("nan")
+    return labels
 
 
 def _binary_from_text(series: pd.Series | None, positive: str) -> pd.Series | None:
-    """Return 1.0 where stripped text equals ``positive``, else 0.0."""
+    """Return 1.0 where stripped text equals ``positive``, NaN where missing."""
     if series is None:
         return None
-    text = series.astype(str).str.strip().str.lower()
-    return (text == positive).astype(float)
+    labels = (series.astype(str).str.strip().str.lower() == positive).astype(float)
+    labels[series.isna()] = float("nan")
+    return labels
 
 
 def _assemble(
@@ -116,7 +133,14 @@ def _assemble(
     features = pd.DataFrame(data, index=frame.index)
     if label is None:
         raise ValueError("Canonical adapter requires a label column.")
-    labels = pd.to_numeric(label, errors="coerce").fillna(0.0).astype(int)
+    labels = pd.to_numeric(label, errors="coerce")
+    # Never invent labels: rows with missing/unparseable labels are
+    # dropped instead of being forced negative.
+    usable = labels.notna()
+    if not bool(usable.any()):
+        raise ValueError("Canonical adapter found no usable labels.")
+    features = features.loc[usable]
+    labels = labels.loc[usable].astype(int)
     labels.name = TARGET_COLUMN
     return features, labels
 
@@ -167,7 +191,8 @@ def adapt_kidney(raw: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
             "creatinine": _pick(raw, "sc", "serum_creatinine"),
             "hemoglobin": _pick(raw, "hemo", "hemoglobin"),
             "albumin": _pick(raw, "al", "albumin"),
-            "glucose": _pick(raw, "bgr", "bu"),  # random blood glucose
+            # bgr = random blood glucose; bu is blood urea (not glucose).
+            "glucose": _pick(raw, "bgr", "blood_glucose"),
         },
         _binary_from_text(classification, "ckd"),
     )
