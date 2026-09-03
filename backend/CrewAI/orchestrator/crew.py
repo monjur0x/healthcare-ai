@@ -43,6 +43,7 @@ from .services import (
     retrieve_evidence,
     run_image_prediction,
     run_prediction,
+    summarize_patient,
 )
 
 logger = get_logger(__name__)
@@ -460,6 +461,15 @@ class ClinicalCrew:
             tool_instances["evidence_retrieval"] = RAGRetrievalTool(
                 pipeline=self._rag_pipeline
             )
+        from .tools import (
+            ClinicalReportTool,
+            PatientSummaryTool,
+            RiskAssessmentTool,
+        )
+
+        tool_instances["csv_summary"] = PatientSummaryTool()
+        tool_instances["risk_assessment"] = RiskAssessmentTool()
+        tool_instances["clinical_report"] = ClinicalReportTool()
         agents = create_agents(tool_instances, llm=_agent_llm())
         tasks = create_tasks(
             agents,
@@ -520,23 +530,12 @@ class ClinicalCrew:
 
     def _patient_analyst(self) -> str:
         """Summarize patient features for downstream agents."""
-        parts = [
-            f"Patient {self.patient.name} ({self.patient.id})",
-            f"age {self.patient.age}" if self.patient.age else "",
-            f"input type: {self.input_type}",
-        ]
-        if self._markers:
-            marker_strs = [f"{k}={v}" for k, v in sorted(self._markers.items())]
-            parts.append("markers: " + ", ".join(marker_strs))
-        if self._features:
-            abnormal = [
-                k
-                for k, v in self._features.items()
-                if isinstance(v, (int, float)) and (v > 200 or v < 0)
-            ]
-            if abnormal:
-                parts.append(f"outlier features: {abnormal}")
-        return "; ".join(p for p in parts if p)
+        return summarize_patient(
+            self.patient,
+            features=self._features,
+            markers=self._markers,
+            input_type=self.input_type,
+        )
 
     @staticmethod
     def _repair_json(text: str) -> str:

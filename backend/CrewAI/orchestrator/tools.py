@@ -19,6 +19,7 @@ from .services import (
     assess_risk,
     retrieve_evidence,
     run_prediction,
+    summarize_patient,
 )
 
 logger = get_logger(__name__)
@@ -51,6 +52,53 @@ class PredictionInput(BaseModel):
     features: dict[str, float] = Field(
         description="Numeric feature values for the patient row"
     )
+    preprocessed: bool = Field(
+        default=False,
+        description="True when features were already pipeline-transformed",
+    )
+
+
+class PatientSummaryInput(BaseModel):
+    """Patient context for summarization."""
+
+    patient: dict[str, object] = Field(description="Patient info dict")
+    features: dict[str, float] | None = Field(
+        default=None, description="Raw input features (outlier scan only)"
+    )
+    markers: dict[str, float] | None = Field(
+        default=None, description="Clinical markers echoed into the summary"
+    )
+    input_type: str = Field(default="csv", description="Input modality label")
+
+
+class PatientSummaryTool(BaseTool):
+    """
+    Summarize patient context for downstream agents.
+    """
+
+    name: str = "csv_summary"
+    description: str = (
+        "Summarize one patient's identity, input modality, clinical "
+        "markers, and outlier features for downstream agents."
+    )
+    args_schema: type = PatientSummaryInput
+
+    def _run(
+        self,
+        patient: dict,
+        features: dict[str, float] | None = None,
+        markers: dict[str, float] | None = None,
+        input_type: str = "csv",
+    ) -> str:
+        """Summarize the given patient context."""
+        summary = summarize_patient(
+            PatientInfo(**patient),
+            features=features,
+            markers=markers,
+            input_type=input_type,
+        )
+        logger.info("PatientSummaryTool produced %d chars", len(summary))
+        return summary
 
 
 class PredictionTool(BaseTool):
@@ -70,9 +118,9 @@ class PredictionTool(BaseTool):
         super().__init__(**kwargs)
         self._model = model
 
-    def _run(self, features: dict[str, float]) -> dict:
+    def _run(self, features: dict[str, float], preprocessed: bool = False) -> dict:
         """Predict for the given feature row."""
-        result = run_prediction(self._model, features)
+        result = run_prediction(self._model, features, preprocessed=preprocessed)
         logger.info("PredictionTool produced %s", result.predicted_class)
         return result.model_dump()
 
@@ -83,6 +131,9 @@ class RiskAssessmentInput(BaseModel):
     prediction: dict[str, object] = Field(description="Model prediction result dict")
     markers: dict[str, float] = Field(
         default_factory=dict, description="Optional clinical markers"
+    )
+    disease_context: dict[str, object] | None = Field(
+        default=None, description="Disease schedules/context for monitoring advice"
     )
 
 
@@ -99,9 +150,16 @@ class RiskAssessmentTool(BaseTool):
     )
     args_schema: type = RiskAssessmentInput
 
-    def _run(self, prediction: dict, markers: dict | None = None) -> dict:
+    def _run(
+        self,
+        prediction: dict,
+        markers: dict | None = None,
+        disease_context: dict | None = None,
+    ) -> dict:
         """Assess risk for the given prediction."""
-        result = assess_risk(PredictionResult(**prediction), markers)
+        result = assess_risk(
+            PredictionResult(**prediction), markers, disease_context=disease_context
+        )
         return result.model_dump()
 
 
@@ -110,6 +168,9 @@ class RAGRetrievalInput(BaseModel):
 
     query: str = Field(description="Clinical query to retrieve evidence for")
     top_k: int = Field(default=3, description="Number of evidence items to return")
+    topic: str | None = Field(
+        default=None, description="Corpus topic tag boosting disease-relevant hits"
+    )
 
 
 class RAGRetrievalTool(BaseTool):
@@ -129,9 +190,9 @@ class RAGRetrievalTool(BaseTool):
         super().__init__(**kwargs)
         self._pipeline = pipeline
 
-    def _run(self, query: str, top_k: int = 3) -> list[dict]:
+    def _run(self, query: str, top_k: int = 3, topic: str | None = None) -> list[dict]:
         """Retrieve evidence for the query."""
-        items = retrieve_evidence(self._pipeline, query, top_k=top_k)
+        items = retrieve_evidence(self._pipeline, query, top_k=top_k, topic=topic)
         logger.info("RAGRetrievalTool returned %d items", len(items))
         return [item.model_dump() for item in items]
 
@@ -189,6 +250,7 @@ class ClinicalReportTool(BaseTool):
 __all__ = [
     "_CREWAI_AVAILABLE",
     "ClinicalReportTool",
+    "PatientSummaryTool",
     "PredictionTool",
     "RAGRetrievalTool",
     "RiskAssessmentTool",

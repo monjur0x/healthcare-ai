@@ -388,6 +388,51 @@ def _align_feature_keys(
     return aligned
 
 
+def summarize_patient(
+    patient: PatientInfo,
+    features: Mapping[str, float] | None,
+    markers: Mapping[str, float] | None,
+    input_type: str = "csv",
+) -> str:
+    """
+    Summarize patient context for downstream agents.
+
+    Parameters
+    ----------
+    patient : PatientInfo
+        Patient identity (name/id/age used; nothing sensitive logged).
+    features : Mapping[str, float] | None
+        Raw input features (scanned for outlier magnitudes only).
+    markers : Mapping[str, float] | None
+        Clinical markers echoed into the summary.
+    input_type : str
+        Input modality label.
+
+    Returns
+    -------
+    str
+        Semicolon-joined patient summary.
+    """
+
+    parts = [
+        f"Patient {patient.name} ({patient.id})",
+        f"age {patient.age}" if patient.age else "",
+        f"input type: {input_type}",
+    ]
+    if markers:
+        marker_strs = [f"{k}={v}" for k, v in sorted(markers.items())]
+        parts.append("markers: " + ", ".join(marker_strs))
+    if features:
+        abnormal = [
+            key
+            for key, value in features.items()
+            if isinstance(value, (int, float)) and (value > 200 or value < 0)
+        ]
+        if abnormal:
+            parts.append(f"outlier features: {abnormal}")
+    return "; ".join(part for part in parts if part)
+
+
 def run_prediction(
     model: TabularClassifier,
     features: Mapping[str, float],
@@ -661,6 +706,80 @@ def assess_risk(
     )
     logger.info("Risk level %s (score %.4f)", level, score)
     return result
+
+
+def build_evidence_query(features: Mapping[str, float] | None) -> str:
+    """
+    Build a retrieval query from raw feature values.
+
+    Used when no prediction is available yet (per-agent evidence step):
+    elevated markers select disease-anchored guideline queries,
+    otherwise a generic management query is returned.
+
+    Parameters
+    ----------
+    features : Mapping[str, float] | None
+        Raw input features.
+
+    Returns
+    -------
+    str
+        Retrieval query text.
+    """
+
+    query = "clinical management and monitoring recommendations"
+    if not features:
+        return query
+    glucose = features.get("glucose", 0)
+    bmi = features.get("bmi", 0)
+    creatinine = features.get("creatinine", 0)
+    topic_parts = []
+    if isinstance(glucose, (int, float)) and glucose > 126:
+        topic_parts.append("diabetes hyperglycemia")
+    if isinstance(creatinine, (int, float)) and creatinine > 1.5:
+        topic_parts.append("chronic kidney disease creatinine")
+    if isinstance(bmi, (int, float)) and bmi > 30:
+        topic_parts.append("obesity metabolic health")
+    if topic_parts:
+        query = " ".join(topic_parts) + " treatment guidelines"
+    return query
+
+
+def build_explanation(
+    prediction: PredictionResult | None,
+    features: Mapping[str, float],
+) -> tuple[str, list[str]]:
+    """
+    Explain a prediction via its top-magnitude features.
+
+    Parameters
+    ----------
+    prediction : PredictionResult | None
+        Model prediction (None yields an empty explanation).
+    features : Mapping[str, float]
+        Raw input features ranked by absolute value.
+
+    Returns
+    -------
+    tuple[str, list[str]]
+        Explanation text ("" when no prediction) and the top-3
+        contributing feature names.
+    """
+
+    top_features = sorted(
+        features.items(),
+        key=lambda x: abs(x[1] if isinstance(x[1], (int, float)) else 0),
+        reverse=True,
+    )[:3]
+    contributing = [key for key, _ in top_features]
+    if prediction is None:
+        return "", contributing
+    explanation = (
+        "Prediction driven primarily by: "
+        + ", ".join(f"{k}={v}" for k, v in top_features)
+        + f". Model confidence: {prediction.confidence:.1%}."
+    )
+    return explanation, contributing
 
 
 def retrieve_evidence(

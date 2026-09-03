@@ -10,6 +10,7 @@ offline, mirroring the RAG and privacy metric modules.
 
 from __future__ import annotations
 
+import json
 import re
 
 from collections import Counter
@@ -24,16 +25,45 @@ logger = get_logger(__name__)
 _TOKEN_RE = re.compile(r"[a-z0-9]{3,}")
 
 
+def _serialize(value: Any) -> str:
+    """Deterministic text form for arbitrary result payloads."""
+    try:
+        return json.dumps(value, default=str, sort_keys=True)
+    except (TypeError, ValueError):
+        return str(value).strip()
+
+
 def _output_of(result: Any) -> str:
-    """Extract the output text from a task result of any supported shape."""
+    """
+    Extract the output text from a task result of any supported shape.
+
+    Strings and ``output``/``result`` carriers are used directly;
+    arbitrary mappings, sequences, and objects fall back to a
+    deterministic serialization so real payloads (prediction dicts,
+    evidence lists) count as output instead of vanishing.
+    """
+    if result is None:
+        return ""
     if isinstance(result, str):
         return result.strip()
     if isinstance(result, Mapping):
-        return str(result.get("output") or result.get("result") or "")
+        for key in ("output", "result"):
+            value = result.get(key)
+            if value not in (None, ""):
+                return str(value).strip()
+        if not result:
+            return ""
+        return _serialize(result)
+    if isinstance(result, (list, tuple, set, frozenset)):
+        if not result:
+            return ""
+        return _serialize(result)
     output = getattr(result, "output", None)
     if output is None:
         output = getattr(result, "result", None)
-    return str(output or "").strip()
+    if output is not None:
+        return str(output).strip()
+    return _serialize(result)
 
 
 def _token_set(text: str) -> set[str]:
@@ -49,8 +79,10 @@ def task_completion_rate(crew_results: Sequence[Any]) -> float:
     ----------
     crew_results : Sequence[Any]
         Task results in execution order. Each result may be a string, a
-        dict with ``"output"``/``"result"`` keys, or an object exposing
-        an ``output``/``result`` attribute (as CrewAI ``Task`` does).
+        dict with ``"output"``/``"result"`` keys, an object exposing
+        an ``output``/``result`` attribute (as CrewAI ``Task`` does),
+        or any other mapping/sequence/object, which is serialized
+        deterministically (empty payloads still count as incomplete).
 
     Returns
     -------
