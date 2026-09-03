@@ -1,37 +1,34 @@
 # Current Context
 
 ## Current Milestone
-M3 — Make RAG genuinely useful + M4: Make CrewAI genuinely execute
+M5 — Bug-fix sweep against the research proposal (deferred clinical issues)
 
 ## Current Module
-`backend/rag/`, `backend/CrewAI/orchestrator/`, `frontend/streamlit_app.py`
+`backend/CrewAI/orchestrator/`, `backend/api/`, `backend/scripts/`
 
 ## Current Task
-- ✅ M3: RAG evaluation with 18 clinical queries (completed)
-- ✅ M4: CrewAI logging enhancement (added detailed logging for agent execution)
-- 🔄 M5: RAG Module improvements (in progress)
+- ✅ Bug-fix sweep completed (see .ai/backlog.md "Deferred issues" for the list)
+- ✅ Full-project review completed — findings logged to .ai/backlog.md
+  "Full-project review (2026-09-03)" as P0/P1/P2 (no fixes applied)
 
 ## Completed
 - ✅ M3.1: Privacy layer (anonymize_frame) wired into hospital data loading
-- ✅ M3.2: RAG evaluation with 18 clinical queries (completed)
-- ✅ M4: CrewAI logging enhancement (added detailed agent execution logging)
-- ✅ M3.4: n8n risk-monitoring workflow created and activated
-- ✅ M3.4: clinical-full.json workflow implemented and verified
-
-## Completed Today
-- RAG evaluation with 18 clinical queries (completed)
-- CrewAI logging enhancement (agent execution logging)
-- Fixed n8n workflow credential issues
-- Updated RUN_GUIDE.md with latest features
+- ✅ M3.2: RAG evaluation with 18 clinical queries
+- ✅ M4: CrewAI logging enhancement (agent execution logging)
+- ✅ M3.4: n8n risk-monitoring + clinical-full workflows
+- ✅ Bug sweep: RAG query markers, marker-aware risk score, LLM task
+  context injection, crew_logging.py recursion, RAG evaluation metrics
+  aggregation, silent-exception logging in agent routes
 
 ## Remaining Backlog
 - Dense embedder for better RAG faithfulness (sentence-transformers)
-- CrewAI 6-agent execution with detailed logging (in progress)
-- n8n risk-monitoring workflow (deployed)
-- Dashboard risk monitoring tab (completed)
+- Corpus expansion
+- Six-agent pipeline as distinct CrewAI agents in run_llm
+- Full-project review P0/P1/P2 items (see .ai/backlog.md "Full-project
+  review (2026-09-03)") — next candidate: crew `_parse_report` self bug,
+  encoder re-fit, torch scaler, Chroma flag, DP return, registry locking
 
 ## Next Steps
-1. Add detailed CrewAI agent execution logging (in progress)
-2. Rerun evaluation with dense embedder (sentence-transformers)
-4. Update RUN_GUIDE.md with latest features
-5. Commit and push changes
+1. ~~Commit the bug-fix sweep~~ — done (see session log below).
+2. Rerun the M3 RAG evaluation with the improved marker-aware queries.
+3. Pick P0 review items from .ai/backlog.md for the next fix session.

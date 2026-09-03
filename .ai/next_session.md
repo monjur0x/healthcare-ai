@@ -2,71 +2,59 @@
 
 ## Objective
 
-Continue the multi-hospital federated build. Phase 1 (distributed Flower
-deployment), the Phase 2 federation registry API, the dashboard Federation
-panel, the real medical RAG corpus, the n8n doctor-notification branch, the
-feedback-driven retrain loop, encrypted gRPC transport, and risk monitoring
-on history are complete and verified. Next: commit the risk history work
-and pick the next backlog item.
+Bug-fix sweep against the research proposal is complete and verified.
+Commit the changes, then optionally re-run the RAG evaluation to confirm
+the marker-aware queries improved retrieval quality.
 
 ## Done This Session
 
-- Added `backend/risk/` module: `RiskHistorySettings` (`RISK_HISTORY_` env
-  prefix: `DB_PATH`, `TREND_WINDOW`, `ESCALATION_THRESHOLD`, `MIN_TREND_POINTS`,
-  `ALERTS_ENABLED`), SQLite `RiskHistoryStore`, and schemas
-  (`RiskHistoryRecord`, `RiskTrend`, `RiskHistorySummary`, `RiskHistoryResponse`,
-  `EscalationAlert`).
-- Extended `AnalysisService` with a `risk_history_store` and
-  `_persist_risk_history`, called automatically after each `analyze()`
-  to record risk score, level, prediction, confidence, and markers.
-- Added API routes: `GET /api/v1/risk/history` (all or filtered),
-  `GET /api/v1/risk/history/{patient_id}`, `GET /api/v1/risk/trends/{patient_id}`,
-  `GET /api/v1/risk/alerts`.
-- Trend analysis: linear regression over recent window (`TREND_WINDOW`),
-  direction (improving/stable/worsening), slope, average, latest score/level,
-  and escalation flag when score delta exceeds `ESCALATION_THRESHOLD`.
-- Escalation alerts: active alerts for all patients with score jumps above
-  threshold, sorted by timestamp.
-- Documented all `RISK_HISTORY_*` variables in `backend/.env.example`.
-- Updated README with risk monitoring section and API endpoints table.
-- Verified lint (ruff) and format checks pass on all modified files.
+- `services.py`: `build_disease_query(prediction, markers)` appends
+  elevated markers (from `MARKER_THRESHOLDS`, capped at 5 terms) to the
+  disease-anchored RAG query; `assess_risk` now computes
+  `max(model P(disease), CREW_RISK_MARKER_WEIGHT * max normalized marker
+  elevation)` via `_marker_evidence`, so flagged markers can raise (never
+  lower) the score and `risk_factors` never contradict `risk_score`.
+- `config.py`: new `RISK_MARKER_WEIGHT` (default 0.5; markers alone cap
+  at the medium band). Documented in `backend/.env.example`.
+- `tasks.py`: `create_tasks` accepts `features` / `markers` /
+  `disease_context` and injects them via `_clinical_context_block` into
+  the patient-analysis, disease-prediction, explanation, and
+  risk-monitoring task descriptions (fixes LLM narratives ignoring
+  clinical values).
+- `crew.py`: `_build_query` passes markers; step-3 no longer hits a
+  latent `NameError` when the RAG pipeline is absent; duplicate
+  `@staticmethod` removed; `run_llm` passes the new task context.
+- `crew_logging.py`: rewritten — the old wrapper reassigned
+  `crew.kickoff` then called it from inside the wrapper (infinite
+  recursion), referenced an undefined `wrap_task_execution` (F821), and
+  had duplicated dead bodies (F811) / unused imports (F401).
+- `scripts/run_rag_evaluation.py`: metrics are now accumulated and
+  aggregated (mean P@1/3/5/10, R@1/3/5/10, MRR) and persisted to
+  `artifacts/experiments/rag_evaluation.json` instead of a placeholder
+  note; duplicate pipeline init removed. Verified run: MRR 0.49,
+  R@10 0.5 (TF-IDF).
+- `scripts/ingest_clinical_knowledge.py`: removed duplicated
+  output/logging blocks; `ClinicalKnowledgeIngestor` now receives the
+  output *directory* (was passed the file path); respects `--output`.
+- `api/routes.py`: treatment-planner / explainability agent routes log
+  prediction failures instead of silent `except: pass`; module logger
+  added.
+- Verified: backend-wide `ruff check` + `ruff format --check` clean;
+  import smoke OK; deterministic end-to-end analyze (7/7 agents) OK;
+  unit-level assertions on the new risk/query/task behavior all pass.
 
 ## Next Steps
 
-1. Commit + push the risk history work when the user asks.
-2. Phase 2+ candidates (backlog):
-   - Cross-host deployment docs.
-   - Corpus expansion.
-   - n8n risk-monitoring workflow (poll alerts and notify).
+1. Commit (suggested: `fix(clinical): marker-aware risk & RAG queries,
+   LLM task context injection, lint/dead-code cleanup`).
+2. Re-run `scripts/run_m3_evaluation.py` (faithfulness) with the
+   improved queries to confirm §12 RAG metrics improved.
+3. Backlog candidates: dense embedder, corpus expansion.
+4. New: full-project review logged to `.ai/backlog.md` ("Full-project
+   review (2026-09-03)") as P0/P1/P2 — no fixes applied this session.
+   Suggested next fix order: `crew.py:555` parse bug → encoder re-fit →
+   torch scaler → Chroma flag → DP return → registry locking.
 
 ## Open Questions
 
 - None blocking.
----
-
-## Session: perf(crewai) free-tier tuning — deferred issues
-
-Noticed while wiring LLM execution limits; NOT fixed here (out of scope,
-execution-speed-only task):
-
-1. **RAG query-building bug** — `crew.py::_build_query()` builds the
-   retrieval query only from `predicted_class` + confidence
-   (e.g. "clinical evidence and management for 1 at 58% confidence").
-   It never includes patient markers/features or the predicted disease
-   NAME, so retrieval quality is degraded for every preset. The
-   deterministic Agent-3 path uses this same query.
-2. **Risk-scoring issue** — `services.py::assess_risk()` derives risk
-   purely from `_positive_class_probability(prediction)` and clamps
-   marker-based adjustments; with the current global model the score is
-   just the positive-class probability, so `risk_factors` (marker
-   thresholds) can disagree with the numeric score (e.g. glucose 210
-   flagged but score driven by model confidence).
-3. **LLM narrative faithfulness** — ox-alpha run claimed "no vital
-   signs / no labs" despite features being present in crew inputs.
-   Likely cause: task descriptions embed only `patient.model_dump()`
-   (demographics); clinical values reach agents only via base_report
-   JSON in context. Consider injecting features/markers into relevant
-   task descriptions.
-
-Priority for next session: fix #1 and #3 together (both are prompt/query
-content), re-run RAG evaluation afterwards.
