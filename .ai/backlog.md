@@ -85,11 +85,26 @@ load-bearing claims verified by read (`crew.py:555`, `store_chroma.py:137`,
 
 ### P0 — wrong results / broken paths / data leaks
 
-- [ ] `backend/CrewAI/orchestrator/crew.py:555` — `_parse_report` missing
-  `self`, called as `self._parse_report` at `:494` → `TypeError` on every
-  `run_llm()` parse.
-- [ ] `backend/preprocessing/csv/transformer.py:156` — encoder re-fit on
-  every `transform()`; single-row inference always maps to `0`.
+- [x] FIXED: `backend/CrewAI/orchestrator/crew.py:555` — `_parse_report`
+  missing `self` (bound-call `TypeError` on every `run_llm()` parse);
+  signature fixed + `ClinicalReport | None` return type.
+- [x] FIXED: `backend/preprocessing/csv/transformer.py:156` — encoder
+  re-fit on every `transform()`; `CSVEncoder` gained `params()` /
+  `from_params()` (mirroring `CSVScaler`), `CSVTransformer` /
+  `CSVPipeline` accept `encoder_params`, `TabularClassifier` persists
+  them in the joblib payload (old artifacts load with `None` → legacy
+  behavior), train wires them via `prepare_tabular_data` + `train()`,
+  `analyze_csv` reuses them; unseen label categories now raise
+  `ValueError` instead of silent `NaN`, one-hot aligns to train columns.
+- [x] FIXED: `backend/models/csv/torch_mlp.py:103,236` —
+  `TorchMLPClassifier` gained `scaler_params` / `set_scaler_params` +
+  `encoder_params` / `set_encoder_params` (parity with
+  `TabularClassifier`), persisted in `save()` / restored in `load()`
+  (`.get()` → old artifacts load with `None`); this also fixes the
+  `AttributeError` at `api/services.py:1669` (`analyze_csv`) and the
+  skipped-scaling path at `CrewAI/orchestrator/services.py:435` when a
+  torch model is served, and engages the existing `hasattr` wiring in
+  `train()` for federated torch models.
 - [ ] `backend/models/csv/torch_mlp.py:103,236` — no `scaler_params`,
   `save()` omits scaler; `backend/api/services.py:1664` raises
   `AttributeError` when serving a torch model.

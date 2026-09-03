@@ -10,6 +10,13 @@ M5 — Bug-fix sweep against the research proposal (deferred clinical issues)
 - ✅ Bug-fix sweep completed (see .ai/backlog.md "Deferred issues" for the list)
 - ✅ Full-project review completed — findings logged to .ai/backlog.md
   "Full-project review (2026-09-03)" as P0/P1/P2 (no fixes applied)
+- ✅ P0 batch 1 completed: crew `_parse_report` binding fix + encoder
+  mapping persistence (params/from_params, transformer/pipeline/model/
+  API wiring, unseen-category fail-loud)
+- ✅ P0 batch 2 completed: torch scaler/encoder parity
+  (`TorchMLPClassifier` params interface + artifact persistence,
+  fixes `analyze_csv` / crew-scaler `AttributeError` for served torch
+  models)
 
 ## Completed
 - ✅ M3.1: Privacy layer (anonymize_frame) wired into hospital data loading
@@ -25,8 +32,9 @@ M5 — Bug-fix sweep against the research proposal (deferred clinical issues)
 - Corpus expansion
 - Six-agent pipeline as distinct CrewAI agents in run_llm
 - Full-project review P0/P1/P2 items (see .ai/backlog.md "Full-project
-  review (2026-09-03)") — next candidate: crew `_parse_report` self bug,
-  encoder re-fit, torch scaler, Chroma flag, DP return, registry locking
+  review (2026-09-03)") — batches 1-2 done (crew parse bug, encoder
+  persistence, torch scaler parity); next candidates: Chroma flag,
+  DP return, registry locking
 
 ## Next Steps
 1. ~~Commit the bug-fix sweep~~ — done (see session log below).

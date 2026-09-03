@@ -54,6 +54,14 @@ the marker-aware queries improved retrieval quality.
    review (2026-09-03)") as P0/P1/P2 — no fixes applied this session.
    Suggested next fix order: `crew.py:555` parse bug → encoder re-fit →
    torch scaler → Chroma flag → DP return → registry locking.
+5. Update 2026-09-03: P0 batch 1 done (crew parse binding + encoder
+   persistence chain, verified 7/7 checks + legacy-artifact compat,
+   `ruff check` / `ruff format --check` clean). Next: torch scaler,
+   Chroma flag, DP return, registry locking.
+6. Update 2026-09-04: P0 batch 2 done (torch scaler/encoder parity +
+   artifact persistence, verified 5/5 checks incl. legacy torch
+   artifact compat, `ruff` clean). Next: Chroma flag, DP return,
+   registry locking.
 
 ## Open Questions
 
