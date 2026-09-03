@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import time
 
 from datetime import UTC, datetime
@@ -81,16 +82,39 @@ def load_all_hospitals() -> dict[str, tuple[pd.DataFrame, pd.Series]]:
     return hospitals
 
 
-def classification_metrics(y_true, y_pred, y_prob) -> dict[str, float]:
-    """Full prediction metric block required by the proposal."""
+def classification_metrics(y_true, y_pred, y_prob) -> dict[str, float | None]:
+    """Full prediction metric block required by the proposal.
+
+    Precision/recall/F1 use binary averaging (labeled in the output);
+    ranking metrics degrade to None instead of crashing (or leaking
+    NaN) when the test split or predictions hold a single class.
+    """
+    try:
+        roc_auc: float | None = float(roc_auc_score(y_true, y_prob))
+    except ValueError:
+        roc_auc = None
+    try:
+        pr_auc: float | None = float(average_precision_score(y_true, y_prob))
+    except ValueError:
+        pr_auc = None
+    try:
+        mcc: float | None = float(matthews_corrcoef(y_true, y_pred))
+    except ValueError:
+        mcc = None
+    # Newer sklearn returns NaN instead of raising on single-class
+    # input; normalize so artifacts stay valid JSON.
+    roc_auc = roc_auc if roc_auc is not None and math.isfinite(roc_auc) else None
+    pr_auc = pr_auc if pr_auc is not None and math.isfinite(pr_auc) else None
+    mcc = mcc if mcc is not None and math.isfinite(mcc) else None
     return {
+        "averaging": "binary",
         "accuracy": float(accuracy_score(y_true, y_pred)),
         "precision": float(precision_score(y_true, y_pred, zero_division=0)),
         "recall": float(recall_score(y_true, y_pred, zero_division=0)),
         "f1": float(f1_score(y_true, y_pred, zero_division=0)),
-        "roc_auc": float(roc_auc_score(y_true, y_prob)),
-        "pr_auc": float(average_precision_score(y_true, y_prob)),
-        "mcc": float(matthews_corrcoef(y_true, y_pred)),
+        "roc_auc": roc_auc,
+        "pr_auc": pr_auc,
+        "mcc": mcc,
     }
 
 
@@ -181,6 +205,11 @@ def main() -> int:
     parser.add_argument("--test-size", type=float, default=0.25)
     args = parser.parse_args()
 
+    if args.rounds < 1:
+        parser.error("--rounds must be at least 1.")
+    if not 0.0 < args.test_size < 1.0:
+        parser.error("--test-size must be strictly between 0 and 1.")
+
     ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
 
     logger.info("Loading four specialty hospitals through canonical schema…")
@@ -210,13 +239,15 @@ def main() -> int:
         train_pool_x, train_pool_y, test_x_np, test_y_np
     )
     for key, value in central_result["metrics"].items():
-        print(f"  {key:>9}: {value:.4f}")
+        shown = f"{value:.4f}" if isinstance(value, float) else value
+        print(f"  {key:>9}: {shown}")
     print(f"  training: {central_result['train_time_s']:.2f}s")
 
     print(f"\n=== FEDERATED ({len(hospitals)} hospitals, {args.rounds} rounds) ===")
     fed_result, fed_server = run_federated(hospitals, test_x_np, test_y_np, args.rounds)
     for key, value in fed_result["final_metrics"].items():
-        print(f"  {key:>9}: {value:.4f}")
+        shown = f"{value:.4f}" if isinstance(value, float) else value
+        print(f"  {key:>9}: {shown}")
     print(
         f"  training: {fed_result['total_train_time_s']:.2f}s "
         f"across {fed_result['rounds']} rounds"
@@ -253,6 +284,8 @@ def main() -> int:
         "delta_fed_minus_central": {
             key: fed_result["final_metrics"][key] - central_result["metrics"][key]
             for key in central_result["metrics"]
+            if isinstance(fed_result["final_metrics"][key], float)
+            and isinstance(central_result["metrics"][key], float)
         },
         "artifacts": {
             "federated_model": str(model_path),

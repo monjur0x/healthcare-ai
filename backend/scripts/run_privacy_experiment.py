@@ -30,11 +30,11 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 
-import pandas as pd
+import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import StratifiedKFold, train_test_split
 
 from federated.client import FederatedClient
 from federated.privacy import PrivacyConfig, inspect_federation_payloads
@@ -67,28 +67,58 @@ def main() -> int:
     parser.add_argument("--output-dir", default="artifacts/experiments")
     args = parser.parse_args()
 
+    if args.clients < 1:
+        parser.error("--clients must be at least 1.")
+    if args.rounds < 1:
+        parser.error("--rounds must be at least 1.")
+
     out_dir = Path(args.output_dir) / f"privacy_{args.preset}_{args.rounds}r"
     out_dir.mkdir(parents=True, exist_ok=True)
 
     from federated.canonical import HOSPITAL_PRESETS, load_canonical_frame
 
-    # ── Load hospital data through canonical schema ────────────────────
-    logger.info("Loading hospitals via canonical schema…")
-    hospitals: dict[str, tuple] = {}
-    for hid in sorted(HOSPITAL_PRESETS):
-        path = BACKEND / "data" / "hospitals" / hid / "data.csv"
-        features, labels = load_canonical_frame(str(path), HOSPITAL_PRESETS[hid])
-        hospitals[hid] = (features, labels)
+    # ── Single-preset partitioned mode ───────────────────────────────
+    # The preset's hospital file is split into --clients stratified
+    # shards. Train shards are disjoint from the holdout by
+    # construction, so MIA member/nonmember sets never overlap.
+    logger.info("Loading preset hospital via canonical schema…")
+    preset_to_hospital = {v: k for k, v in HOSPITAL_PRESETS.items()}
+    hospital_id = preset_to_hospital[args.preset]
+    preset_path = BACKEND / "data" / "hospitals" / hospital_id / "data.csv"
+    if not preset_path.is_file():
+        raise FileNotFoundError(
+            f"Missing {preset_path}. Place the '{args.preset}' specialty CSV first."
+        )
+    preset_features, preset_labels = load_canonical_frame(str(preset_path), args.preset)
 
-    all_x = pd.concat([f for f, _ in hospitals.values()], ignore_index=True)
-    all_y = pd.concat([labels for _, labels in hospitals.values()], ignore_index=True)
-
-    _train_pool_x, test_x, _train_pool_y, test_y = train_test_split(
-        all_x, all_y, test_size=0.25, stratify=all_y, random_state=args.seed
+    train_x, test_x, train_y, test_y = train_test_split(
+        preset_features,
+        preset_labels,
+        test_size=0.25,
+        stratify=preset_labels,
+        random_state=args.seed,
     )
+    rarest = int(train_y.value_counts().min())
+    if rarest < args.clients:
+        raise ValueError(
+            f"Rarest class has {rarest} train samples, fewer than "
+            f"--clients={args.clients}. Reduce --clients."
+        )
+    splitter = StratifiedKFold(
+        n_splits=args.clients, shuffle=True, random_state=args.seed
+    )
+    shards = [
+        (
+            train_x.iloc[test_idx].to_numpy(dtype="float64"),
+            train_y.iloc[test_idx].to_numpy(),
+        )
+        for _, test_idx in splitter.split(train_x, train_y)
+    ]
     test_n = test_x.to_numpy(dtype="float64")
     test_labels_n = test_y.to_numpy()
 
+    all_x = preset_features
+    all_y = preset_labels
     feature_names = list(all_x.columns)
     n_features = len(feature_names)
     n_classes = int(all_y.nunique())
@@ -113,14 +143,7 @@ def main() -> int:
             )
         return TabularClassifier(model_name="mlp", random_state=args.seed)
 
-    shards = []
-    for features, labels in hospitals.values():
-        xn = features.to_numpy(dtype="float64")
-        yn = labels.to_numpy()
-        mid = int(len(yn) * 0.8)
-        shards.append((xn[:mid], yn[:mid]))
-
-    member_x = __import__("numpy").concatenate([sx for sx, _ in shards], axis=0)
+    member_x = np.concatenate([sx for sx, _ in shards], axis=0)
 
     clients = [
         FederatedClient(
@@ -179,7 +202,9 @@ def main() -> int:
         secure_aggregation=args.secure_aggregation,
         per_round_epsilons=per_round_eps or None,
         epsilon_composition_method=(
-            "naive_sum_upper_bound" if len(per_round_eps) > 1 else "single_round"
+            "no_dp_inactive"
+            if not args.dp
+            else ("naive_sum_upper_bound" if len(per_round_eps) > 1 else "single_round")
         ),
         mia_sample_counts=mia_counts,
         payload_inspection=payload_inspection,

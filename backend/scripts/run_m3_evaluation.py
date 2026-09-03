@@ -131,8 +131,9 @@ def chunk_index(corpus_docs) -> dict[str, list[str]]:
     return mapping
 
 
-def prediction_block(y_true, y_pred, y_prob) -> dict[str, float]:
+def prediction_block(y_true, y_pred, y_prob) -> dict[str, float | str]:
     return {
+        "averaging": "binary",
         "accuracy": float(accuracy_score(y_true, y_pred)),
         "precision": float(precision_score(y_true, y_pred, zero_division=0)),
         "recall": float(recall_score(y_true, y_pred, zero_division=0)),
@@ -162,6 +163,10 @@ def measure_baseline(
 
     ``use_rag`` controls whether the analyze path performs evidence
     retrieval (B2 federated-only runs with retrieval disabled).
+    Latency averages independently timed analyze calls (each row is
+    analyzed twice: once measured, once for repeat stability), and
+    ``decision_consistent`` is the fraction of rows whose risk level
+    survived the rerun.
     """
 
     model = svc.model
@@ -181,8 +186,8 @@ def measure_baseline(
     )
 
     latencies, evidence_counts, completeness_scores, risk_levels = [], [], [], []
+    stable_hits, stable_total = 0, 0
     last_report = None
-    repeat_stable: bool | None = None
     for _, row in batch.head(max_analyze).iterrows():
         features = {name: float(row[name]) for name in feature_names}
         markers = {
@@ -202,16 +207,18 @@ def measure_baseline(
         completeness_scores.append(completeness(report))
         risk_levels.append(report.risk.risk_level)
         last_report = report
-        if repeat_stable is None:
-            # Re-run the SAME patient once; stable risk level => consistent.
-            rerun = svc.analyze(
-                patient=PatientInfo(name="M3Eval", id=f"M3R-{int(row.name)}"),
-                features=features,
-                markers=markers,
-                input_type="csv",
-            )
-            repeat_stable = rerun.risk.risk_level == report.risk.risk_level
-            latencies.append(time.perf_counter() - start)
+        # Re-run every row once under a fresh id (no history collision);
+        # stability = fraction with an unchanged risk level.
+        rerun_start = time.perf_counter()
+        rerun = svc.analyze(
+            patient=PatientInfo(name="M3Eval", id=f"M3R-{int(row.name)}"),
+            features=features,
+            markers=markers,
+            input_type="csv",
+        )
+        latencies.append(time.perf_counter() - rerun_start)
+        stable_total += 1
+        stable_hits += rerun.risk.risk_level == report.risk.risk_level
 
     svc.rag_pipeline = original_pipeline
 
@@ -223,7 +230,10 @@ def measure_baseline(
         "report_completeness": round(
             sum(completeness_scores) / len(completeness_scores), 3
         ),
-        "decision_consistent": bool(repeat_stable),
+        "decision_consistent": round(stable_hits / stable_total, 3)
+        if stable_total
+        else None,
+        "consistency_samples": stable_total,
         "use_rag": use_rag,
     }, last_report
 
@@ -448,12 +458,20 @@ def main() -> int:
     )
     b4, _ = measure_baseline(svc, batch, use_rag=False)
     b4["agent_metrics"] = agents_block
+    # Prediction parity across B2-B5 is by construction (same model);
+    # the baselines compare retrieval/agent/ops dimensions. Record
+    # whether the LLM-enriched crew path was even available.
+    llm_configured = bool(os.environ.get("CREW_LLM_API_KEY", ""))
+    b4["llm_configured"] = llm_configured
     print(
         f"B4 FL+Multi-Agent : consistent={b4['decision_consistent']} "
         f"complete={b4['report_completeness']}"
     )
     b5, _ = measure_baseline(svc, batch, use_rag=True)
     b5["agent_metrics"] = agents_block
+    b5["llm_configured"] = llm_configured
+    # Liveness probe only: the analyses above run through the API, not
+    # through the n8n workflow.
     b5["n8n"] = n8n_probe(args.n8n_url or None)
     print(
         f"B5 proposed       : complete={b5['report_completeness']} "

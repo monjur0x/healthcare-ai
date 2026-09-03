@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-08-22T19:41:30.668425+00:00",
+  "timestamp": "2026-09-03T18:54:45.568144+00:00",
   "model": "/home/monjur0x0/Healthcare-AI/backend/artifacts/multi_disease/global_model.joblib",
   "rag_metrics_per_query": {
     "diabetes": {
@@ -10,7 +10,7 @@
       "context_recall": 0.6666666666666666,
       "faithfulness": 0.0,
       "answer_relevancy": 0.0,
-      "faithfulness_mean_cosine": 0.035,
+      "faithfulness_mean_cosine": 0.0448,
       "faithfulness_ceiling": 0.4444444444444444,
       "faithfulness_ceiling_mean_cosine": 0.3242
     },
@@ -21,8 +21,8 @@
       "context_precision": 0.6666666666666666,
       "context_recall": 1.0,
       "faithfulness": 0.0,
-      "answer_relevancy": 0.03397042495921174,
-      "faithfulness_mean_cosine": 0.0555,
+      "answer_relevancy": 0.03209190429957789,
+      "faithfulness_mean_cosine": 0.051,
       "faithfulness_ceiling": 0.6111111111111112,
       "faithfulness_ceiling_mean_cosine": 0.3169
     },
@@ -34,7 +34,7 @@
       "context_recall": 1.0,
       "faithfulness": 0.0,
       "answer_relevancy": 0.0,
-      "faithfulness_mean_cosine": 0.0505,
+      "faithfulness_mean_cosine": 0.0511,
       "faithfulness_ceiling": 0.6818181818181818,
       "faithfulness_ceiling_mean_cosine": 0.3299
     },
@@ -58,8 +58,8 @@
     "context_precision": 0.5833,
     "context_recall": 0.7917,
     "faithfulness": 0.0,
-    "answer_relevancy": 0.0085,
-    "faithfulness_mean_cosine": 0.0415,
+    "answer_relevancy": 0.008,
+    "faithfulness_mean_cosine": 0.043,
     "faithfulness_ceiling": 0.5791,
     "faithfulness_ceiling_mean_cosine": 0.3217
   },
@@ -71,21 +71,24 @@
   "baselines": {
     "B2_federated_only": {
       "prediction": {
+        "averaging": "binary",
         "accuracy": 0.925,
         "precision": 0.9473684210526315,
         "recall": 0.9,
         "f1": 0.9230769230769231,
         "roc_auc": 0.98
       },
-      "predict_only_time_s": 0.001,
-      "analyze_latency_avg_s": 0.0004,
+      "predict_only_time_s": 0.003,
+      "analyze_latency_avg_s": 0.0014,
       "avg_evidence_items": 0.0,
       "report_completeness": 0.857,
-      "decision_consistent": true,
+      "decision_consistent": 1.0,
+      "consistency_samples": 6,
       "use_rag": false
     },
     "B3_fl_rag": {
       "prediction": {
+        "averaging": "binary",
         "accuracy": 0.925,
         "precision": 0.9473684210526315,
         "recall": 0.9,
@@ -93,14 +96,16 @@
         "roc_auc": 0.98
       },
       "predict_only_time_s": 0.001,
-      "analyze_latency_avg_s": 0.001,
+      "analyze_latency_avg_s": 0.0027,
       "avg_evidence_items": 3.0,
       "report_completeness": 1.0,
-      "decision_consistent": true,
+      "decision_consistent": 1.0,
+      "consistency_samples": 6,
       "use_rag": true
     },
     "B4_fl_multi_agent": {
       "prediction": {
+        "averaging": "binary",
         "accuracy": 0.925,
         "precision": 0.9473684210526315,
         "recall": 0.9,
@@ -108,19 +113,22 @@
         "roc_auc": 0.98
       },
       "predict_only_time_s": 0.002,
-      "analyze_latency_avg_s": 0.0008,
+      "analyze_latency_avg_s": 0.0015,
       "avg_evidence_items": 0.0,
       "report_completeness": 0.857,
-      "decision_consistent": true,
+      "decision_consistent": 1.0,
+      "consistency_samples": 6,
       "use_rag": false,
       "agent_metrics": {
         "task_completion_rate": 1.0,
         "decision_consistency": 1.0,
         "agent_collaboration_score": 1.0
-      }
+      },
+      "llm_configured": false
     },
     "B5_proposed_full": {
       "prediction": {
+        "averaging": "binary",
         "accuracy": 0.925,
         "precision": 0.9473684210526315,
         "recall": 0.9,
@@ -128,16 +136,18 @@
         "roc_auc": 0.98
       },
       "predict_only_time_s": 0.001,
-      "analyze_latency_avg_s": 0.0013,
+      "analyze_latency_avg_s": 0.0029,
       "avg_evidence_items": 3.0,
       "report_completeness": 1.0,
-      "decision_consistent": true,
+      "decision_consistent": 1.0,
+      "consistency_samples": 6,
       "use_rag": true,
       "agent_metrics": {
         "task_completion_rate": 1.0,
         "decision_consistency": 1.0,
         "agent_collaboration_score": 1.0
       },
+      "llm_configured": false,
       "n8n": {
         "reachable": false,
         "triggered": false
