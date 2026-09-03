@@ -28,6 +28,15 @@ M5 — Bug-fix sweep against the research proposal (deferred clinical issues)
 - ✅ P1 batch 1 completed: FedAvg count-weighting on both servers with
   secure/non-secure parity (optional counts, pre-scaled masked mean;
   verified identical globals)
+- ✅ P1 batch 2 completed: per-round worst-case epsilon accounting on
+  both servers (no more ×N overcount; verified end-to-end)
+- ✅ P1 batch 3 completed: OTP seed+round-bound masks, canonical
+  bu-fix + label/mapping hygiene, agent-metrics payload visibility,
+  full LLM tool wiring, API service lock + subprocess timeout +
+  route delegation with fallback flags, risk trend/ALERTS/n8n-dedup,
+  feedback consumed visibility + guarded consume, baseline rigor
+  (M2/M3/privacy scripts), RAG ground-truth/metrics/threshold/
+  BGE/refit fixes — all verified incl. live M3 + RAG eval runs
 
 ## Completed
 - ✅ M3.1: Privacy layer (anonymize_frame) wired into hospital data loading
@@ -42,12 +51,10 @@ M5 — Bug-fix sweep against the research proposal (deferred clinical issues)
 - Dense embedder for better RAG faithfulness (sentence-transformers)
 - Corpus expansion
 - Six-agent pipeline as distinct CrewAI agents in run_llm
-- Full-project review P0/P1/P2 items (see .ai/backlog.md "Full-project
-  review (2026-09-03)") — all P0 batches done (crew parse bug, encoder
-  persistence, torch scaler parity, Chroma flag, DP return, registry
-  locking); P1 batch 1 done (FedAvg weighting); P1 next (DP accounting,
-  OTP nonce, canonical mappings, agent metrics, API hardening,
-  risk/feedback semantics, baseline rigor)
+- Full-project review items (see .ai/backlog.md) — P0 closed, P1
+  closed (FedAvg, DP accounting, OTP, canonical, agent metrics,
+  LLM tools, API, risk, feedback, baselines, RAG eval). Remaining:
+  P2 gaps/drift (multimodal, frontend/n8n polish, config/docs).
 
 ## Next Steps
 1. ~~Commit the bug-fix sweep~~ — done (see session log below).

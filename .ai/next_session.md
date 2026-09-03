@@ -75,6 +75,22 @@ the marker-aware queries improved retrieval quality.
 10. Update 2026-09-04: P1 batch 1 done (FedAvg count-weighting both
     servers, secure/non-secure parity; 12/12 checks incl. end-to-end
     server runs, `ruff` clean). P1 next: DP accounting, OTP nonce.
+11. Update 2026-09-04: P1 batch 2 done (per-round worst-case epsilon
+    on both servers; 4/4 checks end-to-end, `ruff` clean). P1 next:
+    OTP nonce, canonical mappings.
+12. Update 2026-09-04: P1 fully complete in one sweep — OTP
+    (seed+round-bound masks), canonical (bu-fix, label hygiene,
+    schema rationale), agent metrics (payload visibility), LLM tools
+    (csv_summary + full wiring + arg pass-throughs), API (service
+    lock, FED_SUBPROCESS_TIMEOUT, route delegation, fallback flags),
+    risk (real sub-threshold values, ALERTS_ENABLED, n8n dedup),
+    feedback (consumed visibility, guarded consume), baselines
+    (M3 timing/consistency/labels, M2 guards/validation, privacy
+    partitioned sharding + honest flags), RAG (ground-truth remap,
+    shared metrics, 0.3 default, embed_query, refit-rebuild,
+    anchored output). Live proofs: M3 exit 0 (agent metrics
+    0/0→1.0/1.0, B2 vs B3 differentiated), RAG MRR 0.49→0.669.
+    `ruff` clean. Remaining: P2.
 
 ## Open Questions
 

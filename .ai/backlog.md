@@ -150,37 +150,79 @@ load-bearing claims verified by read (`crew.py:555`, `store_chroma.py:137`,
   (`SecureAggregator.aggregate(..., average=False)`); distributed
   secure path matches its weighted non-secure path. Verified:
   secure == non-secure globals on both servers.
-- [ ] DP accounting: fresh `PrivacyEngine` per fit, flat client×round eps
-  summed (`privacy.py:207-213`, `server.py:242-244`).
-- [ ] OTP masks: fixed derivation, no seed/round nonce
-  (`privacy.py:241,279-287`) → cross-round differencing leaks updates.
-- [ ] Canonical: `canonical.py:170` maps kidney `glucose` from `bu`
-  (blood urea); `canonical.py:36-48,139-152` schema omits proposal
-  `Previous Diseases/Medication History`, heart maps 5/11.
-- [ ] Agent metrics always zero: `crew.py:381-386` + `metrics.py:27-36`
-  (`_output_of` misses `dict`/`list` shapes).
-- [ ] LLM path tool-less: 5/7 agents get `tools=[]`
-  (`agents.py:79-87` vs `crew.py:452-462`).
-- [ ] API races: shared `AnalysisService` mutates model without lock
-  (`api/services.py:364-396`); `_train_distributed` subprocess no timeout
-  (`services.py:1196-1207`); routes leak business logic + swallow errors
-  as 200 fallbacks (`routes.py:632-779,711-717,757-760`).
-- [ ] Risk: `<MIN_TREND_POINTS` returns `latest_score=0.0/low`
-  (`risk/store.py:243-254`); alerts stateless → n8n re-fires forever
-  (`store.py:360-394`); `ALERTS_ENABLED` never enforced
-  (`risk/config.py:40`).
-- [ ] Feedback: `consumed` dropped from reads, list-then-consume
-  non-atomic (`feedback/store.py:151-163`, `api/services.py:798-826`).
-- [ ] Baselines: M3 B2/B4 and B3/B5 identical, latency double-counted
-  (`scripts/run_m3_evaluation.py:439-455,200-214`); M2 single-class crash
-  (`run_m2_experiment.py:84-94`); privacy MIA overlap + ignored CLI flags
-  (`run_privacy_experiment.py:86-123`).
-- [ ] RAG eval: 10 ground-truth IDs absent from `rag/corpus/`;
-  script reimplements P/R/MRR with divergent MRR
-  (`scripts/run_rag_evaluation.py:182-196`); TF-IDF default vs `0.5`
-  faithfulness threshold (`rag/config.py:53-56`); BGE prefix on docs
-  (`rag/embedder.py:240-245`); no vocab refit on incremental ingest
-  (`rag/retriever.py:80-83`).
+- [x] FIXED DP accounting: both servers now record the per-round
+  worst-case client epsilon instead of a flat per-client list, so
+  `max_epsilon`, `per_round_epsilons`, and the basic-composition
+  cumulative sum no longer overcount by the client count (matches the
+  documented `compute_cumulative_epsilon_upper_bound` contract).
+  Verified end-to-end on both servers. Remaining (out of scope):
+  single-round Opacus audits stay loose vs RDP; `secure_mode=False`
+  weakening untouched.
+- [x] FIXED OTP masks: `SecureAggregator` binds the instance seed and
+  round number into pair-mask derivation (blake2b), replacing the
+  fixed pair-only seed and the unused `self.rng`; `aggregate()` takes
+  `round_number`, both servers pass their round. Verified:
+  deterministic, round/seed-bound, exact cancellation, stable
+  aggregates.
+- [x] FIXED Canonical: kidney `glucose` no longer mapped from `bu`
+  (blood urea) — only `bgr`/blood-glucose, else zero-fill; rows with
+  missing labels are dropped instead of forced negative (helpers
+  preserve NaN, `_assemble` drops + fails loud when none usable);
+  schema rationale documented (proposal's Previous Diseases/Medication
+  History absent from all four specialty CSVs → omitted, not
+  always-zero; asymmetric coverage is inherent to the design).
+  Verified per-adapter incl. 11-col schema.
+- [x] FIXED Agent metrics: `_output_of` serialized arbitrary
+  mapping/sequence payloads deterministically instead of returning ""
+  for dicts/lists without output/result keys (completion and
+  collaboration were always 0.0 on real crew traces). Verified:
+  legacy shapes unchanged, crew payloads visible, collaboration > 0.
+- [x] FIXED LLM tools: new stateless `PatientSummaryTool`
+  (`csv_summary`, backed by extracted `summarize_patient` service also
+  used by `_patient_analyst`); `run_llm` now builds all five tools
+  (model/RAG ones stay conditional); tools forward `preprocessed`,
+  `disease_context`, and `topic` instead of dropping them. Verified:
+  summary output, delegation identity, map resolution.
+- [x] FIXED API races: `AnalysisService` swaps/reads model+preset
+  atomically (`_snapshot_model` + locked swap); distributed-train
+  subprocess gets `FED_SUBPROCESS_TIMEOUT` (default 1800s) plus
+  `TimeoutExpired`/`OSError` handling; agent routes delegate to crew
+  services (`summarize_patient`, `build_evidence_query`,
+  `build_treatment_recommendations`, `build_explanation`) with
+  n8n-compatible explicit `fallback` flags. Verified: output
+  identity, fallback preservation, 1400-op race smoke. (The
+  `service=None` 500 note was stale — the dependency already 503s.)
+- [x] FIXED Risk: sub-threshold trends return real latest values
+  (never fabricated 0.0); `ALERTS_ENABLED=false` now disables both
+  trend escalation and the alerts endpoint (was documented but
+  ignored); n8n poll re-fire fixed at the consumer via workflow
+  static-data dedup (level-triggered endpoint unchanged for the
+  dashboard). Verified: backend values, valid JSON + JS, dedup sim.
+- [x] FIXED Feedback: `consumed` is now selected and mapped onto
+  `FeedbackRecord` (new `consumed: bool = False` field, backward
+  compatible); `mark_consumed` only touches unconsumed rows so
+  concurrent retrains cannot double-consume; retrain warns on
+  partial consumption. Verified: visibility + guarded re-consume.
+- [x] FIXED Baselines: M3 latency uses independent rerun timers,
+  consistency is now a fraction over all rows (`consistency_samples`
+  recorded); B4/B5 record `llm_configured` and the prediction-parity
+  caveat is documented instead of implied; M2 ranking metrics degrade
+  to `None` (NaN-normalized, prints/deltas skip `None`) with CLI
+  validation (`--rounds` ≥ 1, 0 < `--test-size` < 1) and an
+  `"averaging": "binary"` label; privacy script honors `--preset`
+  (single-preset partitioned sharding) and `--clients`, which also
+  makes MIA member/holdout sets disjoint by construction, validates
+  both flags, and labels no-DP composition honestly. Verified: M2
+  guards live, M3 structures present (full live M3 running).
+- [x] FIXED RAG eval: all 13 referenced doc IDs now exist (9
+  dangling IDs remapped to content-verified corpus docs); script
+  reuses shared `precision_at_k`/`recall_at_k`/
+  `mean_reciprocal_rank` (MRR divergence gone); faithfulness default
+  follows the default TF-IDF embedder (0.3; dense users raise to 0.5);
+  BGE instruction applies to queries only (`embed_query`); TF-IDF
+  refits on the full corpus with index rebuild + dedup on incremental
+  ingest; eval output path repo-anchored. Verified live: MRR
+  0.49→0.669, R@10 0.5→0.833 over 18 queries.
 
 ### P2 — gaps vs proposal / config drift
 
