@@ -163,7 +163,7 @@ class FeedbackStore:
                 .execute(
                     """
             SELECT id, preset, patient_id, features, confirmed_label,
-                   predicted_label, confidence, created_at
+                   predicted_label, confidence, created_at, consumed
             FROM feedback_samples
             WHERE id = ?
             """,
@@ -196,7 +196,7 @@ class FeedbackStore:
                 .execute(
                     """
             SELECT id, preset, patient_id, features, confirmed_label,
-                   predicted_label, confidence, created_at
+                   predicted_label, confidence, created_at, consumed
             FROM feedback_samples
             WHERE preset = ? AND consumed = 0
             ORDER BY created_at ASC
@@ -244,7 +244,7 @@ class FeedbackStore:
                 .execute(
                     """
             SELECT id, preset, patient_id, features, confirmed_label,
-                   predicted_label, confidence, created_at
+                   predicted_label, confidence, created_at, consumed
             FROM feedback_samples
             WHERE preset = ?
             ORDER BY created_at DESC
@@ -274,7 +274,10 @@ class FeedbackStore:
         if not sample_ids:
             return 0
         placeholders = ",".join("?" for _ in sample_ids)
-        query = f"UPDATE feedback_samples SET consumed = 1 WHERE id IN ({placeholders})"
+        query = (
+            "UPDATE feedback_samples SET consumed = 1 "
+            f"WHERE id IN ({placeholders}) AND consumed = 0"
+        )
         with self._lock:
             cursor = self.connect().execute(query, sample_ids)
             self._connection.commit()
@@ -292,6 +295,7 @@ class FeedbackStore:
             predicted_label=int(row[5]) if row[5] is not None else None,
             confidence=float(row[6]) if row[6] is not None else None,
             created_at=row[7],
+            consumed=bool(row[8]),
         )
 
 

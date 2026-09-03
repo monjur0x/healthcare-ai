@@ -66,6 +66,8 @@ class FeedbackRecord(BaseModel):
         Model confidence at analysis time (when recorded).
     created_at : str
         ISO-8601 timestamp.
+    consumed : bool
+        Whether the sample was already folded into a retrain.
     """
 
     id: int
@@ -76,6 +78,7 @@ class FeedbackRecord(BaseModel):
     predicted_label: int | None = None
     confidence: float | None = None
     created_at: str
+    consumed: bool = False
 
 
 class FeedbackSummary(BaseModel):
