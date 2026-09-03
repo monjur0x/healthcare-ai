@@ -241,9 +241,9 @@ def main() -> int:
     print(f"  Attack Resistance  : {privacy_block['attack_resistance_score']}")
     print(f"  Data Leakage Rate  : {leakage_rate:.4f} (measured from payloads)")
     acc_last = (
-        metrics.get('accuracy_deltas', [None])[-1]
-        if metrics.get('accuracy_deltas')
-        else 'N/A'
+        metrics.get("accuracy_deltas", [None])[-1]
+        if metrics.get("accuracy_deltas")
+        else "N/A"
     )
     print(f"  Accuracy delta     : {acc_last}")
 

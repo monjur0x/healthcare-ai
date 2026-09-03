@@ -15,8 +15,53 @@ from .prompts import REPORT_SCHEMA_INSTRUCTIONS, TASK_DESCRIPTIONS
 from .schemas import PatientInfo
 
 
+def _clinical_context_block(
+    features: Mapping[str, float] | None,
+    markers: Mapping[str, float] | None,
+    disease_context: Mapping[str, object] | None,
+) -> str:
+    """
+    Render the patient's clinical values as a prompt context block.
+
+    Task descriptions previously embedded only the patient demographics
+    (``PatientInfo``), so LLM agents never saw the actual feature or
+    marker values and narratives could contradict the inputs. This
+    block injects them verbatim; values are bounded to keep prompts
+    compact.
+
+    Parameters
+    ----------
+    features : Mapping[str, float] | None
+        Feature row fed to the prediction model.
+    markers : Mapping[str, float] | None
+        Raw clinical markers used by the risk assessment.
+    disease_context : Mapping[str, object] | None
+        Disease registry entry for the assessed preset.
+
+    Returns
+    -------
+    str
+        Multi-line context block (possibly empty).
+    """
+
+    lines: list[str] = []
+    if disease_context:
+        lines.append(f"Assessed condition: {disease_context.get('disease', 'unknown')}")
+    if features:
+        rendered = ", ".join(f"{k}={v}" for k, v in list(features.items())[:12])
+        lines.append(f"Feature values: {rendered}")
+    if markers:
+        rendered = ", ".join(f"{k}={v}" for k, v in sorted(markers.items())[:12])
+        lines.append(f"Clinical markers: {rendered}")
+    return "\n".join(lines)
+
+
 def create_tasks(
-    agents: Mapping[str, object], patient: PatientInfo
+    agents: Mapping[str, object],
+    patient: PatientInfo,
+    features: Mapping[str, float] | None = None,
+    markers: Mapping[str, float] | None = None,
+    disease_context: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     """
     Build the healthcare analysis tasks.
@@ -27,6 +72,13 @@ def create_tasks(
         Agents keyed by role name (from ``create_agents``).
     patient : PatientInfo
         Patient context injected into the task descriptions.
+    features : Mapping[str, float] | None
+        Feature row fed to the prediction model; injected into the
+        task descriptions so agents reason over the real values.
+    markers : Mapping[str, float] | None
+        Raw clinical markers; injected alongside the features.
+    disease_context : Mapping[str, object] | None
+        Disease registry entry for the assessed preset.
 
     Returns
     -------
@@ -40,6 +92,7 @@ def create_tasks(
         "patient": patient.model_dump(),
         "report_schema": REPORT_SCHEMA_INSTRUCTIONS,
     }
+    clinical_block = _clinical_context_block(features, markers, disease_context)
 
     # Concurrency: ``evidence_retrieval`` and ``explanation`` run
     # asynchronously (concurrently). Both depend only on the two sync
@@ -51,7 +104,9 @@ def create_tasks(
 
     task_patient_analysis = Task(
         description=(
-            TASK_DESCRIPTIONS["patient_analysis"] + f"\nPatient: {context['patient']}"
+            TASK_DESCRIPTIONS["patient_analysis"]
+            + f"\nPatient: {context['patient']}"
+            + (f"\n{clinical_block}" if clinical_block else "")
         ),
         expected_output=(
             "A structured patient summary with data quality notes and key "
@@ -62,7 +117,9 @@ def create_tasks(
 
     task_disease_prediction = Task(
         description=(
-            TASK_DESCRIPTIONS["disease_prediction"] + f"\nPatient: {context['patient']}"
+            TASK_DESCRIPTIONS["disease_prediction"]
+            + f"\nPatient: {context['patient']}"
+            + (f"\n{clinical_block}" if clinical_block else "")
         ),
         expected_output=(
             "A diagnostic assessment with primary condition, confidence, "
@@ -93,7 +150,10 @@ def create_tasks(
     )
 
     task_explanation = Task(
-        description=TASK_DESCRIPTIONS["explanation"],
+        description=(
+            TASK_DESCRIPTIONS["explanation"]
+            + (f"\n{clinical_block}" if clinical_block else "")
+        ),
         expected_output=(
             "A plain-language explanation of the prediction and the "
             "clinical meaning of the contributing features."
@@ -104,7 +164,10 @@ def create_tasks(
     )
 
     task_risk_monitoring = Task(
-        description=TASK_DESCRIPTIONS["risk_monitoring"],
+        description=(
+            TASK_DESCRIPTIONS["risk_monitoring"]
+            + (f"\n{clinical_block}" if clinical_block else "")
+        ),
         expected_output=(
             "A monitoring plan with alert thresholds and screening recommendations."
         ),

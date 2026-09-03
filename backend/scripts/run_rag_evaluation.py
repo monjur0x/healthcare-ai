@@ -149,87 +149,73 @@ EVALUATION_QUERIES = [
 
 
 def run_evaluation(
-    eval_file: str = "backend/rag/evaluation_set.json",
     output_path: str = "artifacts/experiments/rag_evaluation.json",
-):
-    """Run the full RAG evaluation pipeline."""
-    import logging
+) -> dict:
+    """Run the full RAG evaluation pipeline.
 
-    from pathlib import Path
+    Retrieves for every evaluation query, computes P@k / R@k / MRR,
+    aggregates the means over all queries, and persists them to
+    ``output_path``.
 
-    # Add backend to path
-
-    logging.basicConfig(level=logging.INFO)
-    logger = logging.getLogger(__name__)
-
-    # Initialize RAG pipeline
+    Returns
+    -------
+    dict
+        The aggregate metrics payload that was persisted.
+    """
     logger.info("Initializing RAG pipeline...")
     corpus = load_bundled_corpus()
     pipeline = RAGPipeline()
     pipeline.ingest_documents(corpus)
 
-    # Load queries
-    from rag.evaluation_set import EVALUATION_QUERIES
+    logger.info("Evaluating %d queries...", len(EVALUATION_QUERIES))
 
-    logger.info(f"Evaluating {len(EVALUATION_QUERIES)} queries...")
-
-    all_precisions = {1: [], 3: [], 5: [], 10: []}
-    all_recalls = {1: [], 3: [], 5: [], 10: []}
-    all_mrrs = []
-
-    # Initialize pipeline once
-    corpus = load_bundled_corpus()
-    pipeline = RAGPipeline()
-    pipeline.ingest_documents(corpus)
+    all_precisions: dict[int, list[float]] = {1: [], 3: [], 5: [], 10: []}
+    all_recalls: dict[int, list[float]] = {1: [], 3: [], 5: [], 10: []}
+    all_mrrs: list[float] = []
 
     for q in EVALUATION_QUERIES:
-        query = q["query"]
         relevant = set(q["relevant_docs"])
-
-        # Retrieve
         results = pipeline.retrieve(q["query"], top_k=10)
         retrieved_ids = [r.chunk.document_id for r in results]
 
-        # Compute metrics at different k
-        for k in [1, 3, 5, 10]:
-            retrieved_at_k = retrieved_ids[:k]
-            p = sum(1 for d in retrieved_ids[:k] if d in relevant) / k if k > 0 else 0
-            r = (
-                len([d for d in retrieved_ids[:k] if d in relevant]) / len(relevant)
-                if (relevant := set(q["relevant_docs"]))
-                else 0
-            )
-            logger.info(f"  P@{k}: {p:.4f}, R@{k}: {r:.4f}")
+        # Precision / recall at the standard k cut-offs
+        for k in (1, 3, 5, 10):
+            hits = sum(1 for doc_id in retrieved_ids[:k] if doc_id in relevant)
+            precision = hits / k
+            recall = hits / len(relevant) if relevant else 0.0
+            all_precisions[k].append(precision)
+            all_recalls[k].append(recall)
+            logger.info("  P@%d: %.4f, R@%d: %.4f", k, precision, k, recall)
 
-        # MRR
+        # MRR over prefix-matched relevant document IDs
         mrr = 0.0
-        for i, doc_id in enumerate(retrieved_ids, 1):
+        for rank, doc_id in enumerate(retrieved_ids, 1):
             if any(doc_id.startswith(rel) for rel in q["relevant_docs"]):
-                mrr = 1.0 / i
+                mrr = 1.0 / rank
                 break
-        logger.info(f"Query: {q['query']}")
-        logger.info(f"  MRR: {mrr:.4f}")
-        print()
+        all_mrrs.append(mrr)
+        logger.info("Query: %s", q["query"])
+        logger.info("  MRR: %.4f", mrr)
 
-    # Aggregate metrics
+    total = len(EVALUATION_QUERIES)
     metrics = {
-        "note": "Full evaluation metrics available in logs above",
-        "total_queries": len(EVALUATION_QUERIES),
+        "note": "Mean precision@k / recall@k / MRR over the evaluation queries",
+        "total_queries": total,
+        "precision_at_k": {
+            str(k): sum(values) / total for k, values in all_precisions.items()
+        },
+        "recall_at_k": {
+            str(k): sum(values) / total for k, values in all_recalls.items()
+        },
+        "mrr": sum(all_mrrs) / total if total else 0.0,
     }
 
-    # Save results
-    Path("artifacts/experiments").mkdir(parents=True, exist_ok=True)
-    with open("artifacts/experiments/rag_evaluation.json", "w") as f:
-        json.dump(
-            {
-                "note": "Full evaluation metrics available in logs above",
-                "total_queries": len(EVALUATION_QUERIES),
-            },
-            f,
-            indent=2,
-        )
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, "w") as handle:
+        json.dump(metrics, handle, indent=2)
 
-    logger.info("Results saved to artifacts/experiments/rag_evaluation.json")
+    logger.info("Results saved to %s", output_path)
+    return metrics
 
 
 if __name__ == "__main__":

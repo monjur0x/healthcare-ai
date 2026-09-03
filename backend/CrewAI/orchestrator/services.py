@@ -150,18 +150,61 @@ def enrich_prediction(
     )
 
 
-def build_disease_query(prediction: PredictionResult | None) -> str:
+def _marker_query_terms(markers: Mapping[str, float] | None) -> list[str]:
     """
-    Build a disease-specific RAG query from a prediction.
+    Format elevated clinical markers as retrieval query terms.
+
+    Only markers listed in ``settings.MARKER_THRESHOLDS`` that exceed
+    their threshold contribute; non-numeric values are skipped (the
+    risk-assessment path is the one that validates marker types).
+    Bounded to the first five terms so the query stays retrieval-friendly.
+
+    Parameters
+    ----------
+    markers : Mapping[str, float] | None
+        Raw clinical markers (e.g. ``{"glucose": 210.0}``).
+
+    Returns
+    -------
+    list[str]
+        Terms like ``"glucose 210.0"`` for elevated markers.
+    """
+
+    if not markers:
+        return []
+    terms: list[str] = []
+    for marker, threshold in settings.MARKER_THRESHOLDS.items():
+        if marker not in markers:
+            continue
+        try:
+            value = float(markers[marker])
+        except (TypeError, ValueError):
+            continue
+        if value > threshold:
+            terms.append(f"{marker} {value:.1f}")
+    return terms[:5]
+
+
+def build_disease_query(
+    prediction: PredictionResult | None,
+    markers: Mapping[str, float] | None = None,
+) -> str:
+    """
+    Build a disease-specific RAG query from a prediction and markers.
 
     The query always carries the clinical condition name — never a raw
     class integer — so retrieval stays anchored to the predicted
-    disease whether the outcome is positive or negative.
+    disease whether the outcome is positive or negative. Elevated
+    clinical markers (e.g. ``glucose 210.0``) are appended so the
+    retrieved evidence matches the patient's actual presentation
+    instead of the condition name alone.
 
     Parameters
     ----------
     prediction : PredictionResult | None
         Enriched prediction (with ``disease`` / ``predicted_label``).
+    markers : Mapping[str, float] | None
+        Raw clinical markers; elevated ones become query terms.
 
     Returns
     -------
@@ -178,12 +221,18 @@ def build_disease_query(prediction: PredictionResult | None) -> str:
             and prediction.positive_probability >= prediction.negative_probability
         )
         if positive:
-            return (
+            query = (
                 f"{prediction.disease} clinical guidelines diagnosis "
                 f"management treatment"
             )
-        return f"{prediction.disease} prevention risk factors screening guidelines"
-    return f"clinical evidence for {prediction.predicted_label} management"
+        else:
+            query = f"{prediction.disease} prevention risk factors screening guidelines"
+    else:
+        query = f"clinical evidence for {prediction.predicted_label} management"
+    marker_terms = _marker_query_terms(markers)
+    if marker_terms:
+        query = f"{query} {' '.join(marker_terms)}"
+    return query
 
 
 def build_rag_topic(prediction: PredictionResult | None) -> str | None:
@@ -493,6 +542,56 @@ def _positive_class_probability(prediction: PredictionResult) -> float:
     return prediction.confidence
 
 
+def _marker_evidence(
+    markers: Mapping[str, float] | None,
+) -> tuple[float, list[str]]:
+    """
+    Quantify marker-based risk evidence.
+
+    A marker contributes its normalized elevation
+    ``clamp(value / threshold - 1, 0, 1)`` — zero at its threshold,
+    one at twice the threshold — and the returned evidence score is the
+    maximum elevation across the configured markers present in
+    ``markers``, so a single severely elevated marker is not diluted by
+    the count of normal ones.
+
+    Parameters
+    ----------
+    markers : Mapping[str, float] | None
+        Raw clinical markers compared against
+        ``settings.MARKER_THRESHOLDS``.
+
+    Returns
+    -------
+    tuple[float, list[str]]
+        Maximum normalized elevation in ``[0, 1]`` and the factor
+        strings for every elevated marker.
+
+    Raises
+    ------
+    RiskToolError
+        If any marker value is not numeric.
+    """
+
+    if not markers:
+        return 0.0, []
+    max_elevation = 0.0
+    factors: list[str] = []
+    for marker, threshold in settings.MARKER_THRESHOLDS.items():
+        if marker not in markers:
+            continue
+        try:
+            value = float(markers[marker])
+        except (TypeError, ValueError) as error:
+            raise RiskToolError(
+                f"Marker '{marker}' must be numeric, got {markers[marker]!r}."
+            ) from error
+        if value > threshold:
+            factors.append(f"Elevated {marker} ({value:.1f} > {threshold:.0f})")
+            max_elevation = max(max_elevation, min(value / threshold - 1.0, 1.0))
+    return max_elevation, factors
+
+
 def assess_risk(
     prediction: PredictionResult,
     markers: Mapping[str, float] | None = None,
@@ -501,10 +600,17 @@ def assess_risk(
     """
     Score risk from positive-class probability and elevated markers.
 
-    The risk score is the probability of the disease (positive) class —
-    not the model's confidence in whichever class it predicted. The
-    monitoring schedule is disease-specific when a disease context is
-    available, falling back to the generic risk-level schedule.
+    The base score is the probability of the disease (positive) class —
+    not the model's confidence in whichever class it predicted. Marker
+    evidence can only *raise* the score: each elevated marker
+    contributes its normalized elevation (``value / threshold - 1``,
+    capped at 1) scaled by ``settings.RISK_MARKER_WEIGHT``, so the
+    numeric score never contradicts the reported ``risk_factors`` (a
+    flagged marker always lifts the score into at least the medium
+    band when the elevation is severe enough). Markers never lower the
+    score. The monitoring schedule is disease-specific when a disease
+    context is available, falling back to the generic risk-level
+    schedule.
 
     Parameters
     ----------
@@ -529,25 +635,16 @@ def assess_risk(
     """
 
     score = _positive_class_probability(prediction)
+    max_elevation, factors = _marker_evidence(markers)
+    if max_elevation > 0.0:
+        score = max(score, settings.RISK_MARKER_WEIGHT * max_elevation)
+
     if score < settings.RISK_LOW_THRESHOLD:
         level = "low"
     elif score < settings.RISK_MEDIUM_THRESHOLD:
         level = "medium"
     else:
         level = "high"
-
-    factors: list[str] = []
-    for marker, threshold in settings.MARKER_THRESHOLDS.items():
-        if markers is None or marker not in markers:
-            continue
-        try:
-            value = float(markers[marker])
-        except (TypeError, ValueError) as error:
-            raise RiskToolError(
-                f"Marker '{marker}' must be numeric, got {markers[marker]!r}."
-            ) from error
-        if value > threshold:
-            factors.append(f"Elevated {marker} ({value:.1f} > {threshold:.0f})")
 
     schedule = list(MONITORING_SCHEDULES.get(level, MONITORING_SCHEDULES["medium"]))
     if disease_context is not None:

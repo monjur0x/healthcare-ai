@@ -139,7 +139,7 @@ class CSVEncoder:
             dropped_original = self._columns
         else:
             raise RuntimeError(
-                f"Unsupported encoding mode '{self._mode}'. " "Use 'label' or 'onehot'."
+                f"Unsupported encoding mode '{self._mode}'. Use 'label' or 'onehot'."
             )
 
         report = EncodingReport(

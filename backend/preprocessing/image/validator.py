@@ -172,7 +172,7 @@ class ImageValidator:
         if data.ndim == 3 and data.shape[2] not in (1, 3, 4):
             logger.error("Image array has %d channels", data.shape[2])
             raise InvalidImageError(
-                f"Image array must have 1, 3, or 4 channels, " f"got {data.shape[2]}."
+                f"Image array must have 1, 3, or 4 channels, got {data.shape[2]}."
             )
 
         if data.size == 0:

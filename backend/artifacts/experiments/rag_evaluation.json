@@ -1,4 +1,17 @@
 {
-  "note": "Full evaluation metrics available in logs above",
-  "total_queries": 18
+  "note": "Mean precision@k / recall@k / MRR over the evaluation queries",
+  "total_queries": 18,
+  "precision_at_k": {
+    "1": 0.3333333333333333,
+    "3": 0.2037037037037037,
+    "5": 0.17777777777777778,
+    "10": 0.09444444444444446
+  },
+  "recall_at_k": {
+    "1": 0.19444444444444445,
+    "3": 0.3333333333333333,
+    "5": 0.4722222222222222,
+    "10": 0.5
+  },
+  "mrr": 0.49074074074074076
 }

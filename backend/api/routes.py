@@ -17,6 +17,7 @@ from CrewAI.orchestrator.schemas import (
     EvidenceItem,
     PredictionResult,
 )
+from preprocessing.logger import get_logger
 
 from .exceptions import AuthenticationError, ServiceUnavailableError
 from .schemas import (
@@ -45,6 +46,8 @@ from .schemas import (
     TrainResponse,
 )
 from .services import AnalysisService
+
+logger = get_logger(__name__)
 
 
 def get_token_validator(request: Request) -> None:
@@ -710,8 +713,8 @@ def agent_treatment_planner(
         from CrewAI.orchestrator.services import assess_risk
 
         risk = assess_risk(prediction, request.markers)
-    except Exception:
-        pass
+    except Exception as error:  # noqa: BLE001 — best-effort step: fall back, but log
+        logger.warning("treatment-planner step fell back to medium risk: %s", error)
 
     level = risk.risk_level if risk else "medium"
     monitoring = {
@@ -753,8 +756,8 @@ def agent_explainability(request: AgentStepRequest, service: ServiceDependency) 
     prediction = None
     try:
         prediction = service.predict(request.features)
-    except Exception:
-        pass
+    except Exception as error:  # noqa: BLE001 — best-effort step: fall back, but log
+        logger.warning("explainability step could not run prediction: %s", error)
 
     top_features = sorted(
         request.features.items(),

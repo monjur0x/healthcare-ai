@@ -190,15 +190,16 @@ class ClinicalCrew:
         )
         self.crew_trace.steps.append(step3)
         s = time.perf_counter()
-        evidence = []
+        evidence: list = []
+        query: str | None = None
         try:
-            if self._rag_pipeline is not None:
+            if self._rag_pipeline is not None and prediction is not None:
                 query = self._build_query(prediction)
                 topic = build_rag_topic(prediction)
                 evidence = retrieve_evidence(self._rag_pipeline, query, topic=topic)
             step3.input_summary = (
                 f"query={query!r}, topic={build_rag_topic(prediction)!r}"
-                if prediction
+                if query
                 else "(no query)"
             )
             step3.output_summary = f"{len(evidence)} evidence items"
@@ -460,7 +461,13 @@ class ClinicalCrew:
                 pipeline=self._rag_pipeline
             )
         agents = create_agents(tool_instances, llm=_agent_llm())
-        tasks = create_tasks(agents, self.patient)
+        tasks = create_tasks(
+            agents,
+            self.patient,
+            features=self._features,
+            markers=self._markers,
+            disease_context=self._disease_context,
+        )
         crew = Crew(
             agents=list(agents.values()),
             tasks=list(tasks.values()),
@@ -508,8 +515,8 @@ class ClinicalCrew:
         return self.run_analysis()
 
     def _build_query(self, prediction) -> str:
-        """Build a disease-anchored RAG query (never a raw class integer)."""
-        return build_disease_query(prediction)
+        """Build a disease-anchored RAG query including elevated markers."""
+        return build_disease_query(prediction, markers=self._markers)
 
     def _patient_analyst(self) -> str:
         """Summarize patient features for downstream agents."""
@@ -531,7 +538,6 @@ class ClinicalCrew:
                 parts.append(f"outlier features: {abnormal}")
         return "; ".join(p for p in parts if p)
 
-    @staticmethod
     @staticmethod
     def _repair_json(text: str) -> str:
         """Apply bounded fixes for common small-model JSON mistakes.

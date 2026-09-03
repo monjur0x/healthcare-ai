@@ -78,6 +78,14 @@ class CrewSettings(BaseSettings):
 
     RISK_MEDIUM_THRESHOLD: float = 0.6
 
+    # Scale for the marker-evidence component of the risk score. Each
+    # elevated marker contributes clamp(value/threshold - 1, 0, 1);
+    # the score takes max(model P(disease), weight * max elevation).
+    # 0.5 means markers alone can reach the medium band (but never
+    # high), while severe elevations reliably lift a low model
+    # probability so the score matches the reported risk factors.
+    RISK_MARKER_WEIGHT: float = 0.5
+
     MARKER_THRESHOLDS: dict[str, float] = {
         "age": 65.0,
         "bmi": 30.0,
