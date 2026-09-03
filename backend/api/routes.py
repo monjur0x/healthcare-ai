@@ -634,25 +634,19 @@ def agent_patient_analyst(
     request: AgentStepRequest, service: ServiceDependency
 ) -> dict:
     """Patient Analyst agent: summarize and validate patient features."""
-    parts = [
-        f"Patient {request.patient.name} ({request.patient.id})",
-        f"age {request.patient.age}" if request.patient.age else "",
-        "input type: csv",
-    ]
-    if request.markers:
-        marker_strs = [f"{k}={v}" for k, v in sorted(request.markers.items())]
-        parts.append("markers: " + ", ".join(marker_strs))
+    from CrewAI.orchestrator.services import summarize_patient
 
+    summary = summarize_patient(
+        request.patient, request.features, request.markers, input_type="csv"
+    )
     abnormal = [
         k
         for k, v in request.features.items()
         if isinstance(v, (int, float)) and (v > 200 or v < 0)
     ]
-    if abnormal:
-        parts.append(f"outlier features: {abnormal}")
 
     return {
-        "patient_summary": "; ".join(p for p in parts if p),
+        "patient_summary": summary,
         "data_quality_notes": "checked" if not abnormal else "outliers detected",
         "key_indicators": list(request.features.keys())[:8],
     }
@@ -682,21 +676,9 @@ def agent_evidence_retrieval(
     request: AgentStepRequest, service: ServiceDependency
 ) -> list[dict]:
     """Medical Researcher agent: retrieve clinical evidence via RAG."""
-    query = "clinical management and monitoring recommendations"
-    if request.features:
-        glucose = request.features.get("glucose", 0)
-        bmi = request.features.get("bmi", 0)
-        creatinine = request.features.get("creatinine", 0)
-        topic_parts = []
-        if glucose > 126:
-            topic_parts.append("diabetes hyperglycemia")
-        if creatinine > 1.5:
-            topic_parts.append("chronic kidney disease creatinine")
-        if bmi > 30:
-            topic_parts.append("obesity metabolic health")
-        if topic_parts:
-            query = " ".join(topic_parts) + " treatment guidelines"
+    from CrewAI.orchestrator.services import build_evidence_query
 
+    query = build_evidence_query(request.features)
     evidence = service.retrieve(query, top_k=3)
     return [e.model_dump() for e in evidence]
 
@@ -706,17 +688,33 @@ def agent_treatment_planner(
     request: AgentStepRequest, service: ServiceDependency
 ) -> dict:
     """Treatment Planner agent: generate recommendations from risk level."""
+    from CrewAI.orchestrator.services import (
+        assess_risk,
+        build_treatment_recommendations,
+    )
+
     prediction = None
     risk = None
+    fallback = False
     try:
         prediction = service.predict(request.features)
-        from CrewAI.orchestrator.services import assess_risk
-
         risk = assess_risk(prediction, request.markers)
     except Exception as error:  # noqa: BLE001 — best-effort step: fall back, but log
         logger.warning("treatment-planner step fell back to medium risk: %s", error)
+        fallback = True
 
-    level = risk.risk_level if risk else "medium"
+    if not fallback:
+        recs, monitoring = build_treatment_recommendations(prediction, risk)
+        recs = [
+            *recs,
+            "All recommendations require physician review before implementation.",
+        ]
+        return {
+            "recommendations": recs,
+            "monitoring_schedule": monitoring,
+            "fallback": False,
+        }
+
     monitoring = {
         "low": [
             {"test": "Annual physical examination", "frequency": "Yearly"},
@@ -735,45 +733,35 @@ def agent_treatment_planner(
         ],
     }
 
-    recs = []
-    if level == "high":
-        recs.append("Urgent medical review recommended based on elevated risk profile.")
-    elif level == "medium":
-        recs.append("Schedule follow-up consultation to monitor condition progression.")
-    else:
-        recs.append("Continue routine monitoring and healthy lifestyle practices.")
-    recs.append("All recommendations require physician review before implementation.")
+    recs = [
+        "Schedule follow-up consultation to monitor condition progression.",
+        "All recommendations require physician review before implementation.",
+    ]
 
     return {
         "recommendations": recs,
-        "monitoring_schedule": monitoring.get(level, monitoring["medium"]),
+        "monitoring_schedule": monitoring["medium"],
+        "fallback": True,
     }
 
 
 @router.post("/agents/explainability")
 def agent_explainability(request: AgentStepRequest, service: ServiceDependency) -> dict:
     """Explainability Expert agent: explain the prediction."""
+    from CrewAI.orchestrator.services import build_explanation
+
     prediction = None
+    fallback = False
     try:
         prediction = service.predict(request.features)
     except Exception as error:  # noqa: BLE001 — best-effort step: fall back, but log
         logger.warning("explainability step could not run prediction: %s", error)
+        fallback = True
 
-    top_features = sorted(
-        request.features.items(),
-        key=lambda x: abs(x[1] if isinstance(x[1], (int, float)) else 0),
-        reverse=True,
-    )[:3]
-
-    explanation = ""
-    if prediction:
-        explanation = (
-            "Prediction driven primarily by: "
-            + ", ".join(f"{k}={v}" for k, v in top_features)
-            + f". Model confidence: {prediction.confidence:.1%}."
-        )
+    explanation, contributing = build_explanation(prediction, request.features)
 
     return {
         "explanation": explanation or "Insufficient data for explanation.",
-        "contributing_features": [k for k, _ in top_features],
+        "contributing_features": contributing,
+        "fallback": fallback or prediction is None,
     }

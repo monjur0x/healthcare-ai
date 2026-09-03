@@ -45,6 +45,11 @@ class FederationSettings(BaseSettings):
     #: Fixed seed for hospital data partitioning and secure aggregation.
     SEED: int = 42
 
+    #: Wall-clock cap (seconds) for the orchestrated distributed-training
+    #: subprocess launched through the API. A hung Flower server fails
+    #: the request instead of blocking the API worker forever.
+    SUBPROCESS_TIMEOUT: int = 1800
+
     #: Enable TLS for gRPC connections (default False).
     TLS_ENABLED: bool = False
 

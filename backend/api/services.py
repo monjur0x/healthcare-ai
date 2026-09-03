@@ -12,6 +12,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import threading
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -395,6 +396,15 @@ class AnalysisService:
     feedback_store: FeedbackStore | None = None
     #: Persistent risk history store for longitudinal monitoring.
     risk_history_store: RiskHistoryStore | None = None
+    #: Guards model/preset swaps against concurrent train + analyze races.
+    _lock: threading.RLock = field(
+        default_factory=threading.RLock, repr=False, compare=False
+    )
+
+    def _snapshot_model(self) -> tuple[Any, str | None]:
+        """Return the served (model, active_preset) atomically."""
+        with self._lock:
+            return self.model, self.active_preset
 
     @classmethod
     def from_settings(cls, cfg: APISettings | None = None) -> AnalysisService:
@@ -607,8 +617,9 @@ class AnalysisService:
         model_path = out_dir / "global_model.joblib"
         fitted.save(model_path)
 
-        self.model = fitted
-        self.active_preset = preset
+        with self._lock:
+            self.model = fitted
+            self.active_preset = preset
         logger.info(
             "Trained %s model on %s (federated=%s): accuracy=%.4f artifact=%s",
             model,
@@ -828,6 +839,14 @@ class AnalysisService:
             ) from error
 
         consumed = self.feedback_store.mark_consumed([record.id for record in pending])
+        if consumed < len(pending):
+            logger.warning(
+                "Retrain consumed %d of %d pending rows for '%s' "
+                "(a concurrent retrain likely consumed the rest).",
+                consumed,
+                len(pending),
+                preset,
+            )
         remaining = self.feedback_store.count_pending(preset)
         logger.info(
             "Retrained %s from feedback: consumed=%d pending=%d artifact=%s",
@@ -1199,7 +1218,25 @@ class AnalysisService:
 
         logger.info("Launching distributed federation: %s", " ".join(command))
         try:
-            subprocess.run(command, capture_output=True, text=True, env=env, check=True)
+            subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                env=env,
+                check=True,
+                timeout=federation_settings.SUBPROCESS_TIMEOUT,
+            )
+        except subprocess.TimeoutExpired as error:
+            logger.error(
+                "Distributed federation timed out after %ds: %s",
+                federation_settings.SUBPROCESS_TIMEOUT,
+                error,
+            )
+            raise InvalidInputError(
+                "Distributed federation timed out "
+                f"({federation_settings.SUBPROCESS_TIMEOUT}s); check the "
+                "Flower server logs."
+            ) from error
         except subprocess.CalledProcessError as error:
             logger.error(
                 "Distributed federation failed: %s\n%s",
@@ -1208,6 +1245,11 @@ class AnalysisService:
             )
             raise InvalidInputError(
                 f"Distributed federation failed: {error}"
+            ) from error
+        except OSError as error:
+            logger.error("Could not launch distributed federation: %s", error)
+            raise InvalidInputError(
+                f"Could not launch distributed federation: {error}"
             ) from error
 
         registry = ModelRegistry(env["FED_REGISTRY_PATH"])
@@ -1273,12 +1315,13 @@ class AnalysisService:
             If the features cannot be aligned to the model.
         """
 
-        if self.model is None:
+        model, _ = self._snapshot_model()
+        if model is None:
             raise ServiceUnavailableError(
                 "No prediction model is configured (set API_MODEL_PATH)."
             )
         try:
-            result = run_prediction(self.model, features)
+            result = run_prediction(model, features)
         except CrewError as error:
             raise InvalidInputError(str(error)) from error
         logger.info("API prediction: %s", result.predicted_class)
@@ -1326,7 +1369,7 @@ class AnalysisService:
             preset}`` keyed for the ``ModelInfo`` schema.
         """
 
-        tabular = self.model
+        tabular, _ = self._snapshot_model()
         image = self.image_model
         model_type = None
         if tabular is not None and image is not None:
@@ -1354,7 +1397,7 @@ class AnalysisService:
             "model_name": model_name,
             "classes": classes,
             "feature_names": feature_names,
-            "preset": self.active_preset if tabular is not None else None,
+            "preset": self._snapshot_model()[1] if tabular is not None else None,
         }
 
     def presets_info(self) -> list[dict[str, Any]]:
@@ -1655,12 +1698,13 @@ class AnalysisService:
             the served model requires.
         """
 
-        if self.model is None:
+        model, _ = self._snapshot_model()
+        if model is None:
             raise ServiceUnavailableError(
                 "No tabular model is configured for CSV analysis (set "
                 "API_MODEL_PATH or train one)."
             )
-        names = list(self.model.feature_names or [])
+        names = list(model.feature_names or [])
         if not names:
             raise InvalidInputError(
                 "The served model has no recorded feature columns; CSV "
@@ -1668,8 +1712,8 @@ class AnalysisService:
             )
         try:
             pipeline = CSVPipeline(
-                scaler_params=self.model.scaler_params,
-                encoder_params=getattr(self.model, "encoder_params", None),
+                scaler_params=model.scaler_params,
+                encoder_params=getattr(model, "encoder_params", None),
             )
             result = pipeline.run(csv)
         except Exception as error:
@@ -1746,16 +1790,17 @@ class AnalysisService:
             If the analysis inputs are inconsistent.
         """
 
+        model, active_preset = self._snapshot_model()
         crew = ClinicalCrew(
             patient=patient,
             input_type=input_type,
-            model=self.model,
+            model=model,
             features=features,
             rag_pipeline=self.rag_pipeline,
             markers=markers,
             recommendations=recommendations,
             preprocessed=preprocessed,
-            disease=self.active_preset,
+            disease=active_preset,
         )
         try:
             report = crew.run()
@@ -1765,7 +1810,7 @@ class AnalysisService:
         if report.risk and self.risk_history_store:
             self._persist_risk_history(
                 patient_id=patient.id,
-                preset=self.active_preset or "unknown",
+                preset=active_preset or "unknown",
                 report=report,
                 markers=markers,
             )
