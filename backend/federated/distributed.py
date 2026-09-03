@@ -36,6 +36,7 @@ from flwr.server.strategy import FedAvg
 from evaluation import evaluate_classifier
 from federated.client import FederatedClient
 from federated.hospitals import HospitalConfig, load_hospital_dataset
+from federated.parameters import scale_updates
 from federated.privacy import PrivacyConfig, SecureAggregator
 from federated.registry import ModelRegistry
 from models import BaseModel, TabularClassifier, TorchMLPClassifier
@@ -191,8 +192,9 @@ class DistributedFedAvg(FedAvg):
     1. When ``secure_aggregation`` is enabled, ``aggregate_fit`` masks the
        client updates with the pairwise one-time-pad
        :class:`SecureAggregator` so the server only ever forms the exact
-       mean without observing any single update (equal-weight aggregation,
-       matching the in-process server).
+       mean without observing any single update. Updates are pre-scaled
+       by sample share, so both paths produce the same count-weighted
+       FedAvg mean (matching the in-process server).
     2. Per-round global metrics are written to the registry.
     3. The final aggregated weights are retained as ``global_parameters``
        so the server can persist the global model after the run.
@@ -288,7 +290,12 @@ class DistributedFedAvg(FedAvg):
                 self._epsilons.append(float(epsilon))
 
         if self._aggregator is not None:
-            aggregated = self._aggregator.aggregate(updates, [1.0] * len(updates))
+            # Pre-scale by sample share (masks still cancel exactly), so
+            # the secure path matches the count-weighted non-secure path.
+            scaled = scale_updates(updates, weights)
+            aggregated = self._aggregator.aggregate(
+                scaled, [1.0] * len(scaled), average=False
+            )
         else:
             aggregated = self._aggregate_weighted(updates, weights)
 

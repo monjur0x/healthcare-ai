@@ -20,7 +20,7 @@ from .metrics import (
     parameter_set_bytes,
     round_accuracy_deltas,
 )
-from .parameters import average_weights
+from .parameters import average_weights, scale_updates
 from .registry import ModelRegistry
 from .server import FedAvgServer, RoundResult, make_global_evaluator
 
@@ -42,4 +42,5 @@ __all__ = [
     "parameter_set_bytes",
     "round_accuracy_deltas",
     "run_distributed_server",
+    "scale_updates",
 ]

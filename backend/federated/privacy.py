@@ -287,14 +287,22 @@ class SecureAggregator:
         return mask
 
     def aggregate(
-        self, updates: list[list[np.ndarray]], weights: list[float]
+        self,
+        updates: list[list[np.ndarray]],
+        weights: list[float],
+        *,
+        average: bool = True,
     ) -> list[np.ndarray]:
         """
-        Masked aggregation returning the true mean of the updates.
+        Masked aggregation of client updates.
 
         Because the pairwise masks only cancel under a uniform
         coefficient, the aggregation weights must be equal (this matches
-        the server's FedAvg usage where every client counts once).
+        the server's FedAvg usage where every masked input counts once).
+        For a count-weighted mean, pre-scale the updates by sample share
+        (see :func:`federated.parameters.scale_updates`) and pass
+        ``average=False``: the masks still cancel exactly, and the
+        result is the true weighted mean.
 
         Parameters
         ----------
@@ -302,11 +310,14 @@ class SecureAggregator:
             One parameter list per client.
         weights : list[float]
             Per-client aggregation weights (must all be equal).
+        average : bool
+            Divide the masked sum by the number of clients (uniform
+            mean). Set False when the updates were pre-scaled.
 
         Returns
         -------
         list[np.ndarray]
-            The exact unweighted mean (masks cancel on the server).
+            The exact (masked) mean of the updates.
 
         Raises
         ------
@@ -329,7 +340,8 @@ class SecureAggregator:
         for i, state in enumerate(updates):
             masked = self._flatten(state) + self.client_mask(i, total_size)
             accum += masked
-        accum /= len(updates)
+        if average:
+            accum /= len(updates)
         return self._unflatten(accum, shapes)
 
 

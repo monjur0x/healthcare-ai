@@ -25,7 +25,7 @@ from federated.metrics import (
     parameter_set_bytes,
     round_accuracy_deltas,
 )
-from federated.parameters import average_weights
+from federated.parameters import average_weights, scale_updates
 from federated.privacy import SecureAggregator
 from preprocessing.logger import get_logger
 
@@ -107,6 +107,8 @@ class FedAvgServer:
         When enabled, client updates are masked with the pairwise
         one-time-pad :class:`federated.privacy.SecureAggregator` before
         aggregation so the server never observes any single update.
+        Updates are pre-scaled by sample share, so both paths produce
+        the same count-weighted FedAvg mean.
     """
 
     def __init__(
@@ -235,17 +237,24 @@ class FedAvgServer:
         for round_index in range(1, self._num_rounds + 1):
             round_start = time.perf_counter()
             logger.info("Starting federated round %d", round_index)
-            updated, _, metrics = zip(
+            updated, counts, fit_metrics = zip(
                 *[client.fit(self._global_parameters, {}) for client in self._clients],
                 strict=True,
             )
             self._epsilons.extend(
-                float(item["epsilon"]) for item in metrics if "epsilon" in item
+                float(item["epsilon"]) for item in fit_metrics if "epsilon" in item
             )
+            sample_counts = [float(count) for count in counts]
             if self._aggregator is not None:
+                # Pre-scale by sample share: masks added to pre-scaled
+                # updates still cancel exactly, so the masked result is
+                # the count-weighted mean (no secure/non-secure flip).
+                scaled = scale_updates(list(updated), sample_counts)
                 self._global_parameters = self._aggregator.aggregate(
-                    updated, [1.0] * len(updated)
+                    scaled, [1.0] * len(scaled), average=False
                 )
+            elif self._aggregate_fn is average_weights:
+                self._global_parameters = average_weights(list(updated), sample_counts)
             else:
                 self._global_parameters = self._aggregate_fn(updated)
             round_duration_s = time.perf_counter() - round_start
