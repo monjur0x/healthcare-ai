@@ -1211,8 +1211,10 @@ class AnalysisService:
             ) from error
 
         registry = ModelRegistry(env["FED_REGISTRY_PATH"])
-        latest = registry.latest_model(preset)
-        registry.close()
+        try:
+            latest = registry.latest_model(preset)
+        finally:
+            registry.close()
         if latest is None:
             raise InvalidInputError(
                 f"Distributed federation registered no model for '{preset}'."

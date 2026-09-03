@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 
 from datetime import UTC, datetime
 from pathlib import Path
@@ -41,14 +42,21 @@ class RiskHistoryStore:
     def __init__(self, db_path: str | Path | None = None) -> None:
         self.db_path = Path(db_path or settings.DB_PATH)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        # RLock: FastAPI serves concurrent threads off one instance, and
+        # summary helpers nest (get_summary -> compute_trend -> readers).
+        self._lock = threading.RLock()
         self._connection: sqlite3.Connection | None = None
 
     def connect(self) -> sqlite3.Connection:
         """Open (and create) the SQLite database with the risk history table."""
-        if self._connection is None:
-            self._connection = sqlite3.connect(self.db_path, check_same_thread=False)
-            self._connection.execute(
-                """
+        with self._lock:
+            if self._connection is None:
+                self._connection = sqlite3.connect(
+                    self.db_path, check_same_thread=False, timeout=10.0
+                )
+                self._connection.execute("PRAGMA journal_mode=WAL")
+                self._connection.execute(
+                    """
                 CREATE TABLE IF NOT EXISTS risk_history (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     patient_id TEXT NOT NULL,
@@ -61,22 +69,23 @@ class RiskHistoryStore:
                     created_at TEXT NOT NULL
                 )
                 """
-            )
-            # Index for efficient patient+preset lookups
-            self._connection.execute(
-                """
+                )
+                # Index for efficient patient+preset lookups
+                self._connection.execute(
+                    """
                 CREATE INDEX IF NOT EXISTS idx_risk_history_patient_preset
                 ON risk_history (patient_id, preset, created_at)
                 """
-            )
-            self._connection.commit()
-        return self._connection
+                )
+                self._connection.commit()
+            return self._connection
 
     def close(self) -> None:
         """Close the underlying database connection."""
-        if self._connection is not None:
-            self._connection.close()
-            self._connection = None
+        with self._lock:
+            if self._connection is not None:
+                self._connection.close()
+                self._connection = None
 
     def add(
         self,
@@ -119,26 +128,27 @@ class RiskHistoryStore:
             If the row cannot be persisted.
         """
         try:
-            cursor = self.connect().execute(
-                """
+            with self._lock:
+                cursor = self.connect().execute(
+                    """
                 INSERT INTO risk_history (
                     patient_id, preset, risk_score, risk_level,
                     prediction, confidence, markers, created_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (
-                    patient_id,
-                    preset,
-                    risk_score,
-                    risk_level,
-                    prediction,
-                    confidence,
-                    json.dumps(markers) if markers else None,
-                    datetime.now(UTC).isoformat(),
-                ),
-            )
-            self._connection.commit()
-            return int(cursor.lastrowid)
+                    (
+                        patient_id,
+                        preset,
+                        risk_score,
+                        risk_level,
+                        prediction,
+                        confidence,
+                        json.dumps(markers) if markers else None,
+                        datetime.now(UTC).isoformat(),
+                    ),
+                )
+                self._connection.commit()
+                return int(cursor.lastrowid)
         except sqlite3.Error as error:
             raise RiskHistoryStoreError(
                 f"Could not persist risk history: {error}"
@@ -164,10 +174,11 @@ class RiskHistoryStore:
         list[RiskHistoryRecord]
             History records ordered by creation time (descending).
         """
-        rows = (
-            self.connect()
-            .execute(
-                """
+        with self._lock:
+            rows = (
+                self.connect()
+                .execute(
+                    """
             SELECT id, patient_id, preset, risk_score, risk_level,
                    prediction, confidence, markers, created_at
             FROM risk_history
@@ -175,10 +186,10 @@ class RiskHistoryStore:
             ORDER BY created_at DESC
             LIMIT ?
             """,
-                (patient_id, preset, limit),
+                    (patient_id, preset, limit),
+                )
+                .fetchall()
             )
-            .fetchall()
-        )
         return [self._row_to_record(row) for row in rows]
 
     def get_recent_scores(
@@ -187,35 +198,37 @@ class RiskHistoryStore:
         """
         Return recent (risk_score, risk_level, created_at) tuples, newest first.
         """
-        rows = (
-            self.connect()
-            .execute(
-                """
+        with self._lock:
+            rows = (
+                self.connect()
+                .execute(
+                    """
             SELECT risk_score, risk_level, created_at
             FROM risk_history
             WHERE patient_id = ? AND preset = ?
             ORDER BY created_at DESC
             LIMIT ?
             """,
-                (patient_id, preset, limit),
+                    (patient_id, preset, limit),
+                )
+                .fetchall()
             )
-            .fetchall()
-        )
         return [(r[0], r[1], datetime.fromisoformat(r[2])) for r in rows]
 
     def get_all_patients(self) -> list[tuple[str, str]]:
         """Return distinct (patient_id, preset) pairs with at least one record."""
-        rows = (
-            self.connect()
-            .execute(
-                """
+        with self._lock:
+            rows = (
+                self.connect()
+                .execute(
+                    """
             SELECT DISTINCT patient_id, preset
             FROM risk_history
             ORDER BY patient_id, preset
             """
+                )
+                .fetchall()
             )
-            .fetchall()
-        )
         return [(r[0], r[1]) for r in rows]
 
     def compute_trend(
@@ -316,14 +329,13 @@ class RiskHistoryStore:
         """
         history = self.get_patient_history(patient_id, preset, limit=1)
         latest = history[0] if history else None
-        total = (
-            self.connect()
-            .execute(
-                "SELECT COUNT(*) FROM risk_history WHERE patient_id = ? AND preset = ?",
-                (patient_id, preset),
-            )
-            .fetchone()[0]
+        count_query = (
+            "SELECT COUNT(*) FROM risk_history WHERE patient_id = ? AND preset = ?"
         )
+        with self._lock:
+            total = (
+                self.connect().execute(count_query, (patient_id, preset)).fetchone()[0]
+            )
 
         if total >= settings.MIN_TREND_POINTS:
             trend = self.compute_trend(patient_id, preset)

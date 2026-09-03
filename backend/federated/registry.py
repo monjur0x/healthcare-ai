@@ -11,6 +11,7 @@ trained global models.
 from __future__ import annotations
 
 import sqlite3
+import threading
 import uuid
 
 from datetime import UTC, datetime
@@ -36,14 +37,24 @@ class ModelRegistry:
     def __init__(self, db_path: str | Path) -> None:
         self._db_path = Path(db_path)
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._connection = sqlite3.connect(self._db_path)
+        # RLock: the Flower server calls record_round/register_model from
+        # gRPC worker threads sharing one instance; nested helpers
+        # (register_model's count+insert) must stay atomic.
+        self._lock = threading.RLock()
+        self._connection = sqlite3.connect(
+            self._db_path, check_same_thread=False, timeout=10.0
+        )
         self._connection.row_factory = sqlite3.Row
+        # WAL lets API/dashboard readers share the file with the Flower
+        # writer across processes instead of hitting "database is locked".
+        self._connection.execute("PRAGMA journal_mode=WAL")
         self._create_tables()
 
     def _create_tables(self) -> None:
         """Create the registry schema if it does not exist yet."""
-        self._connection.executescript(
-            """
+        with self._lock:
+            self._connection.executescript(
+                """
             CREATE TABLE IF NOT EXISTS runs (
                 run_id TEXT PRIMARY KEY,
                 preset TEXT NOT NULL,
@@ -80,9 +91,9 @@ class ModelRegistry:
                 created_at TEXT NOT NULL,
                 FOREIGN KEY (run_id) REFERENCES runs (run_id)
             );
-            """
-        )
-        self._connection.commit()
+            """,
+            )
+            self._connection.commit()
 
     def start_run(
         self,
@@ -115,25 +126,26 @@ class ModelRegistry:
         """
 
         run_id = uuid.uuid4().hex[:12]
-        self._connection.execute(
-            """
+        with self._lock:
+            self._connection.execute(
+                """
             INSERT INTO runs (
                 run_id, preset, n_hospitals, n_rounds, secure_aggregation,
                 differential_privacy, status, created_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (
-                run_id,
-                preset,
-                n_hospitals,
-                n_rounds,
-                int(secure_aggregation),
-                int(differential_privacy),
-                "running",
-                _now(),
-            ),
-        )
-        self._connection.commit()
+                (
+                    run_id,
+                    preset,
+                    n_hospitals,
+                    n_rounds,
+                    int(secure_aggregation),
+                    int(differential_privacy),
+                    "running",
+                    _now(),
+                ),
+            )
+            self._connection.commit()
         return run_id
 
     def record_round(
@@ -167,32 +179,40 @@ class ModelRegistry:
             Wall-clock duration of the round.
         """
 
-        self._connection.execute(
-            """
+        with self._lock:
+            try:
+                self._connection.execute(
+                    """
             INSERT INTO rounds (
                 run_id, round_index, accuracy, log_loss, n_clients,
                 bytes_exchanged, duration_s
             ) VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            (
-                run_id,
-                round_index,
-                accuracy,
-                log_loss,
-                n_clients,
-                bytes_exchanged,
-                duration_s,
-            ),
-        )
-        self._connection.commit()
+                    (
+                        run_id,
+                        round_index,
+                        accuracy,
+                        log_loss,
+                        n_clients,
+                        bytes_exchanged,
+                        duration_s,
+                    ),
+                )
+                self._connection.commit()
+            except sqlite3.IntegrityError:
+                # Duplicate (run_id, round_index), e.g. a retried round:
+                # roll back so the connection stays clean, then fail loud.
+                self._connection.rollback()
+                raise
 
     def complete_run(self, run_id: str) -> None:
         """Mark a run as completed with a completion timestamp."""
-        self._connection.execute(
-            "UPDATE runs SET status = ?, completed_at = ? WHERE run_id = ?",
-            ("completed", _now(), run_id),
-        )
-        self._connection.commit()
+        with self._lock:
+            self._connection.execute(
+                "UPDATE runs SET status = ?, completed_at = ? WHERE run_id = ?",
+                ("completed", _now(), run_id),
+            )
+            self._connection.commit()
 
     def register_model(
         self,
@@ -227,29 +247,32 @@ class ModelRegistry:
             The version number assigned to this model.
         """
 
-        previous = self._connection.execute(
-            "SELECT COUNT(*) AS count FROM models WHERE preset = ?", (preset,)
-        ).fetchone()
-        version = int(previous["count"]) + 1
-        self._connection.execute(
-            """
+        # Count-then-insert runs atomically under the lock so concurrent
+        # runs for one preset cannot claim the same version number.
+        with self._lock:
+            previous = self._connection.execute(
+                "SELECT COUNT(*) AS count FROM models WHERE preset = ?", (preset,)
+            ).fetchone()
+            version = int(previous["count"]) + 1
+            self._connection.execute(
+                """
             INSERT INTO models (
                 run_id, preset, version, model_path, accuracy, roc_auc,
                 epsilon, created_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (
-                run_id,
-                preset,
-                version,
-                str(model_path),
-                accuracy,
-                roc_auc,
-                epsilon,
-                _now(),
-            ),
-        )
-        self._connection.commit()
+                (
+                    run_id,
+                    preset,
+                    version,
+                    str(model_path),
+                    accuracy,
+                    roc_auc,
+                    epsilon,
+                    _now(),
+                ),
+            )
+            self._connection.commit()
         return version
 
     def latest_model(self, preset: str | None = None) -> dict[str, Any] | None:
@@ -273,7 +296,8 @@ class ModelRegistry:
             query += " WHERE preset = ?"
             params = (preset,)
         query += " ORDER BY id DESC LIMIT 1"
-        row = self._connection.execute(query, params).fetchone()
+        with self._lock:
+            row = self._connection.execute(query, params).fetchone()
         return dict(row) if row else None
 
     def list_models(self, preset: str | None = None) -> list[dict[str, Any]]:
@@ -297,7 +321,9 @@ class ModelRegistry:
             query += " WHERE preset = ?"
             params = (preset,)
         query += " ORDER BY id DESC"
-        return [dict(row) for row in self._connection.execute(query, params).fetchall()]
+        with self._lock:
+            rows = self._connection.execute(query, params).fetchall()
+        return [dict(row) for row in rows]
 
     def list_runs(self, preset: str | None = None) -> list[dict[str, Any]]:
         """
@@ -320,7 +346,9 @@ class ModelRegistry:
             query += " WHERE preset = ?"
             params = (preset,)
         query += " ORDER BY created_at DESC"
-        return [dict(row) for row in self._connection.execute(query, params).fetchall()]
+        with self._lock:
+            rows = self._connection.execute(query, params).fetchall()
+        return [dict(row) for row in rows]
 
     def run_rounds(self, run_id: str) -> list[dict[str, Any]]:
         """
@@ -337,14 +365,16 @@ class ModelRegistry:
             Round rows ordered by round index.
         """
 
-        rows = self._connection.execute(
-            "SELECT * FROM rounds WHERE run_id = ? ORDER BY round_index", (run_id,)
-        ).fetchall()
+        with self._lock:
+            rows = self._connection.execute(
+                "SELECT * FROM rounds WHERE run_id = ? ORDER BY round_index", (run_id,)
+            ).fetchall()
         return [dict(row) for row in rows]
 
     def close(self) -> None:
         """Close the underlying SQLite connection."""
-        self._connection.close()
+        with self._lock:
+            self._connection.close()
 
 
 __all__ = ["ModelRegistry"]

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 
 from datetime import UTC, datetime
 from pathlib import Path
@@ -37,14 +38,20 @@ class FeedbackStore:
     def __init__(self, db_path: str | Path | None = None) -> None:
         self.db_path = Path(db_path or settings.DB_PATH)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        # RLock: FastAPI serves concurrent threads off one instance.
+        self._lock = threading.RLock()
         self._connection: sqlite3.Connection | None = None
 
     def connect(self) -> sqlite3.Connection:
         """Open (and create) the SQLite database with the feedback table."""
-        if self._connection is None:
-            self._connection = sqlite3.connect(self.db_path, check_same_thread=False)
-            self._connection.execute(
-                """
+        with self._lock:
+            if self._connection is None:
+                self._connection = sqlite3.connect(
+                    self.db_path, check_same_thread=False, timeout=10.0
+                )
+                self._connection.execute("PRAGMA journal_mode=WAL")
+                self._connection.execute(
+                    """
                 CREATE TABLE IF NOT EXISTS feedback_samples (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     preset TEXT NOT NULL,
@@ -57,15 +64,16 @@ class FeedbackStore:
                     created_at TEXT NOT NULL
                 )
                 """
-            )
-            self._connection.commit()
-        return self._connection
+                )
+                self._connection.commit()
+            return self._connection
 
     def close(self) -> None:
         """Close the underlying database connection."""
-        if self._connection is not None:
-            self._connection.close()
-            self._connection = None
+        with self._lock:
+            if self._connection is not None:
+                self._connection.close()
+                self._connection = None
 
     def add(
         self,
@@ -106,25 +114,26 @@ class FeedbackStore:
         """
 
         try:
-            cursor = self.connect().execute(
-                """
+            with self._lock:
+                cursor = self.connect().execute(
+                    """
                 INSERT INTO feedback_samples (
                     preset, patient_id, features, confirmed_label,
                     predicted_label, confidence, consumed, created_at
                 ) VALUES (?, ?, ?, ?, ?, ?, 0, ?)
                 """,
-                (
-                    preset,
-                    patient_id,
-                    json.dumps(features),
-                    int(confirmed_label),
-                    predicted_label,
-                    confidence,
-                    datetime.now(UTC).isoformat(),
-                ),
-            )
-            self._connection.commit()
-            return self.get(int(cursor.lastrowid))
+                    (
+                        preset,
+                        patient_id,
+                        json.dumps(features),
+                        int(confirmed_label),
+                        predicted_label,
+                        confidence,
+                        datetime.now(UTC).isoformat(),
+                    ),
+                )
+                self._connection.commit()
+                return self.get(int(cursor.lastrowid))
         except sqlite3.Error as error:
             raise FeedbackStoreError(f"Could not persist feedback: {error}") from error
 
@@ -148,19 +157,20 @@ class FeedbackStore:
             If the row does not exist.
         """
 
-        row = (
-            self.connect()
-            .execute(
-                """
+        with self._lock:
+            row = (
+                self.connect()
+                .execute(
+                    """
             SELECT id, preset, patient_id, features, confirmed_label,
                    predicted_label, confidence, created_at
             FROM feedback_samples
             WHERE id = ?
             """,
-                (sample_id,),
+                    (sample_id,),
+                )
+                .fetchone()
             )
-            .fetchone()
-        )
         if row is None:
             raise FeedbackStoreError(f"No feedback row with id {sample_id}.")
         return self._row_to_record(row)
@@ -180,33 +190,35 @@ class FeedbackStore:
             Pending samples ordered by creation time.
         """
 
-        rows = (
-            self.connect()
-            .execute(
-                """
+        with self._lock:
+            rows = (
+                self.connect()
+                .execute(
+                    """
             SELECT id, preset, patient_id, features, confirmed_label,
                    predicted_label, confidence, created_at
             FROM feedback_samples
             WHERE preset = ? AND consumed = 0
             ORDER BY created_at ASC
             """,
-                (preset,),
+                    (preset,),
+                )
+                .fetchall()
             )
-            .fetchall()
-        )
         return [self._row_to_record(row) for row in rows]
 
     def count_pending(self, preset: str) -> int:
         """Return the number of unconsumed samples for a preset."""
-        row = (
-            self.connect()
-            .execute(
-                "SELECT COUNT(*) FROM feedback_samples "
-                "WHERE preset = ? AND consumed = 0",
-                (preset,),
+        with self._lock:
+            row = (
+                self.connect()
+                .execute(
+                    "SELECT COUNT(*) FROM feedback_samples "
+                    "WHERE preset = ? AND consumed = 0",
+                    (preset,),
+                )
+                .fetchone()
             )
-            .fetchone()
-        )
         return int(row[0])
 
     def recent(self, preset: str, limit: int = 5) -> list[FeedbackRecord]:
@@ -226,10 +238,11 @@ class FeedbackStore:
             Recent samples ordered by creation time (descending).
         """
 
-        rows = (
-            self.connect()
-            .execute(
-                """
+        with self._lock:
+            rows = (
+                self.connect()
+                .execute(
+                    """
             SELECT id, preset, patient_id, features, confirmed_label,
                    predicted_label, confidence, created_at
             FROM feedback_samples
@@ -237,10 +250,10 @@ class FeedbackStore:
             ORDER BY created_at DESC
             LIMIT ?
             """,
-                (preset, limit),
+                    (preset, limit),
+                )
+                .fetchall()
             )
-            .fetchall()
-        )
         return [self._row_to_record(row) for row in rows]
 
     def mark_consumed(self, sample_ids: list[int]) -> int:
@@ -261,11 +274,10 @@ class FeedbackStore:
         if not sample_ids:
             return 0
         placeholders = ",".join("?" for _ in sample_ids)
-        cursor = self.connect().execute(
-            f"UPDATE feedback_samples SET consumed = 1 WHERE id IN ({placeholders})",
-            sample_ids,
-        )
-        self._connection.commit()
+        query = f"UPDATE feedback_samples SET consumed = 1 WHERE id IN ({placeholders})"
+        with self._lock:
+            cursor = self.connect().execute(query, sample_ids)
+            self._connection.commit()
         return int(cursor.rowcount)
 
     @staticmethod
