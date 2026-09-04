@@ -103,6 +103,16 @@ the marker-aware queries improved retrieval quality.
     zero new lint (13 pre-existing in touched contrib scripts).
     Note: RUN_GUIDE.md is gitignored + untracked (stray .gitignore
     line?) — left as-is, flagging for owner decision.
+15. Update 2026-09-04: FULL SYSTEM LIVE on this machine — installed
+    CPU torch + requirements into the launcher venv; fixed launcher
+    dashboard path (streamlit_app.py) + activation names; stripped
+    dead httpHeaderAuth credential/auth refs from 3 workflows
+    (backend auth is opt-in, v2 already auth-free). Proven end to
+    end: v2 success + rejection paths, high-risk pager notify,
+    feedback→n8n retrain→hot redeploy (5 consumed, acc 0.834),
+    escalation alert live (0.521→1.0), dashboard 200, 4/4 workflows
+    active. Sparse-feature 422s during the run were correct
+    rejections (model changed under the API after retrain).
 
 ## Open Questions
 
