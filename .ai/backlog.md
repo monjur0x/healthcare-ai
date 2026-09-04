@@ -252,6 +252,12 @@ load-bearing claims verified by read (`crew.py:555`, `store_chroma.py:137`,
   playbooks added for heart disease, CKD, and sepsis (neg/pos), so
   all four registry diseases resolve instead of falling back to
   generic single-liners. Verified: full coverage matrix.
+- [x] FIXED Training labels: ordinal targets binarized (`num` 0-4
+  → `>0`) instead of chance-level 5-class models; string labels for
+  known presets oriented so class 1 is the disease (LabelEncoder had
+  `ckd`→0/`notckd`→1, inverting all kidney predictions — caught
+  live: 5/5 known positives scored P=0.0; kidney acc 0.94→0.98
+  after). Ambiguous cases fail loud.
 - [ ] Multimodal (SCOPED OUT, not a fix batch): empty
   `preprocessing/multimodal/` + `models/multimodal/`, SHAP/Grad-CAM
   explainability, and ViT/Swin fusion are project-scale work

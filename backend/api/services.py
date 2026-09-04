@@ -33,7 +33,11 @@ from CrewAI.orchestrator.schemas import (
     PatientInfo,
     PredictionResult,
 )
-from CrewAI.orchestrator.services import retrieve_evidence, run_prediction
+from CrewAI.orchestrator.services import (
+    DISEASE_REGISTRY,
+    retrieve_evidence,
+    run_prediction,
+)
 from evaluation import evaluate_classifier
 from federated import FedAvgServer, FederatedClient, make_global_evaluator
 from federated.config import settings as federation_settings
@@ -97,8 +101,10 @@ def _normalize_columns(dataframe: pd.DataFrame) -> pd.DataFrame:
 
 
 def prepare_tabular_data(
-    dataset: Path, target: str, max_rows: int | None
-) -> tuple[pd.DataFrame, pd.Series, dict[str, object], dict[str, object]]:
+    dataset: Path, target: str, max_rows: int | None, preset: str | None = None
+) -> tuple[
+    pd.DataFrame, pd.Series, dict[str, object], dict[str, object], dict[str, object]
+]:
     """
     Load and preprocess a CSV into a feature frame and encoded labels.
 
@@ -110,13 +116,24 @@ def prepare_tabular_data(
         Target column name.
     max_rows : int | None
         Optional cap on the number of rows used.
+    preset : str | None
+        Dataset preset name; when it resolves in ``DISEASE_REGISTRY``,
+        binary string labels are oriented so class ``1`` is the disease
+        (see :func:`_preset_binary_labels`).
 
     Returns
     -------
-    tuple[pd.DataFrame, pd.Series, dict[str, object], dict[str, object]]
+    tuple[
+        pd.DataFrame,
+        pd.Series,
+        dict[str, object],
+        dict[str, object],
+        dict[str, object],
+    ]
         Engineered feature frame, integer-encoded label series aligned
-        by index, the fitted scaler's serializable parameters, and the
-        fitted encoder's serializable parameters.
+        by index, the fitted scaler's serializable parameters, the
+        fitted encoder's serializable parameters, and the fitted
+        imputer's serializable parameters.
 
     Raises
     ------
@@ -152,13 +169,21 @@ def prepare_tabular_data(
     labels = y_raw.loc[features.index]
     if pd.api.types.is_string_dtype(labels):
         labels = labels.str.strip()
-        labels = pd.Series(
-            LabelEncoder().fit_transform(labels), index=labels.index, name=target
-        )
+        if (labels == "").any():
+            raise InvalidInputError(
+                f"Target '{target}' contains blank labels; clean them before training."
+            )
         if labels.nunique() > 2:
             raise InvalidInputError(
                 f"Target '{target}' has {labels.nunique()} classes; this "
                 "framework predicts binary outcomes — provide binary labels."
+            )
+        aligned = _preset_binary_labels(labels, preset)
+        if aligned is not None:
+            labels = aligned
+        else:
+            labels = pd.Series(
+                LabelEncoder().fit_transform(labels), index=labels.index, name=target
             )
     else:
         labels = pd.to_numeric(labels).astype(int)
@@ -187,7 +212,77 @@ def prepare_tabular_data(
         labels.nunique(),
         dataset,
     )
-    return features, labels, pipeline.scaler_params(), pipeline.encoder_params()
+    return (
+        features,
+        labels,
+        pipeline.scaler_params(),
+        pipeline.encoder_params(),
+        pipeline.imputer_params(),
+    )
+
+
+#: Raw string labels starting with one of these mean "no disease" when
+#: orienting binary string targets for a known preset (e.g. "notckd").
+_NEGATION_PREFIXES = (
+    "no",
+    "not",
+    "non",
+    "healthy",
+    "absent",
+    "negative",
+    "normal",
+    "false",
+)
+
+
+def _preset_binary_labels(labels: pd.Series, preset: str | None) -> pd.Series | None:
+    """
+    Map two raw string labels to binary 0/1 for a known preset.
+
+    Class ``1`` must be the disease outcome to match ``DISEASE_REGISTRY``
+    (and the federated canonical ``has_disease`` target); alphabetical
+    ``LabelEncoder`` order cannot guarantee that (e.g. ``ckd`` sorts
+    before ``notckd``).
+
+    Parameters
+    ----------
+    labels : pd.Series
+        Stripped string labels with exactly two distinct values.
+    preset : str | None
+        Dataset preset name, or None for custom datasets.
+
+    Returns
+    -------
+    pd.Series | None
+        Integer 0/1 labels, or None when the preset is unknown (the
+        caller keeps ``LabelEncoder`` order).
+
+    Raises
+    ------
+    InvalidInputError
+        If neither or both values look like a negation (ambiguous
+        orientation).
+    """
+
+    if not preset or preset not in DISEASE_REGISTRY:
+        return None
+    values = sorted({str(value).strip().lower() for value in labels.unique()})
+    negated = [v for v in values if v.startswith(_NEGATION_PREFIXES)]
+    if len(negated) != 1:
+        raise InvalidInputError(
+            f"Cannot orient binary labels {values} for preset '{preset}': "
+            "exactly one value must carry a negation marker "
+            f"{list(_NEGATION_PREFIXES)}."
+        )
+    positive = next(v for v in values if v != negated[0])
+    logger.info(
+        "Oriented binary labels for '%s': disease=%s, healthy=%s.",
+        preset,
+        positive,
+        negated[0],
+    )
+    mapping = {positive: 1, negated[0]: 0}
+    return labels.str.strip().str.lower().map(mapping).astype(int)
 
 
 def _partition_shards(
@@ -565,8 +660,8 @@ class AnalysisService:
 
         dataset_path, target = self._resolve_dataset(preset, dataset, target)
         try:
-            features, labels, scaler_params, encoder_params = prepare_tabular_data(
-                dataset_path, target, max_rows
+            features, labels, scaler_params, encoder_params, imputer_params = (
+                prepare_tabular_data(dataset_path, target, max_rows, preset=preset)
             )
         except (OSError, ValueError) as error:
             raise InvalidInputError(str(error)) from error
@@ -624,10 +719,13 @@ class AnalysisService:
                     fitted.set_scaler_params(scaler_params)
                 if hasattr(fitted, "set_encoder_params"):
                     fitted.set_encoder_params(encoder_params)
+                if hasattr(fitted, "set_imputer_params"):
+                    fitted.set_imputer_params(imputer_params)
             else:
                 fitted = TabularClassifier(model_name=model).fit(train_x, train_y)
                 fitted.set_scaler_params(scaler_params)
                 fitted.set_encoder_params(encoder_params)
+                fitted.set_imputer_params(imputer_params)
                 fed_metrics = None
         except InvalidInputError:
             raise
@@ -1737,6 +1835,7 @@ class AnalysisService:
             pipeline = CSVPipeline(
                 scaler_params=model.scaler_params,
                 encoder_params=getattr(model, "encoder_params", None),
+                imputer_params=getattr(model, "imputer_params", None),
             )
             result = pipeline.run(csv)
         except Exception as error:
