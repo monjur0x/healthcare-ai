@@ -277,7 +277,7 @@ class RiskHistoryStore:
         latest_level = levels[0]
 
         # Linear regression for slope (older to newer)
-        x = list(range(len(scores)))[::-1]  # oldest=0, newest=n-1
+        x = list(range(len(scores)))  # oldest=0, newest=n-1
         y = scores[::-1]
         n = len(x)
         sum_x = sum(x)
