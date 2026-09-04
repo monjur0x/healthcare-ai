@@ -95,11 +95,11 @@
           "conditions": [
             {
               "id": "csv",
-              "leftValue": "={{ $json.body.csv_b64 }}",
-              "rightValue": "",
+              "leftValue": "={{ !!$json.body.csv_b64 }}",
+              "rightValue": true,
               "operator": {
-                "type": "string",
-                "operation": "isNotEmpty",
+                "type": "boolean",
+                "operation": "true",
                 "singleValue": true
               }
             }
