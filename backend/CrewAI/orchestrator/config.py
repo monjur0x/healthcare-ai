@@ -5,6 +5,7 @@ Only orchestration settings belong here. Model and retrieval settings
 stay in their owning modules (``models/config.py``, ``rag/config.py``).
 """
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -13,7 +14,9 @@ class CrewSettings(BaseSettings):
     Orchestration settings.
 
     Environment variables use the ``CREW_`` prefix, e.g.
-    ``CREW_LLM_MODEL`` or ``CREW_RISK_LOW_THRESHOLD``.
+    ``CREW_LLM_MODEL``. Fields whose names carry their own prefix bind
+    the plain documented name instead (e.g. ``RISK_LOW_THRESHOLD``,
+    not ``CREW_RISK_LOW_THRESHOLD``).
     """
 
     model_config = SettingsConfigDict(
@@ -60,23 +63,36 @@ class CrewSettings(BaseSettings):
 
     LLM_BASE_URL: str = ""
 
-    CREW_VERBOSE: bool = False
+    # NOTE: the attribute names below carry their own prefix for
+    # readability at call sites (``settings.RISK_...``); the
+    # ``validation_alias`` entries bind the documented single-prefix
+    # environment names, since ``env_prefix="CREW_"`` would otherwise
+    # demand doubled names like ``CREW_CREW_VERBOSE``.
+    CREW_VERBOSE: bool = Field(default=False, validation_alias="CREW_VERBOSE")
 
-    CREW_MEMORY: bool = False
+    CREW_MEMORY: bool = Field(default=False, validation_alias="CREW_MEMORY")
 
     ##########################################
     # Retrieval wiring
     ##########################################
 
-    RAG_TOP_K: int = 3
+    # NOTE: the retrieval default for the rag package itself lives in
+    # rag.config (RAG_TOP_K, default 5); this crew-side default (used
+    # when agent/RAG calls omit top_k) binds the distinct CREW_RAG_TOP_K
+    # variable so the two knobs never collide.
+    RAG_TOP_K: int = Field(default=3, validation_alias="CREW_RAG_TOP_K")
 
     ##########################################
     # Risk assessment
     ##########################################
 
-    RISK_LOW_THRESHOLD: float = 0.3
+    RISK_LOW_THRESHOLD: float = Field(
+        default=0.3, validation_alias="RISK_LOW_THRESHOLD"
+    )
 
-    RISK_MEDIUM_THRESHOLD: float = 0.6
+    RISK_MEDIUM_THRESHOLD: float = Field(
+        default=0.6, validation_alias="RISK_MEDIUM_THRESHOLD"
+    )
 
     # Scale for the marker-evidence component of the risk score. Each
     # elevated marker contributes clamp(value/threshold - 1, 0, 1);
@@ -84,7 +100,9 @@ class CrewSettings(BaseSettings):
     # 0.5 means markers alone can reach the medium band (but never
     # high), while severe elevations reliably lift a low model
     # probability so the score matches the reported risk factors.
-    RISK_MARKER_WEIGHT: float = 0.5
+    RISK_MARKER_WEIGHT: float = Field(
+        default=0.5, validation_alias="RISK_MARKER_WEIGHT"
+    )
 
     MARKER_THRESHOLDS: dict[str, float] = {
         "age": 65.0,
