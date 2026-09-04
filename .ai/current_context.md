@@ -52,9 +52,9 @@ M5 — Bug-fix sweep against the research proposal (deferred clinical issues)
 - Corpus expansion
 - Six-agent pipeline as distinct CrewAI agents in run_llm
 - Full-project review items (see .ai/backlog.md) — P0 closed, P1
-  closed (FedAvg, DP accounting, OTP, canonical, agent metrics,
-  LLM tools, API, risk, feedback, baselines, RAG eval). Remaining:
-  P2 gaps/drift (multimodal, frontend/n8n polish, config/docs).
+  closed, P2 closed except explicitly scoped-out multimodal research
+  (datasets + architectures + training pipeline). Next: verify live
+  system + commit.
 
 ## Next Steps
 1. ~~Commit the bug-fix sweep~~ — done (see session log below).

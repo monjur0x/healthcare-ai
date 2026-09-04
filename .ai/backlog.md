@@ -230,15 +230,28 @@ load-bearing claims verified by read (`crew.py:555`, `store_chroma.py:137`,
   `models/multimodal/`) vs proposal imaging extension; explainability is
   magnitude-sort not SHAP/Grad-CAM (`crew.py:279-299`); treatment
   playbooks diabetes-only (`services.py:726-817`).
-- [ ] Frontend: `frontend/requirements.txt` missing `pandas` (Risk tab
-  crash at `streamlit_app.py:1441`); n8n `127.0.0.1:8000` breaks under
-  Docker; hardcoded n8n credential IDs; `clinical-full-v2` undocumented.
-- [ ] Config: `CREW_*` prefix bugs — `RISK_*`/`RAG_TOP_K` never bind
-  (`orchestrator/config.py:63-87` vs `.env.example:151-171`);
-  `LLM_BASE_URL/MAX_RETRIES`, `PREPROCESS_*`, `ACTIVE_PRESET`,
-  `DOCTOR_NOTIFY_WEBHOOK`, `N8N_*` absent; personal absolute dataset
-  paths in example; duplicate `RAG_TOP_K`.
-- [ ] Docs: README endpoints table omits `/agents/*` + `/`
-  (`README.md:318-341`); `risk-monitoring.json (to be added)` stale
-  (`README.md:311`); `.gitignore` lacks generic `*.db/*.joblib` cover
-  for relocated artifact paths.
+- [x] FIXED Frontend/n8n polish: `pandas` added to
+  `frontend/requirements.txt` (Risk tab import); all 11 backend URLs
+  across the 6 n8n workflows parameterized via
+  `$env.BACKEND_URL` (localhost default preserved; surgical diff, no
+  reformat churn); README covers Docker networking, the
+  `httpHeaderAuth` credential, and `clinical-full-v2`.
+- [x] FIXED Config: the six mis-prefixed `CrewSettings` fields bind
+  their documented names via `validation_alias` (verified live);
+  crew `RAG_TOP_K` decoupled to `CREW_RAG_TOP_K`; `.env.example`
+  completed (API_ACTIVE_PRESET, CREW_LLM_BASE_URL/MAX_RETRIES,
+  FED_SUBPROCESS_TIMEOUT, PREPROCESS_* section, portable `~/dataset`
+  paths, no active provider lines) — machine-checked: all 73
+  documented vars bind; README default claim fixed (Gemini).
+- [x] FIXED Docs: endpoints table covers `/` + all five
+  `/api/v1/agents/*` routes; risk-monitoring stale note corrected;
+  `.gitignore` covers relocated `*.db`/`*.joblib`/augmented CSVs.
+- [x] FIXED Treatment playbooks: disease-specific low/medium/high
+  playbooks added for heart disease, CKD, and sepsis (neg/pos), so
+  all four registry diseases resolve instead of falling back to
+  generic single-liners. Verified: full coverage matrix.
+- [ ] Multimodal (SCOPED OUT, not a fix batch): empty
+  `preprocessing/multimodal/` + `models/multimodal/`, SHAP/Grad-CAM
+  explainability, and ViT/Swin fusion are project-scale work
+  requiring new datasets, architectures, and a training pipeline —
+  recorded as future research, not attempted here.

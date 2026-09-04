@@ -91,6 +91,12 @@ the marker-aware queries improved retrieval quality.
     anchored output). Live proofs: M3 exit 0 (agent metrics
     0/0→1.0/1.0, B2 vs B3 differentiated), RAG MRR 0.49→0.669.
     `ruff` clean. Remaining: P2.
+13. Update 2026-09-04: P2 complete — config aliases bind live
+    (73/73 vars machine-checked), crew/rag TOP_K decoupled, env
+    example completed, n8n BACKEND_URL parameterized (surgical),
+    pandas dep, disease playbooks x4 (coverage-verified), README +
+    gitignore corrected, multimodal explicitly scoped out. `ruff`
+    clean. Next: live system check + commit.
 
 ## Open Questions
 
