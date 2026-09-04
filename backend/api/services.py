@@ -155,8 +155,31 @@ def prepare_tabular_data(
         labels = pd.Series(
             LabelEncoder().fit_transform(labels), index=labels.index, name=target
         )
+        if labels.nunique() > 2:
+            raise InvalidInputError(
+                f"Target '{target}' has {labels.nunique()} classes; this "
+                "framework predicts binary outcomes — provide binary labels."
+            )
     else:
         labels = pd.to_numeric(labels).astype(int)
+        n_classes = int(labels.nunique())
+        if n_classes > 2:
+            if labels.min() < 0:
+                raise InvalidInputError(
+                    f"Target '{target}' has {n_classes} classes with "
+                    "negative labels; binary 0/1 labels are required."
+                )
+            # UCI-style ordinal scale (e.g. heart `num` 0-4): 0 is the
+            # healthy class, anything above is disease. Binarize loudly
+            # instead of training a multi-class model the binary risk
+            # layer cannot interpret.
+            logger.warning(
+                "Target '%s' has %d classes; binarizing as positive=%s.",
+                target,
+                n_classes,
+                "label > 0",
+            )
+            labels = (labels > 0).astype(int)
     logger.info(
         "Prepared %d samples, %d features, %d classes from %s",
         features.shape[0],
