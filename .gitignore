@@ -33,6 +33,13 @@ backend/artifacts/
 backend/hospitals/
 backend/data/
 
+# Relocated stores / artifacts (configurable paths escape the dirs above)
+*.db
+*.sqlite
+*.sqlite3
+*.joblib
+feedback_augmented.csv
+
 # Node / frontend
 node_modules/
 .next/

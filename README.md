@@ -236,6 +236,14 @@ docker run -d --rm --name healthcare-n8n -p 5678:5678 \
   -v healthcare_n8n_data:/home/node/.n8n n8nio/n8n
 ```
 
+Backend URL: workflows call the API through `$env.BACKEND_URL`,
+defaulting to `http://127.0.0.1:8000`. From Docker, `127.0.0.1` is the
+n8n container itself — either run with `--network=host` or set
+`BACKEND_URL` (e.g. `http://host.docker.internal:8000`) in the n8n
+container environment. Authenticated nodes use an `httpHeaderAuth`
+credential ("Healthcare API Token"); create it in n8n and, when the
+backend sets `API_TOKEN`, store the `Bearer` value there.
+
 Open http://localhost:5678, import `n8n/healthcare-endtoend.json`,
 activate it, then drive everything with one request:
 
@@ -265,7 +273,10 @@ analysis (prediction + RAG) → evidence summary → treatment plan →
 explainability → report validation → store (risk history / registry) →
 doctor notification on high risk → respond. Invalid payloads get a
 structured rejection; the notify branch is best-effort and never blocks
-the clinical response.
+the clinical response. `n8n/clinical-full-v2.json`
+(`POST /webhook/clinical-full-v2`) is the same flow routed through the
+per-agent `/api/v1/agents/*` endpoints step by step instead of the
+monolithic analyze call.
 
 ### Feedback-Driven Retraining
 
@@ -308,9 +319,10 @@ Key features:
 - **Minimum points**: Trend analysis requires
   `RISK_HISTORY_MIN_TREND_POINTS` (default 3) data points.
 
-The `n8n/risk-monitoring.json` workflow (to be added) can poll
-`/api/v1/risk/alerts` on a schedule and fire notifications for
-escalating patients.
+The `n8n/risk-monitoring.json` workflow polls
+`/api/v1/risk/alerts` every 15 minutes and notifies clinicians per
+alert (it dedupes via workflow static data, so each escalation
+notifies once).
 
 Set `RISK_HISTORY_ALERTS_ENABLED=false` to record history but disable
 automated alerting.
@@ -319,6 +331,7 @@ automated alerting.
 
 | Method | Path | Description |
 | ------ | ---- | ----------- |
+| GET | `/` | Service info |
 | GET | `/health` | Liveness |
 | GET | `/api/v1/model` | Model metadata (features / classes) |
 | GET | `/api/v1/federation/status` | Federation registry overview (runs / models / per-preset latest) |
@@ -339,6 +352,11 @@ automated alerting.
 | GET | `/api/v1/risk/history/{patient_id}` | Detailed risk history for a patient-preset |
 | GET | `/api/v1/risk/trends/{patient_id}` | Computed risk trend (direction, slope, escalation) |
 | GET | `/api/v1/risk/alerts` | Active escalation alerts (risk score jumps) |
+| POST | `/api/v1/agents/patient-analyst` | Per-agent step: patient summary |
+| POST | `/api/v1/agents/disease-predictor` | Per-agent step: prediction + risk |
+| POST | `/api/v1/agents/evidence-retrieval` | Per-agent step: RAG evidence |
+| POST | `/api/v1/agents/treatment-planner` | Per-agent step: recommendations |
+| POST | `/api/v1/agents/explainability` | Per-agent step: explanation |
 
 Optional bearer auth: set `API_TOKEN` and send
 `Authorization: Bearer <token>` (all `/api/v1` routes).
@@ -355,10 +373,18 @@ Environment variables (all optional, see `backend/.env.example`):
 - `API_ARTIFACTS_DIR` — where trained models are written
 - `API_TOKEN` — optional bearer token
 - `CREW_LLM_PROVIDER` / `CREW_LLM_MODEL` / `CREW_LLM_API_KEY` /
-  `CREW_LLM_BASE_URL` — the crew's LLM (NVIDIA NIM by default;
-  `LLM_BASE_URL` switches to any OpenAI-compatible endpoint)
+  `CREW_LLM_BASE_URL` — the crew's LLM (Google Gemini by default;
+  `CREW_LLM_BASE_URL` switches to any OpenAI-compatible endpoint
+  such as NVIDIA NIM)
 - `RAG_*` — embedding backend (`tfidf` default, `sentence-transformer`
   opt-in), vector store (`memory` default, `chroma` opt-in)
+- `FED_*` — distributed Flower deployment (server address, registry,
+  hospital dirs, TLS, subprocess timeout)
+- `FEEDBACK_*` — feedback store path, retrain threshold/gating
+- `RISK_HISTORY_*` — risk history store, trend window, escalation
+  threshold, alert toggle
+- `MODEL_*` / `PREPROCESS_*` — model seeds/training and CSV/image
+  pipeline tuning
 
 ### CrewAI LLM
 
