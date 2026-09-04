@@ -54,9 +54,14 @@ M5 — Bug-fix sweep against the research proposal (deferred clinical issues)
   aggregation, silent-exception logging in agent routes
 
 ## Remaining Backlog
-- Dense embedder for better RAG faithfulness (sentence-transformers)
-- Corpus expansion
-- Six-agent pipeline as distinct CrewAI agents in run_llm
+- Dense embedder for better RAG faithfulness (sentence-transformers;
+  blocked on installing the optional dep + model download — code path
+  ready: `RAG_EMBEDDING_MODEL=sentence-transformer`)
+- Corpus expansion (add topic docs so eval ground truth maps 1:1;
+  deferred: new clinical summaries need expert review before merging)
+- ~~Six-agent pipeline as distinct CrewAI agents in run_llm~~ — done:
+  stale item, `run_llm` already builds 7 distinct agents × 7 tasks
+  with tools (verified `AGENT_PROFILES` + `create_tasks` keys)
 - Full-project review items (see .ai/backlog.md) — P0 closed, P1
   closed, P2 closed except explicitly scoped-out multimodal research
   (datasets + architectures + training pipeline). Next: verify live
