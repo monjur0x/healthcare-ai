@@ -193,7 +193,9 @@ load-bearing claims verified by read (`crew.py:555`, `store_chroma.py:137`,
   identity, fallback preservation, 1400-op race smoke. (The
   `service=None` 500 note was stale — the dependency already 503s.)
 - [x] FIXED Risk: sub-threshold trends return real latest values
-  (never fabricated 0.0); `ALERTS_ENABLED=false` now disables both
+  (never fabricated 0.0); regression x-axis was inverted (rising
+  risk reported "improving" — caught live, fixed, verified both
+  directions); `ALERTS_ENABLED=false` now disables both
   trend escalation and the alerts endpoint (was documented but
   ignored); n8n poll re-fire fixed at the consumer via workflow
   static-data dedup (level-triggered endpoint unchanged for the
