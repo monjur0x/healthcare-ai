@@ -237,9 +237,8 @@ def import_n8n_workflows():
     
     workflows = [
         ("Healthcare End-to-End", N8N_DIR / "healthcare-endtoend.json"),
-        ("Clinical Analysis", N8N_DIR / "clinical-analysis.json"),
+        ("Clinical Full Pipeline (per-agent)", N8N_DIR / "clinical-full-v2.json"),
         ("Feedback Retrain", N8N_DIR / "feedback-retrain.json"),
-        ("Clinical Full Pipeline", N8N_DIR / "clinical-full.json"),
         ("Risk Monitoring", N8N_DIR / "risk-monitoring.json"),
     ]
     

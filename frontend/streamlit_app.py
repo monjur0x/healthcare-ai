@@ -781,7 +781,7 @@ def run_demo_console(client: HealthcareAPIClient, n8n_base_url: str) -> None:
                 "🟢 Healthy patient", use_container_width=True, key="demo_healthy"
             ):
                 try:
-                    body = client.webhook_raw(n8n_base_url, "clinical-full", healthy)
+                    body = client.webhook_raw(n8n_base_url, "clinical-full-v2", healthy)
                     risk = (body.get("risk") or {}).get("risk_level", "?")
                     st.success(
                         f"risk={risk} · stored={body.get('stored')} · "
@@ -796,7 +796,9 @@ def run_demo_console(client: HealthcareAPIClient, n8n_base_url: str) -> None:
                 "🔴 Critical patient", use_container_width=True, key="demo_critical"
             ):
                 try:
-                    body = client.webhook_raw(n8n_base_url, "clinical-full", critical)
+                    body = client.webhook_raw(
+                        n8n_base_url, "clinical-full-v2", critical
+                    )
                     risk = body.get("risk") or {}
                     st.error(
                         f"🚨 risk={risk.get('risk_level')} "
@@ -814,7 +816,7 @@ def run_demo_console(client: HealthcareAPIClient, n8n_base_url: str) -> None:
             ):
                 try:
                     body = client.webhook_raw(
-                        n8n_base_url, "clinical-full", {"patient": {}}
+                        n8n_base_url, "clinical-full-v2", {"patient": {}}
                     )
                     st.info(_json.dumps(body))
                 except HealthcareAPIError as error:

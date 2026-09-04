@@ -155,7 +155,7 @@ flowchart TB
 | Feedback loop | `backend/feedback/` | Clinician feedback SQLite store + threshold-gated retrain trigger |
 | Risk monitoring | `backend/risk/` | Longitudinal risk history, trend analysis, escalation alerts |
 | Streamlit dashboard | `frontend/streamlit_app.py` | Doctor-facing CDS UI — 7 tabs incl. Risk Monitoring + One-Click Demo Console |
-| n8n automation | `n8n/*.json` | `clinical-full-v2` (per-agent), `risk-monitoring` (15-min polls), `feedback-retrain`, `healthcare-endtoend`, `clinical-analysis` |
+| n8n automation | `n8n/*.json` | `clinical-full-v2` (per-agent), `risk-monitoring` (15-min polls), `feedback-retrain`, `healthcare-endtoend` (retired flows in `n8n/archive/`) |
 | Datasets | `backend/data/hospitals/` | Per-hospital specialty CSVs: A=diabetes, B=heart, C=kidney, D=sepsis (never committed raw PHI) |
 
 ## Quick Start
@@ -263,17 +263,17 @@ analysis is classified as **high risk**, the workflow also fires a
 doctor-notification webhook (`DOCTOR_NOTIFY_WEBHOOK`, an n8n environment
 variable — e.g. a pager/chat-bot endpoint or a hospital notification
 service). The notification is best-effort: a failed notify never blocks
-the webhook response. There is a second minimal workflow,
-`n8n/clinical-analysis.json` (`POST /webhook/healthcare-analyze`).
+the webhook response.
 
-The `n8n/clinical-full.json` workflow implements the proposal's full
-10-step orchestration in one flow
-(`POST /webhook/clinical-full`): receive → validate/route → federated
-analysis (prediction + RAG) → evidence summary → treatment plan →
-explainability → report validation → store (risk history / registry) →
-doctor notification on high risk → respond. Invalid payloads get a
-structured rejection; the notify branch is best-effort and never blocks
-the clinical response. `n8n/clinical-full-v2.json`
+The `n8n/clinical-full-v2.json` workflow implements the proposal's full
+10-step orchestration (`POST /webhook/clinical-full-v2`): receive →
+validate/route → per-agent federated analysis (prediction → RAG →
+treatment → explainability via `/api/v1/agents/*`) → report validation
+→ store (risk history / registry) → doctor notification on high risk →
+respond. Invalid payloads get a structured rejection; the notify branch
+is best-effort and never blocks the clinical response. (The retired
+`n8n/archive/` flows — monolithic `clinical-full` and analyze-only
+`clinical-analysis` — are superseded by v2 and `healthcare-endtoend`.) `n8n/clinical-full-v2.json`
 (`POST /webhook/clinical-full-v2`) is the same flow routed through the
 per-agent `/api/v1/agents/*` endpoints step by step instead of the
 monolithic analyze call.

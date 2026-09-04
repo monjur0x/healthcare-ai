@@ -8,6 +8,12 @@ M5 — Bug-fix sweep against the research proposal (deferred clinical issues)
 
 ## Current Task
 - ✅ Bug-fix sweep completed (see .ai/backlog.md "Deferred issues" for the list)
+- ✅ n8n consolidation: retired `clinical-full` v1 + `clinical-analysis`
+  to `n8n/archive/` (with README); canonical set is now
+  `healthcare-endtoend`, `clinical-full-v2`, `risk-monitoring`,
+  `feedback-retrain`. Demo console, `start_demo.py`, README, and
+  RUN_GUIDE retargeted to `clinical-full-v2` (response keys verified
+  compatible; rejection expectation updated).
 - ✅ Full-project review completed — findings logged to .ai/backlog.md
   "Full-project review (2026-09-03)" as P0/P1/P2 (no fixes applied)
 - ✅ P0 batch 1 completed: crew `_parse_report` binding fix + encoder

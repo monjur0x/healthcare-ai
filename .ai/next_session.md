@@ -97,6 +97,12 @@ the marker-aware queries improved retrieval quality.
     pandas dep, disease playbooks x4 (coverage-verified), README +
     gitignore corrected, multimodal explicitly scoped out. `ruff`
     clean. Next: live system check + commit.
+14. Update 2026-09-04: n8n consolidation done — 6→4 workflows
+    (v1 + analyze-only archived with README); demo, start_demo,
+    README, RUN_GUIDE (local-only, gitignored) retargeted to v2;
+    zero new lint (13 pre-existing in touched contrib scripts).
+    Note: RUN_GUIDE.md is gitignored + untracked (stray .gitignore
+    line?) — left as-is, flagging for owner decision.
 
 ## Open Questions
 
