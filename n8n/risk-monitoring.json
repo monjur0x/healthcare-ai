@@ -19,8 +19,6 @@
       "parameters": {
         "method": "GET",
         "url": "={{ $env.BACKEND_URL || 'http://127.0.0.1:8000' }}/api/v1/risk/alerts",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
         "options": {
           "timeout": 15000
         }
@@ -29,13 +27,7 @@
       "name": "HTTP: Get Escalation Alerts",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [-380, 300],
-      "credentials": {
-        "httpHeaderAuth": {
-          "id": "VyBag3RC9YxWb3PI",
-          "name": "Healthcare API Token"
-        }
-      }
+      "position": [-380, 300]
     },
     {
       "parameters": {

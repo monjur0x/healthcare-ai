@@ -19,8 +19,6 @@
       "parameters": {
         "method": "GET",
         "url": "={{ $env.BACKEND_URL || 'http://127.0.0.1:8000' }}/api/v1/feedback/status",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
         "options": {
           "timeout": 30000
         }
@@ -30,13 +28,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [-520, 260],
-      "onError": "continueErrorOutput",
-      "credentials": {
-        "httpHeaderAuth": {
-          "id": "VyBag3RC9YxWb3PI",
-          "name": "Healthcare API Token"
-        }
-      }
+      "onError": "continueErrorOutput"
     },
     {
       "parameters": {
@@ -83,8 +75,6 @@
       "parameters": {
         "method": "POST",
         "url": "={{ $env.BACKEND_URL || 'http://127.0.0.1:8000' }}/api/v1/feedback/retrain",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ { preset: $json.preset, model: $json.model, test_size: $json.test_size, seed: $json.seed } }}",
@@ -97,13 +87,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [200, 80],
-      "onError": "continueErrorOutput",
-      "credentials": {
-        "httpHeaderAuth": {
-          "id": "VyBag3RC9YxWb3PI",
-          "name": "Healthcare API Token"
-        }
-      }
+      "onError": "continueErrorOutput"
     },
     {
       "parameters": {

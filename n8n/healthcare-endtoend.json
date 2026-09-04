@@ -50,8 +50,6 @@
       "parameters": {
         "method": "POST",
         "url": "={{ $env.BACKEND_URL || 'http://127.0.0.1:8000' }}/api/v1/train",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ { preset: $json.body.preset, dataset: $json.body.dataset, target: $json.body.target, model: $json.body.model, test_size: $json.body.test_size, seed: $json.body.seed, max_rows: $json.body.max_rows, federated: $json.body.federated, clients: $json.body.clients, rounds: $json.body.rounds } }}",
@@ -64,20 +62,12 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [-280, 80],
-      "onError": "continueErrorOutput",
-      "credentials": {
-        "httpHeaderAuth": {
-          "id": "VyBag3RC9YxWb3PI",
-          "name": "Healthcare API Token"
-        }
-      }
+      "onError": "continueErrorOutput"
     },
     {
       "parameters": {
         "method": "POST",
         "url": "={{ $env.BACKEND_URL || 'http://127.0.0.1:8000' }}/api/v1/analyze",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ { patient: $('Webhook: End-to-End Pipeline').item.json.body.patient, features: $('Webhook: End-to-End Pipeline').item.json.body.features, markers: $('Webhook: End-to-End Pipeline').item.json.body.markers, recommendations: $('Webhook: End-to-End Pipeline').item.json.body.recommendations, input_type: $('Webhook: End-to-End Pipeline').item.json.body.input_type || 'csv' } }}",
@@ -90,13 +80,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [-40, 260],
-      "onError": "continueErrorOutput",
-      "credentials": {
-        "httpHeaderAuth": {
-          "id": "VyBag3RC9YxWb3PI",
-          "name": "Healthcare API Token"
-        }
-      }
+      "onError": "continueErrorOutput"
     },
     {
       "parameters": {
@@ -133,8 +117,6 @@
       "parameters": {
         "method": "POST",
         "url": "={{ $env.BACKEND_URL || 'http://127.0.0.1:8000' }}/api/v1/analyze/csv",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ { csv: $('Webhook: End-to-End Pipeline').item.json.body.csv_b64, patient: $('Webhook: End-to-End Pipeline').item.json.body.patient, markers: $('Webhook: End-to-End Pipeline').item.json.body.markers, recommendations: $('Webhook: End-to-End Pipeline').item.json.body.recommendations, input_type: 'csv' } }}",
@@ -147,13 +129,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [200, -60],
-      "onError": "continueErrorOutput",
-      "credentials": {
-        "httpHeaderAuth": {
-          "id": "VyBag3RC9YxWb3PI",
-          "name": "Healthcare API Token"
-        }
-      }
+      "onError": "continueErrorOutput"
     },
     {
       "parameters": {

@@ -181,7 +181,7 @@ def start_n8n():
 def start_dashboard():
     """Start Streamlit dashboard."""
     python = get_venv_python()
-    dashboard_script = FRONTEND_DIR / "dashboard.py"
+    dashboard_script = FRONTEND_DIR / "streamlit_app.py"
     
     if not dashboard_script.exists():
         print(f"⚠ Dashboard not found at {dashboard_script}")
@@ -279,7 +279,12 @@ def activate_workflows():
     conn = sqlite3.connect(str(db_path))
     
     # Find and activate each workflow
-    for name in ["Healthcare End-to-End Pipeline", "Clinical Analysis", "Feedback-Driven Retrain"]:
+    for name in [
+        "Healthcare End-to-End Pipeline",
+        "Clinical Full Pipeline v2",
+        "Feedback-Driven Retrain",
+        "Risk Monitoring",
+    ]:
         row = conn.execute(
             "SELECT id FROM workflow_entity WHERE name = ?", (name,)
         ).fetchone()

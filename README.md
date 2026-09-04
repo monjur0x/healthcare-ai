@@ -240,9 +240,10 @@ Backend URL: workflows call the API through `$env.BACKEND_URL`,
 defaulting to `http://127.0.0.1:8000`. From Docker, `127.0.0.1` is the
 n8n container itself — either run with `--network=host` or set
 `BACKEND_URL` (e.g. `http://host.docker.internal:8000`) in the n8n
-container environment. Authenticated nodes use an `httpHeaderAuth`
-credential ("Healthcare API Token"); create it in n8n and, when the
-backend sets `API_TOKEN`, store the `Bearer` value there.
+container environment. The shipped workflows call the API with no
+auth, matching the default token-less backend; if you set
+`API_TOKEN`, attach an `httpHeaderAuth` credential to the HTTP
+nodes yourself.
 
 Open http://localhost:5678, import `n8n/healthcare-endtoend.json`,
 activate it, then drive everything with one request:
