@@ -113,6 +113,12 @@ the marker-aware queries improved retrieval quality.
     escalation alert live (0.521→1.0), dashboard 200, 4/4 workflows
     active. Sparse-feature 422s during the run were correct
     rejections (model changed under the API after retrain).
+16. Update 2026-09-04: recovered from a server restart — relaunched
+    API (with API_MODEL_PATH pointed at the retrained artifact;
+    fresh boots otherwise serve model-less), re-imported +
+    re-activated all 4 workflows into a clean n8n DB, re-verified
+    the full smoke (low-risk report with evidence). Lesson: boot
+    the API with API_MODEL_PATH set or retrain before demoing.
 
 ## Open Questions
 

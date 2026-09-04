@@ -432,7 +432,7 @@ def render_clinical_results(
             else None
         )
         left, middle, right = st.columns(3)
-        left.metric("Model-estimated risk score", f"{score:.2f}")
+        left.metric("Model-estimated risk score", f"{score:.4f}")
         middle.markdown("**Risk level**")
         middle.markdown(risk_badge_html(level), unsafe_allow_html=True)
         if pos_prob is not None:
