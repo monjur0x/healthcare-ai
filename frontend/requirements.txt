@@ -7,5 +7,8 @@ streamlit>=1.40.0
 # HTTP client for the FastAPI backend
 httpx>=0.28.0
 
+# Dataframes for the Risk Monitoring tab (trend chart)
+pandas>=2.0.0
+
 # Development
 pytest>=8.3.0
