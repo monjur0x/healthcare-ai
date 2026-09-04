@@ -104,6 +104,7 @@ class TorchMLPClassifier(BaseModel):
         self._feature_names: list[str] | None = None
         self._scaler_params: dict[str, object] | None = None
         self._encoder_params: dict[str, object] | None = None
+        self._imputer_params: dict[str, object] | None = None
         self._fitted = False
 
         self._model = _TorchMLP(self._n_features, self._n_classes, self._hidden_sizes)
@@ -172,6 +173,23 @@ class TorchMLPClassifier(BaseModel):
         """
 
         self._encoder_params = params
+
+    @property
+    def imputer_params(self) -> dict[str, object] | None:
+        """Persisted imputation parameters captured during training (if any)."""
+        return self._imputer_params
+
+    def set_imputer_params(self, params: dict[str, object] | None) -> None:
+        """
+        Attach the preprocessing imputer parameters for inference.
+
+        Parameters
+        ----------
+        params : dict[str, object] | None
+            ``CSVImputer.params()`` output from training, or None.
+        """
+
+        self._imputer_params = params
 
     def fit(self, X: np.ndarray | Any, y: np.ndarray) -> TorchMLPClassifier:
         """
@@ -285,6 +303,7 @@ class TorchMLPClassifier(BaseModel):
             "feature_names": self._feature_names,
             "scaler_params": self._scaler_params,
             "encoder_params": self._encoder_params,
+            "imputer_params": self._imputer_params,
         }
         destination = Path(path)
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -342,6 +361,7 @@ class TorchMLPClassifier(BaseModel):
         instance._feature_names = payload.get("feature_names")
         instance._scaler_params = payload.get("scaler_params")
         instance._encoder_params = payload.get("encoder_params")
+        instance._imputer_params = payload.get("imputer_params")
         instance._fitted = True
         logger.info("Loaded TorchMLPClassifier model from %s", source)
         return instance

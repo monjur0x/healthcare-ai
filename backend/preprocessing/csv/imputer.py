@@ -7,6 +7,7 @@ remaining missing values using the configured strategy.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 import pandas as pd
@@ -63,10 +64,17 @@ class CSVImputer:
         )
         self._numeric_strategy = numeric_strategy
         self._categorical_strategy = categorical_strategy
+        self._fill_values: dict[str, object] = {}
+        self._dropped_columns: tuple[str, ...] = ()
+        self._fitted = False
 
     def fit(self, dataframe: pd.DataFrame) -> CSVImputer:
         """
         Compute imputation metadata from the dataframe.
+
+        Records which columns exceed the missing ratio (dropped) and
+        the fill value for every kept column, so later batches reuse
+        training-time statistics instead of their own.
 
         Parameters
         ----------
@@ -84,7 +92,42 @@ class CSVImputer:
         self._categorical_columns = tuple(
             dataframe.select_dtypes(include=["object", "category"]).columns
         )
+        self._dropped_columns = tuple(
+            column
+            for column in dataframe.columns
+            if self._max_missing_ratio < 1.0
+            and dataframe[column].isnull().mean() > self._max_missing_ratio
+        )
+        self._fill_values = {}
+        for column in dataframe.columns:
+            if column in self._dropped_columns:
+                continue
+            self._fill_values[column] = self._fill_value(
+                dataframe[column],
+                column in self._categorical_columns,
+                column,
+            )
         return self
+
+    def _fill_value(self, series: pd.Series, categorical: bool, column: str) -> object:
+        """Resolve the fill value for one column under the strategies."""
+        if categorical:
+            if self._categorical_strategy == "most_frequent":
+                mode = series.mode()
+                return mode.iloc[0] if not mode.empty else "missing"
+            return "missing"
+        if self._numeric_strategy == "median":
+            value = series.median()
+        elif self._numeric_strategy == "most_frequent":
+            mode = series.mode()
+            value = mode.iloc[0] if not mode.empty else float("nan")
+        else:
+            value = series.mean()
+        if pd.isna(value):
+            raise EmptyDatasetError(
+                f"Column '{column}' has no usable values for imputation."
+            )
+        return value
 
     def transform(
         self, dataframe: pd.DataFrame
@@ -117,13 +160,16 @@ class CSVImputer:
         missing_before = int(dataframe.isnull().sum().sum())
         work = dataframe.copy()
 
-        drop_cols: list[str] = []
-        if self._max_missing_ratio < 1.0:
-            for col in work.columns:
-                ratio = work[col].isnull().mean()
-                if ratio > self._max_missing_ratio:
-                    drop_cols.append(col)
+        if not getattr(self, "_fitted", False):
+            # First batch (usually training): learn decisions from it.
+            self.fit(work)
 
+        # Never drop a column the training data kept: a sparse inference
+        # batch must reuse training-time fill values instead of changing
+        # shape (dropped columns break downstream stages).
+        drop_cols = [
+            column for column in self._dropped_columns if column in work.columns
+        ]
         work = work.drop(columns=drop_cols)
 
         if work.empty:
@@ -140,13 +186,16 @@ class CSVImputer:
             n_missing = int(work[col].isnull().sum())
             if n_missing == 0:
                 continue
-            if col in categorical_columns:
+            stored = self._fill_values.get(col)
+            if stored is not None:
+                work[col] = work[col].fillna(stored)
+            elif col in categorical_columns:
                 method = self._categorical_strategy
                 if method == "most_frequent":
-                    value = (
-                        work[col].mode().iloc[0] if not work[col].mode().empty else None
+                    mode = work[col].mode()
+                    work[col] = work[col].fillna(
+                        mode.iloc[0] if not mode.empty else "missing"
                     )
-                    work[col] = work[col].fillna(value)
                 else:
                     work[col] = work[col].fillna("missing")
             else:
@@ -154,7 +203,12 @@ class CSVImputer:
                 if method == "median":
                     work[col] = work[col].fillna(work[col].median())
                 elif method == "most_frequent":
-                    work[col] = work[col].fillna(work[col].mode()[0])
+                    mode = work[col].mode()
+                    if mode.empty:
+                        raise EmptyDatasetError(
+                            f"Column '{col}' has no usable values for imputation."
+                        )
+                    work[col] = work[col].fillna(mode.iloc[0])
                 else:
                     work[col] = work[col].fillna(work[col].mean())
             imputed_cols.append(col)
@@ -175,3 +229,54 @@ class CSVImputer:
             missing_after,
         )
         return work, report
+
+    def params(self) -> dict[str, object]:
+        """
+        Return the fitted imputation state as a serializable mapping.
+
+        Returns
+        -------
+        dict[str, object]
+            Strategies, dropped columns, and per-column fill values
+            (empty when not fitted).
+        """
+
+        if not self._fitted:
+            return {}
+        return {
+            "max_missing_ratio": self._max_missing_ratio,
+            "numeric_strategy": self._numeric_strategy,
+            "categorical_strategy": self._categorical_strategy,
+            "dropped_columns": list(self._dropped_columns),
+            "fill_values": dict(self._fill_values),
+        }
+
+    @classmethod
+    def from_params(cls, params: Mapping[str, object]) -> CSVImputer:
+        """
+        Rebuild a fitted imputer from persisted parameters.
+
+        Parameters
+        ----------
+        params : Mapping[str, object]
+            Output of :meth:`params`.
+
+        Returns
+        -------
+        CSVImputer
+            A fitted imputer reproducing the original transform.
+        """
+
+        imputer = cls(
+            max_missing_ratio=params.get("max_missing_ratio", 0.3),
+            numeric_strategy=str(params.get("numeric_strategy") or "mean"),
+            categorical_strategy=str(
+                params.get("categorical_strategy") or "most_frequent"
+            ),
+        )
+        imputer._dropped_columns = tuple(params.get("dropped_columns") or ())
+        imputer._fill_values = dict(params.get("fill_values") or {})
+        imputer._numeric_columns = ()
+        imputer._categorical_columns = ()
+        imputer._fitted = True
+        return imputer
