@@ -591,17 +591,19 @@ def feature_widget(
             label,
             min_value=low,
             max_value=high,
-            value=low,
+            value=None,
             step=1.0,
             format="%d" if integer else "%.1f",
+            placeholder=f"{low:g}-{high:g}",
             key=key,
         )
     return st.number_input(
         label,
         min_value=0.0,
-        value=0.0,
+        value=None,
         step=1.0,
         format="%d" if integer else "%.2f",
+        placeholder="0",
         key=key,
     )
 
@@ -641,16 +643,18 @@ def _blood_pressure_widget(
     used = prefer.upper()  # DIASTOLIC or SYSTOLIC
     raw = st.text_input(
         label,
-        value=default,  # dataset-typical single value, e.g. "80"
+        value="",
         key=key,
+        placeholder=default,
         help=(
             f"The training dataset records only the {used} reading, so "
-            f"this field sends one number (dataset default: {default}). "
+            f"this field sends one number (leave empty for the dataset "
+            f"default: {default}). "
             f"A SYS/DIA entry like 120/{default} is also accepted; the "
             f"{used.lower()} component is used."
         ),
     )
-    pair = parse_blood_pressure_pair(raw)
+    pair = parse_blood_pressure_pair(raw or default)
     if pair is None:
         return None
     return pair[0] if prefer == "systolic" else pair[1]
@@ -1018,17 +1022,18 @@ def run_assessment_tab(client: HealthcareAPIClient) -> None:
         )
         context_left, context_right = st.columns(2)
         patient_name = context_left.text_input(
-            "Patient name", value="Patient", key="patient_name"
+            "Patient name", value="", placeholder="Patient", key="patient_name"
         )
         patient_id = context_right.text_input(
-            "Patient ID", value="patient-1", key="patient_id"
+            "Patient ID", value="", placeholder="patient-1", key="patient_id"
         )
         patient_age = st.number_input(
             "Age (years)",
             min_value=0,
             max_value=120,
-            value=45,
+            value=None,
             step=1,
+            placeholder="45",
             key="patient_age",
         )
         st.divider()
@@ -1065,7 +1070,7 @@ def run_assessment_tab(client: HealthcareAPIClient) -> None:
             schema=schema,
             values=feature_values,
             notes_provided=bool(notes.strip()),
-            patient_age=int(patient_age),
+            patient_age=int(patient_age) if patient_age is not None else None,
         )
         if input_mode == "CSV Upload":
             summary_rows = [
@@ -1090,9 +1095,9 @@ def run_assessment_tab(client: HealthcareAPIClient) -> None:
         return
 
     patient = {
-        "name": patient_name,
-        "id": patient_id,
-        "age": int(patient_age),
+        "name": patient_name or "Patient",
+        "id": patient_id or "patient-1",
+        "age": int(patient_age) if patient_age is not None else None,
         "notes": notes,
     }
 
@@ -1145,7 +1150,9 @@ def run_assessment_tab(client: HealthcareAPIClient) -> None:
         return
 
     errors = validate_feature_values(
-        feature_values, schema, patient_age=int(patient_age)
+        feature_values,
+        schema,
+        patient_age=int(patient_age) if patient_age is not None else None,
     )
     if errors:
         st.error("Please correct the following before running the assessment:")
@@ -1242,13 +1249,22 @@ def run_imaging_tab(client: HealthcareAPIClient) -> None:
 
     context_left, context_right = st.columns(2)
     patient_name = context_left.text_input(
-        "Patient name", value="Patient", key="image_patient_name"
+        "Patient name", value="", placeholder="Patient", key="image_patient_name"
     )
     patient_id = context_right.text_input(
-        "Patient ID", value="patient-image", key="image_patient_id"
+        "Patient ID",
+        value="",
+        placeholder="patient-image",
+        key="image_patient_id",
     )
     patient_age = st.number_input(
-        "Age", min_value=0, max_value=120, value=45, step=1, key="image_patient_age"
+        "Age",
+        min_value=0,
+        max_value=120,
+        value=None,
+        step=1,
+        placeholder="45",
+        key="image_patient_age",
     )
 
     uploaded = st.file_uploader(
@@ -1264,9 +1280,9 @@ def run_imaging_tab(client: HealthcareAPIClient) -> None:
         return
 
     patient = {
-        "name": patient_name,
-        "id": patient_id,
-        "age": int(patient_age),
+        "name": patient_name or "Patient",
+        "id": patient_id or "patient-image",
+        "age": int(patient_age) if patient_age is not None else None,
         "notes": "",
     }
     try:
