@@ -55,7 +55,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "http://127.0.0.1:8000/api/v1/agents/patient-analyst",
+        "url": "={{ $env.BACKEND_URL || 'http://127.0.0.1:8000' }}/api/v1/agents/patient-analyst",
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({patient:$json.body.patient,features:$json.body.features}) }}",
@@ -75,7 +75,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "http://127.0.0.1:8000/api/v1/agents/disease-predictor",
+        "url": "={{ $env.BACKEND_URL || 'http://127.0.0.1:8000' }}/api/v1/agents/disease-predictor",
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({patient:$('1.Receive Patient Data').first().json.body.patient,features:$('1.Receive Patient Data').first().json.body.features,markers:$('1.Receive Patient Data').first().json.body.markers}) }}",
@@ -108,7 +108,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "http://127.0.0.1:8000/api/v1/agents/evidence-retrieval",
+        "url": "={{ $env.BACKEND_URL || 'http://127.0.0.1:8000' }}/api/v1/agents/evidence-retrieval",
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({query:$json.query,top_k:3}) }}",
@@ -128,7 +128,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "http://127.0.0.1:8000/api/v1/agents/treatment-planner",
+        "url": "={{ $env.BACKEND_URL || 'http://127.0.0.1:8000' }}/api/v1/agents/treatment-planner",
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({patient:$('1.Receive Patient Data').first().json.body.patient,features:$('1.Receive Patient Data').first().json.body.features,markers:$('1.Receive Patient Data').first().json.body.markers}) }}",
@@ -148,7 +148,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "http://127.0.0.1:8000/api/v1/agents/explainability",
+        "url": "={{ $env.BACKEND_URL || 'http://127.0.0.1:8000' }}/api/v1/agents/explainability",
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({patient:$('1.Receive Patient Data').first().json.body.patient,features:$('1.Receive Patient Data').first().json.body.features}) }}",
