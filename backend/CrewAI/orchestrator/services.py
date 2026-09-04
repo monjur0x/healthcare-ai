@@ -885,6 +885,119 @@ TREATMENT_PLAYBOOKS: dict[tuple[str, bool], dict[str, list[str]]] = {
             "albumin, lipid panel.",
         ],
     },
+    ("heart_disease", False): {
+        "low": [
+            "Maintain heart-healthy habits (activity, diet, no smoking) and "
+            "periodic blood pressure and lipid checks.",
+            "Repeat cardiovascular risk review annually, or earlier if "
+            "symptoms appear.",
+        ],
+        "medium": [
+            "Discuss borderline cardiac risk factors with your clinician; "
+            "review blood pressure, lipids, and ECG findings.",
+            "Intensify modifiable-risk control (lipids, pressure, smoking, "
+            "activity) with a follow-up plan.",
+        ],
+        "high": [
+            "Elevated cardiac probability despite class assignment - request "
+            "prompt clinician review of ECG and cardiac markers.",
+            "Consider cardiology referral for stress testing or imaging as indicated.",
+        ],
+    },
+    ("heart_disease", True): {
+        "low": [
+            "Confirm cardiac findings with repeat ECG and risk-factor review "
+            "before further workup.",
+            "Start guideline-based secondary prevention counselling (activity, "
+            "diet, smoking cessation).",
+        ],
+        "medium": [
+            "Cardiology review advised: assess symptoms, ECG, lipids, and "
+            "blood pressure control.",
+            "Initiate or optimize antiplatelet, lipid-lowering, and "
+            "blood-pressure therapy per clinician.",
+        ],
+        "high": [
+            "Prompt cardiology review required; assess for acute coronary "
+            "symptoms without delay.",
+            "Evaluate for ECG changes and troponin per acute-care protocol.",
+        ],
+    },
+    ("chronic_kidney_disease", False): {
+        "low": [
+            "Protect kidney function: stay hydrated, avoid NSAIDs and other "
+            "nephrotoxins unless directed.",
+            "Repeat creatinine/eGFR and urine albumin screening periodically.",
+        ],
+        "medium": [
+            "Discuss borderline kidney markers with your clinician; review "
+            "blood pressure control and medications.",
+            "Repeat eGFR and urine albumin in 3-6 months to confirm trend.",
+        ],
+        "high": [
+            "Elevated kidney-risk probability despite class assignment - "
+            "request prompt clinician review of creatinine trend.",
+            "Assess for acute kidney injury precipitants (dehydration, "
+            "contrast, nephrotoxic drugs).",
+        ],
+    },
+    ("chronic_kidney_disease", True): {
+        "low": [
+            "Confirm CKD staging with repeat eGFR and albuminuria on a "
+            "separate occasion.",
+            "Counsel on blood pressure targets, sodium restriction, and "
+            "nephrotoxin avoidance.",
+        ],
+        "medium": [
+            "Nephrology input advised: stage CKD, review albuminuria, "
+            "anaemia, calcium-phosphate balance.",
+            "Optimize blood pressure (ACE inhibitor or ARB per clinician) "
+            "and diabetes control if present.",
+        ],
+        "high": [
+            "Prompt nephrology review required; assess for uraemic symptoms "
+            "and electrolyte disturbance.",
+            "Avoid iodinated contrast and nephrotoxins pending review; "
+            "arrange urgent labs.",
+        ],
+    },
+    ("sepsis", False): {
+        "low": [
+            "Stay alert for infection signs (fever, confusion, rapid "
+            "breathing) and seek care early if they appear.",
+            "Keep vaccinations current per clinician advice.",
+        ],
+        "medium": [
+            "Borderline sepsis-risk signals - arrange same-day clinical "
+            "evaluation with vitals and infection screen.",
+            "Monitor temperature, heart rate, and blood pressure closely "
+            "until reviewed.",
+        ],
+        "high": [
+            "Elevated sepsis probability despite class assignment - request "
+            "urgent clinician review with cultures and lactate.",
+            "Do not delay antibiotics if infection is suspected.",
+        ],
+    },
+    ("sepsis", True): {
+        "low": [
+            "Confirm infection source with cultures and clinical review "
+            "before further escalation.",
+            "Monitor vitals and urine output with a clear review plan.",
+        ],
+        "medium": [
+            "Urgent same-day evaluation required: cultures, lactate, and "
+            "infection-source assessment.",
+            "Start empiric review for broad-spectrum antibiotics per "
+            "Surviving Sepsis Campaign guidance.",
+        ],
+        "high": [
+            "Emergency evaluation required now: suspected sepsis with high "
+            "predicted risk.",
+            "Activate the hour-1 bundle per clinician: cultures, lactate, "
+            "broad-spectrum antibiotics, and fluid resuscitation.",
+        ],
+    },
 }
 
 #: Generic fallback when no disease-specific playbook matches.
