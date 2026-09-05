@@ -19,7 +19,6 @@ from .services import (
     assess_risk,
     retrieve_evidence,
     run_prediction,
-    summarize_patient,
 )
 
 logger = get_logger(__name__)
@@ -56,49 +55,6 @@ class PredictionInput(BaseModel):
         default=False,
         description="True when features were already pipeline-transformed",
     )
-
-
-class PatientSummaryInput(BaseModel):
-    """Patient context for summarization."""
-
-    patient: dict[str, object] = Field(description="Patient info dict")
-    features: dict[str, float] | None = Field(
-        default=None, description="Raw input features (outlier scan only)"
-    )
-    markers: dict[str, float] | None = Field(
-        default=None, description="Clinical markers echoed into the summary"
-    )
-    input_type: str = Field(default="csv", description="Input modality label")
-
-
-class PatientSummaryTool(BaseTool):
-    """
-    Summarize patient context for downstream agents.
-    """
-
-    name: str = "csv_summary"
-    description: str = (
-        "Summarize one patient's identity, input modality, clinical "
-        "markers, and outlier features for downstream agents."
-    )
-    args_schema: type = PatientSummaryInput
-
-    def _run(
-        self,
-        patient: dict,
-        features: dict[str, float] | None = None,
-        markers: dict[str, float] | None = None,
-        input_type: str = "csv",
-    ) -> str:
-        """Summarize the given patient context."""
-        summary = summarize_patient(
-            PatientInfo(**patient),
-            features=features,
-            markers=markers,
-            input_type=input_type,
-        )
-        logger.info("PatientSummaryTool produced %d chars", len(summary))
-        return summary
 
 
 class PredictionTool(BaseTool):
@@ -250,7 +206,6 @@ class ClinicalReportTool(BaseTool):
 __all__ = [
     "_CREWAI_AVAILABLE",
     "ClinicalReportTool",
-    "PatientSummaryTool",
     "PredictionTool",
     "RAGRetrievalTool",
     "RiskAssessmentTool",

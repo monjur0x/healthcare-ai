@@ -28,8 +28,10 @@ opacus>=1.5.0
 pytest>=8.3.0
 
 # Optional: Multi-agent orchestration (CrewAI)
-# Not compatible with Python 3.13+ yet; install separately if needed:
-# pip install "crewai>=1.15.0"
+# Verified working on Python 3.14 via --ignore-requires-python (the
+# <3.14 upper bound is metadata-only) plus chromadb>=1.5 (1.1.x fails
+# to import on 3.14):
+# pip install --ignore-requires-python "crewai>=1.15.0" "chromadb==1.5.9"
 # crewai>=1.15.0
 
 # Optional: Persistent vector store (ChromaDB)

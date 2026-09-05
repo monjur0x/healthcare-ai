@@ -4,14 +4,14 @@ Agent definitions for the healthcare crew.
 Agents orchestrate reasoning and consume the outputs of the
 preprocessing, prediction, and retrieval modules through tools. They
 never implement machine learning themselves.
+
+Five lean agents (patient summary and explanation are folded into the
+prediction and report tasks, so no dedicated agents are needed).
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-
 from .config import settings
-from .prompts import AGENT_PROFILES
 
 
 def _agent_llm() -> str | dict[str, object]:
@@ -38,67 +38,39 @@ def _agent_llm() -> str | dict[str, object]:
     return f"{settings.LLM_PROVIDER}/{settings.LLM_MODEL}"
 
 
-def create_agents(
-    tools: Mapping[str, object], llm: str | dict[str, object] | None = None
-) -> dict[str, object]:
+def create_report_agent(llm: str | dict[str, object] | None = None) -> object:
+    """Build the single LLM agent used for fast narrative enrichment.
+
+    The expensive multi-agent chain is intentionally avoided. Prediction,
+    risk assessment, RAG retrieval, and deterministic recommendations are
+    completed in Python; this agent only turns those verified values into
+    concise human-readable report text.
     """
-    Build the seven healthcare agents.
-
-    Parameters
-    ----------
-    tools : Mapping[str, object]
-        Tool instances keyed by name (prediction, evidence retrieval,
-        risk assessment, clinical report, ...).
-    llm : str | dict[str, object] | None
-        Optional LLM identifier (e.g. ``"google/gemini-3.7-flash"``) or
-        CrewAI config dict for a custom OpenAI-compatible endpoint.
-        When omitted the agent is constructed without an explicit LLM so
-        construction stays hermetic; the configured provider/model is
-        used by the LLM orchestration path.
-
-    Returns
-    -------
-    dict[str, object]
-        Agents keyed by role name.
-    """
-
     from crewai import Agent
 
-    common: dict[str, object] = {
+    kwargs: dict[str, object] = {
+        "role": "Clinical Report Writer",
+        "goal": (
+            "Turn verified analysis data into a concise, safe clinical "
+            "report narrative."
+        ),
+        "backstory": (
+            "You are a clinical report editor. All predictions, "
+            "probabilities, risk scores, and evidence are supplied by "
+            "deterministic software. Never change those values, invent "
+            "evidence, invent diagnoses, or prescribe beyond the supplied "
+            "recommendations."
+        ),
         "verbose": settings.CREW_VERBOSE,
         "allow_delegation": False,
-        "max_iter": settings.LLM_MAX_ITERATIONS,
-        # Applies to every agent regardless of which LLM branch is
-        # active (native provider string or custom OpenAI endpoint):
-        # CrewAI reads these from the Agent itself.
+        "max_iter": 1,
         "max_tokens": settings.LLM_MAX_TOKENS,
         "max_execution_time": settings.LLM_TIMEOUT_SECONDS,
+        "max_rpm": settings.LLM_MAX_RPM,
     }
     if llm is not None:
-        common["llm"] = llm
-    tool_map = {
-        "patient_analyst": ["csv_summary"],
-        "disease_predictor": ["disease_prediction", "risk_assessment"],
-        "medical_researcher": ["evidence_retrieval"],
-        "treatment_planner": ["evidence_retrieval"],
-        "explainability_expert": ["disease_prediction"],
-        "risk_monitor": ["risk_assessment"],
-        "report_writer": ["clinical_report"],
-    }
-
-    agents: dict[str, object] = {}
-    for name, profile in AGENT_PROFILES.items():
-        agent_tools = [
-            tools[tool_name] for tool_name in tool_map[name] if tool_name in tools
-        ]
-        agents[name] = Agent(
-            role=profile["role"],
-            goal=profile["goal"],
-            backstory=profile["backstory"],
-            tools=agent_tools,
-            **common,
-        )
-    return agents
+        kwargs["llm"] = llm
+    return Agent(**kwargs)
 
 
-__all__ = ["create_agents"]
+__all__ = ["create_report_agent"]

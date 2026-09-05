@@ -19,6 +19,12 @@ M5 — Bug-fix sweep against the research proposal (deferred clinical issues)
 - ✅ P0 batch 1 completed: crew `_parse_report` binding fix + encoder
   mapping persistence (params/from_params, transformer/pipeline/model/
   API wiring, unseen-category fail-loud)
+- ✅ CrewAI rebuilt lean (user call): 5 agents × 5 sequential tasks,
+  max_iter 1, max_rpm pacing, short prompts; dropped analyst +
+  explainer agents (folded into predictor/report tasks) and the dead
+  logging shim; retry/backoff + `llm_path` hardening kept. Verified:
+  ruff clean, 5/5 wiring in serving env, deterministic run unchanged
+  (high 0.994, 0.04s). Live LLM proof awaits a working key.
 - ✅ P0 batch 2 completed: torch scaler/encoder parity
   (`TorchMLPClassifier` params interface + artifact persistence,
   fixes `analyze_csv` / crew-scaler `AttributeError` for served torch

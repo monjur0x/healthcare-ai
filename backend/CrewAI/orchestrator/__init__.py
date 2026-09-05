@@ -1,17 +1,17 @@
 """
-CrewAI orchestration module.
+Clinical orchestration module.
 
-Agents orchestrate reasoning over the outputs of the preprocessing,
-prediction, and retrieval modules. The deterministic services run the
-analysis offline; CrewAI agents optionally enrich the narrative when an
-LLM API key is configured (ADR-008).
+Seven deterministic agent steps (patient analysis → prediction →
+evidence → treatment → explanation → risk monitoring → report)
+orchestrate reasoning over the outputs of the preprocessing,
+prediction, and retrieval modules. No LLM is involved: every value in
+the report is computed, never generated.
 """
 
 from .config import CrewSettings, settings
 from .crew import ClinicalCrew
 from .exceptions import (
     CrewError,
-    LLMNotConfiguredError,
     OrchestrationError,
     PredictionToolError,
     ReportError,
@@ -35,8 +35,13 @@ from .schemas import (
 from .services import (
     assemble_clinical_report,
     assess_risk,
+    build_disease_query,
+    build_evidence_query,
+    build_explanation,
+    build_treatment_recommendations,
     retrieve_evidence,
     run_prediction,
+    summarize_patient,
 )
 from .tools import (
     ClinicalReportTool,
@@ -68,10 +73,15 @@ __all__ = [
     "agent_collaboration_score",
     "assemble_clinical_report",
     "assess_risk",
+    "build_disease_query",
+    "build_evidence_query",
+    "build_explanation",
+    "build_treatment_recommendations",
     "compute_agent_metrics",
     "decision_consistency",
     "retrieve_evidence",
     "run_prediction",
     "settings",
+    "summarize_patient",
     "task_completion_rate",
 ]

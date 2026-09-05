@@ -60,12 +60,10 @@ flowchart TB
 
     DOC --> EMB --> VDB --> RET
 
-    subgraph CREW["CrewAI Orchestrator (7 traced agents)"]
-        A1["Patient Analyst"]
+    subgraph CREW["CrewAI Orchestrator (5 lean agents)"]
         A2["Disease Predictor"]
         A3["Medical Researcher"]
         A4["Treatment Planner"]
-        A5["Explainability Expert"]
         A6["Risk Monitor"]
         A7["Report Writer"]
         TRACE["AgentTrace / CrewTrace<br/>input · output · status · timing"]
@@ -73,18 +71,15 @@ flowchart TB
     end
 
     M1 --> A2
-    A1 --> A2
     A2 --> A3
     A2 --> A4
     A3 --> A4
-    A2 --> A5
     A2 --> A6
     RET --> A3
     LLM --> CREW
     A2 --> A7
     A3 --> A7
     A4 --> A7
-    A5 --> A7
     A6 --> A7
     CREW --> TRACE
 
@@ -147,7 +142,7 @@ flowchart TB
 | Component | Entry point | Purpose |
 | --------- | ----------- | ------- |
 | FastAPI backend | `backend/api/main.py` | Train / predict / retrieve / analyze + per-agent endpoints for n8n step-by-step orchestration |
-| Multi-agent crew | `backend/CrewAI/orchestrator/` | 7 traced agents; deterministic tool pipeline + optional LLM layer; merged clinical report |
+| Multi-agent crew | `backend/CrewAI/orchestrator/` | 5 lean agents; deterministic tool pipeline + optional LLM layer; merged clinical report |
 | RAG | `backend/rag/` | TF-IDF (default) or dense embedding + in-memory / ChromaDB store; 20-doc medical corpus in `backend/rag/corpus/`; 18-query evaluation set |
 | Federated learning | `backend/federated/` | Flower FedAvg with opt-in DP-SGD (Opacus) + pairwise OTP secure aggregation; canonical schema adapters; payload inspection; model registry |
 | Models | `backend/models/` | Tabular (sklearn / PyTorch MLP) + image CNN classifiers |
@@ -399,25 +394,22 @@ deterministic report is returned unchanged.
 From `backend/`: `cp .env.example .env`, set `CREW_LLM_API_KEY` (NVIDIA
 NIM key by default, or Gemini). Never commit `.env` — it is gitignored.
 
-### Tuning for free-tier LLM providers
+### Tuning for LLM providers
 
-Free-tier models queue requests, so the 7-agent kickoff can take many
-minutes. These settings trade a little quality for wall-clock time:
+The lean 5-agent crew runs sequentially, one think→act→observe round
+each — a kickoff is ~5-10 LLM calls total:
 
-- `CREW_LLM_MAX_ITERATIONS` (default `4`) — max think→act→observe loops
-  per agent; each iteration is a full LLM round-trip, so a struggling
-  agent burns minutes here. Lower = faster; a genuinely complex case has
-  less room to self-correct.
+- `CREW_LLM_MAX_ITERATIONS` (default `1`) — values arrive in the task
+  description, so one round suffices; raise for harder cases at the
+  cost of wall-clock time and quota.
 - `CREW_LLM_MAX_TOKENS` (default `1024`) — completion cap per call;
-  bounds worst-case latency of one round-trip. Lower = faster; very low
-  values truncate longer narratives.
+  very low values truncate tool-call JSON and long narratives.
 - `CREW_LLM_TIMEOUT_SECONDS` (default `120`) — per-call provider
-  timeout; bounds how long one hung request stalls an agent. Keep it
-  above the provider's queue+generation latency, otherwise calls die
+  timeout; keep it above queue+generation latency, otherwise calls die
   and the deterministic fallback kicks in.
-- Async execution — `evidence_retrieval` and `explanation` run
-  concurrently (they share no data dependency); tasks that consume them
-  wait automatically. No config needed.
+- `CREW_LLM_MAX_RPM` (unset = no pacing) — per-agent calls per minute
+  enforced natively by CrewAI; set `3` on strict free tiers so a
+  kickoff slows down instead of tripping rate limits.
 
 ## Privacy & Security
 

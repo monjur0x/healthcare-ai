@@ -1123,6 +1123,11 @@ def run_assessment_tab(client: HealthcareAPIClient) -> None:
                         **n8n_kwargs,
                     )
                 else:
+                    if need_train and selected is not None:
+                        with st.spinner(
+                            f"Training the {selected} model for this assessment…"
+                        ):
+                            client.train(selected, model="mlp")
                     report = client.analyze_csv(
                         patient=patient, csv=csv_file.getvalue()
                     )

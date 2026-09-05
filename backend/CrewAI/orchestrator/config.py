@@ -13,10 +13,10 @@ class CrewSettings(BaseSettings):
     """
     Orchestration settings.
 
-    Environment variables use the ``CREW_`` prefix, e.g.
-    ``CREW_LLM_MODEL``. Fields whose names carry their own prefix bind
-    the plain documented name instead (e.g. ``RISK_LOW_THRESHOLD``,
-    not ``CREW_RISK_LOW_THRESHOLD``).
+    Environment variables use the ``CREW_`` prefix. Fields whose
+    names carry their own prefix bind the plain documented name
+    instead (e.g. ``RISK_LOW_THRESHOLD``, not
+    ``CREW_RISK_LOW_THRESHOLD``).
     """
 
     model_config = SettingsConfigDict(
@@ -38,28 +38,44 @@ class CrewSettings(BaseSettings):
 
     LLM_TEMPERATURE: float = 0.3
 
-    # Capped low because each iteration is a full LLM round-trip (very
-    # slow on free-tier providers); 4 leaves an agent room to
-    # self-correct without dominating wall-clock time. Not a correctness
-    # requirement.
-    LLM_MAX_ITERATIONS: int = 4
+    # Capped at 1 because the lean 5-agent crew hands every value to
+    # each agent up front: one think→act→observe round is enough, and
+    # each extra iteration is a full LLM round-trip. Raise for harder
+    # cases at the cost of wall-clock time and quota.
+    LLM_MAX_ITERATIONS: int = 1
 
     # Cap on completion tokens per agent call; bounds the worst-case
     # latency of a single round-trip on slow/free providers. Keep above
     # ~1k: smaller caps truncate tool-call JSON mid-emit and providers
     # return empty/invalid completions.
-    LLM_MAX_TOKENS: int = 1024
+    LLM_MAX_TOKENS: int = 768
 
     # Per-call timeout in seconds for the provider client; bounds how
-    # long one hung request can stall an agent. Must stay above
+    # long one hung request stalls an agent. Must stay above
     # free-tier queue+generation latency (~1-2 min), or every call dies
     # and the crew silently falls back to the deterministic report.
-    LLM_TIMEOUT_SECONDS: int = 120
+    LLM_TIMEOUT_SECONDS: int = 60
 
     # Retries per LLM call (with exponential backoff) so shared-pool
     # 429 rate limits wait out their window instead of failing the
     # kickoff.
-    LLM_MAX_RETRIES: int = 4
+    LLM_MAX_RETRIES: int = 1
+
+    # Per-agent LLM calls per minute (crewai max_rpm pacing). None
+    # means no pacing. Set 3 on strict free tiers so a kickoff slows
+    # down instead of tripping rate limits.
+    LLM_MAX_RPM: int | None = None
+
+    # Whole-kickoff attempts before falling back to the deterministic
+    # report. Transient failures (rate limits, timeouts, empty
+    # completions) retry with exponential backoff; auth/config errors
+    # fail fast on the first attempt.
+    LLM_KICKOFF_MAX_ATTEMPTS: int = 1
+
+    # Base backoff in seconds between kickoff attempts (doubles per
+    # attempt, plus jitter). Sized so a 3-req/min free tier can drain
+    # between bursts.
+    LLM_RETRY_BACKOFF_S: float = 0.0
 
     LLM_BASE_URL: str = ""
 
