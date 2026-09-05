@@ -258,6 +258,13 @@ load-bearing claims verified by read (`crew.py:555`, `store_chroma.py:137`,
   `ckd`→0/`notckd`→1, inverting all kidney predictions — caught
   live: 5/5 known positives scored P=0.0; kidney acc 0.94→0.98
   after). Ambiguous cases fail loud.
+- [x] FIXED LLM resilience + enrichment end to end: kickoff
+  retries with exponential backoff + jitter, fail-fast on
+  auth/config errors, `llm_path` status recorded for every outcome;
+  single-call writer path proven live (`single_call_enriched`,
+  patient-specific narrative with model values intact, risk
+  untouched); bounded raw-head logging on parse misses for future
+  diagnosis.
 - [ ] Multimodal (SCOPED OUT, not a fix batch): empty
   `preprocessing/multimodal/` + `models/multimodal/`, SHAP/Grad-CAM
   explainability, and ViT/Swin fusion are project-scale work

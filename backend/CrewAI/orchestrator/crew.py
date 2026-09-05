@@ -6,18 +6,16 @@ services:
 
 - ``run_analysis`` — a fully offline, deterministic pipeline executed as
   seven discrete agent steps with full per-agent tracing (M4 DoD).
-- ``run_llm`` — the same pipeline plus CrewAI agent orchestration for
-  narrative enrichment. Only enabled when ``CREW_LLM_API_KEY`` is set.
-
-Both paths produce per-agent execution traces proving multi-agent
-reasoning contributed to the system.
+- ``run_llm`` — a fast single-agent CrewAI enrichment pass. Prediction,
+  risk scoring, RAG retrieval, and recommendations remain deterministic;
+  one LLM call is used only to polish the final narrative.
 """
 
 from __future__ import annotations
 
 import importlib.util
 import json
-import os
+import random
 import re
 import time
 
@@ -49,6 +47,34 @@ from .services import (
 logger = get_logger(__name__)
 
 _CREWAI_AVAILABLE = importlib.util.find_spec("crewai") is not None
+
+#: Error-message markers that mean retrying is pointless (bad key,
+#: unknown model, forbidden tier, denied permission). Everything else
+#: (rate limits, timeouts, empty completions, connection drops) is
+#: treated as transient.
+_NON_RETRYABLE_LLM_MARKERS = (
+    "401",
+    "403",
+    "invalid api key",
+    "incorrect api key",
+    "invalid_api_key",
+    "tier_forbidden",
+    "model_not_found",
+    "does not exist",
+    "not found",
+    "access denied",
+    "permissiondenied",
+    "permission_denied",
+    "account deactivated",
+    "invalid_request_error",
+)
+
+
+def _retryable_llm_error(error: Exception) -> bool:
+    """True when a failed kickoff is worth retrying after backoff."""
+    message = str(error).lower().replace(" ", "").replace("_", "")
+    markers = [m.replace(" ", "").replace("_", "") for m in _NON_RETRYABLE_LLM_MARKERS]
+    return not any(marker in message for marker in markers)
 
 
 class ClinicalCrew:
@@ -155,15 +181,22 @@ class ClinicalCrew:
                     ),
                     self._disease_context,
                 )
-            risk = assess_risk(
-                prediction, self._markers, disease_context=self._disease_context
+            risk = (
+                assess_risk(
+                    prediction, self._markers, disease_context=self._disease_context
+                )
+                if prediction is not None
+                else None
             )
             step2.input_summary = f"features={len(self._features)} cols"
-            step2.output_summary = (
-                f"disease={prediction.disease or 'N/A'} "
-                f"label={prediction.predicted_label} "
-                f"p_pos={prediction.positive_probability} risk={risk.risk_level}"
-            )
+            if prediction is None:
+                step2.output_summary = "SKIPPED: no prediction model configured"
+            else:
+                step2.output_summary = (
+                    f"disease={prediction.disease or 'N/A'} "
+                    f"label={prediction.predicted_label} "
+                    f"p_pos={prediction.positive_probability} risk={risk.risk_level}"
+                )
             step2.output_data = {"prediction": prediction, "risk": risk}
             step2.execution_time_s = time.perf_counter() - s
             step2.status = "SUCCESS" if prediction else "SKIPPED"
@@ -421,12 +454,25 @@ class ClinicalCrew:
         logger.info("\n%s", self.crew_trace.summary())
         return report
 
+    def run(self) -> ClinicalReport:
+        """Prefer LLM orchestration when configured; fall back to deterministic."""
+        if settings.LLM_API_KEY and _CREWAI_AVAILABLE:
+            return self.run_llm()
+        return self.run_analysis()
+
     # ------------------------------------------------------------------
-    # CrewAI LLM-enriched path
+    # CrewAI LLM-enriched path (lean 5-agent crew)
     # ------------------------------------------------------------------
 
     def run_llm(self) -> ClinicalReport:
-        """Run the CrewAI-orchestrated pipeline (requires an LLM key)."""
+        """Run one CrewAI LLM call over the already-verified analysis.
+
+        The previous implementation launched five sequential agents after
+        running the deterministic pipeline, resulting in up to five model
+        round-trips (plus retries). This version deliberately keeps all
+        factual computation in Python and uses CrewAI for one final writing
+        pass only.
+        """
         if not _CREWAI_AVAILABLE:
             raise OrchestrationError(
                 "CrewAI is not installed. Install with 'pip install crewai' "
@@ -434,95 +480,173 @@ class ClinicalCrew:
             )
         if not settings.LLM_API_KEY:
             raise LLMNotConfiguredError("LLM orchestration requires CREW_LLM_API_KEY.")
-        if (
-            not settings.LLM_BASE_URL
-            and not os.environ.get("GEMINI_API_KEY")
-            and not os.environ.get("GOOGLE_API_KEY")
-        ):
-            os.environ["GEMINI_API_KEY"] = settings.LLM_API_KEY
 
+        # Run deterministic inference/RAG exactly once. This is fast and
+        # gives the LLM trusted structured inputs instead of asking it to
+        # call tools and repeat work.
         base = self.run_analysis()
-        try:
-            from crewai import Crew, Process
 
-            from .agents import _agent_llm, create_agents
-            from .tasks import create_tasks
+        try:
+            from crewai import Crew, Process, Task
+
+            from .agents import _agent_llm, create_report_agent
         except Exception as error:
             raise OrchestrationError(f"CrewAI import failed: {error}") from error
 
-        tool_instances = {}
-        if self._model is not None:
-            from .tools import PredictionTool
-
-            tool_instances["disease_prediction"] = PredictionTool(model=self._model)
-        if self._rag_pipeline is not None:
-            from .tools import RAGRetrievalTool
-
-            tool_instances["evidence_retrieval"] = RAGRetrievalTool(
-                pipeline=self._rag_pipeline
+        evidence_text = []
+        for item in base.evidence[: settings.RAG_TOP_K]:
+            evidence_text.append(
+                f"[{item.document_id}] source={item.source!r} "
+                f"score={item.score:.4f}\n{item.text}"
             )
-        from .tools import (
-            ClinicalReportTool,
-            PatientSummaryTool,
-            RiskAssessmentTool,
+
+        prediction = base.prediction.model_dump() if base.prediction else None
+        risk = base.risk.model_dump() if base.risk else None
+        prompt = {
+            "patient": self.patient.model_dump(),
+            "input_type": self.input_type,
+            "prediction": prediction,
+            "risk": risk,
+            "evidence": evidence_text,
+            "verified_recommendations": base.recommendations,
+            "verified_context": base.context,
+        }
+
+        task_description = (
+            "Create concise narrative enrichment for the verified clinical "
+            "analysis below. Do NOT recalculate prediction or risk. Do NOT "
+            "change any numeric value, diagnosis, evidence source, or "
+            "monitoring schedule. Do NOT invent citations. Return ONLY "
+            "valid JSON with exactly these keys: patient_summary, "
+            "context, recommendations, limitations, doctor_notice. "
+            "recommendations must be an array of strings. Keep the "
+            "response under 500 words. The report is decision support "
+            "only and must be reviewed by a licensed physician.\n\n"
+            f"VERIFIED ANALYSIS:\n{json.dumps(prompt, ensure_ascii=False, default=str)}"
         )
 
-        tool_instances["csv_summary"] = PatientSummaryTool()
-        tool_instances["risk_assessment"] = RiskAssessmentTool()
-        tool_instances["clinical_report"] = ClinicalReportTool()
-        agents = create_agents(tool_instances, llm=_agent_llm())
-        tasks = create_tasks(
-            agents,
-            self.patient,
-            features=self._features,
-            markers=self._markers,
-            disease_context=self._disease_context,
+        agent = create_report_agent(llm=_agent_llm())
+        task = Task(
+            description=task_description,
+            expected_output=(
+                'JSON only: {"patient_summary":"", "context":"", "recommendations":[], '
+                '"limitations":"", "doctor_notice":""}'
+            ),
+            agent=agent,
         )
         crew = Crew(
-            agents=list(agents.values()),
-            tasks=list(tasks.values()),
+            agents=[agent],
+            tasks=[task],
             process=Process.sequential,
             verbose=settings.CREW_VERBOSE,
-            memory=settings.CREW_MEMORY,
+            memory=False,
             planning=False,
         )
-        try:
-            result = crew.kickoff(
-                inputs={
-                    "base_report": base.to_dict(),
-                    **(
-                        {"disease_context": self._disease_context}
-                        if self._disease_context
-                        else {}
-                    ),
-                }
+
+        # One kickoff attempt. Provider-level retry is capped at one retry
+        # in config.py, so transient errors cannot turn into multi-minute waits.
+        result, failure = self._kickoff_with_retries(
+            crew, base, max(1, settings.LLM_KICKOFF_MAX_ATTEMPTS)
+        )
+        if failure is not None:
+            self._mark_llm_path(base, failure)
+            return base
+
+        enrichment = self._parse_enrichment(result)
+        if enrichment is None:
+            logger.warning(
+                "Could not parse LLM enrichment; returning deterministic report."
             )
-        except Exception as error:  # noqa: BLE001
-            logger.error("Crew kickoff failed: %s", error)
+            self._mark_llm_path(base, "fallback:parse")
             return base
 
-        parsed = self._parse_report(result)
-        if parsed is None:
-            logger.warning("Could not parse crew result; returning base report.")
-            return base
-        report = self._merge_llm_over_base(base, parsed)
+        merged = base.model_copy()
+        merged.patient_summary = (
+            enrichment.get("patient_summary") or base.patient_summary
+        )
+        merged.context = enrichment.get("context") or base.context
+        llm_recs = enrichment.get("recommendations")
+        if isinstance(llm_recs, list) and llm_recs:
+            # Keep deterministic recommendations authoritative; only append
+            # genuinely new narrative items instead of allowing the LLM to
+            # replace verified clinical playbook output.
+            existing = set(merged.recommendations)
+            merged.recommendations = merged.recommendations + [
+                str(x) for x in llm_recs if str(x) not in existing
+            ]
+        merged.limitations = enrichment.get("limitations") or base.limitations
+        merged.doctor_notice = enrichment.get("doctor_notice") or base.doctor_notice
+        merged.agent_metrics = {
+            **(merged.agent_metrics or {}),
+            "llm_path": "single_call_enriched",
+            "llm_agents": 1,
+            "llm_tasks": 1,
+        }
+        logger.info(
+            "Single-call LLM enrichment complete for patient %s", self.patient.id
+        )
+        return merged
 
-        # Carry over the deterministic crew trace
-        if self.crew_trace:
-            report.agent_metrics = {
-                **(report.agent_metrics or {}),
-                "deterministic_agents_completed": self.crew_trace.completed_count,
-                "deterministic_agents_total": self.crew_trace.total_agents,
-            }
+    @staticmethod
+    def _mark_llm_path(report: ClinicalReport, status: str) -> None:
+        """Record how the report was produced for downstream consumers."""
+        report.agent_metrics = {**(report.agent_metrics or {}), "llm_path": status}
 
-        logger.info("LLM analysis complete for patient %s", self.patient.id)
-        return report
+    def _kickoff_with_retries(
+        self, crew: object, base: ClinicalReport, max_attempts: int
+    ) -> tuple[object | None, str | None]:
+        """
+        Run ``crew.kickoff`` with backoff, falling back gracefully.
 
-    def run(self) -> ClinicalReport:
-        """Prefer LLM orchestration when configured; fall back to deterministic."""
-        if settings.LLM_API_KEY and _CREWAI_AVAILABLE:
-            return self.run_llm()
-        return self.run_analysis()
+        Parameters
+        ----------
+        crew : object
+            Configured CrewAI crew.
+        base : ClinicalReport
+            Deterministic report used for kickoff inputs.
+        max_attempts : int
+            Total kickoff tries before giving up (>= 1).
+
+        Returns
+        -------
+        tuple[object | None, str | None]
+            ``(result, None)`` on success, else ``(None,
+            "fallback:kickoff:<ErrorName>")``.
+        """
+
+        inputs = {
+            "base_report": base.to_dict(),
+            **(
+                {"disease_context": self._disease_context}
+                if self._disease_context
+                else {}
+            ),
+        }
+        attempts = max(1, max_attempts)
+        for attempt in range(1, attempts + 1):
+            try:
+                return crew.kickoff(inputs=inputs), None
+            except Exception as error:  # noqa: BLE001
+                last = attempt >= attempts
+                if not _retryable_llm_error(error) or last:
+                    logger.error(
+                        "Crew kickoff failed (attempt %d/%d): %s",
+                        attempt,
+                        attempts,
+                        error,
+                    )
+                    return None, f"fallback:kickoff:{type(error).__name__}"
+                delay = settings.LLM_RETRY_BACKOFF_S * (2 ** (attempt - 1))
+                delay += random.uniform(0, min(delay, 10.0))
+                logger.warning(
+                    "Crew kickoff failed (attempt %d/%d, retrying in %.0fs): %s",
+                    attempt,
+                    attempts,
+                    delay,
+                    error,
+                )
+                time.sleep(delay)
+        return None, "fallback:kickoff:exhausted"  # unreachable; guards the loop
 
     def _build_query(self, prediction) -> str:
         """Build a disease-anchored RAG query including elevated markers."""
@@ -550,6 +674,26 @@ class ClinicalCrew:
         cleaned = cleaned.replace("“", '"').replace("”", '"')
         cleaned = " ".join(cleaned.splitlines())
         return cleaned
+
+    def _parse_enrichment(self, result: object) -> dict[str, object] | None:
+        """Parse the small JSON object returned by the single writer agent."""
+        text = str(result)
+        start, end = text.find("{"), text.rfind("}")
+        if start < 0 or end <= start:
+            return None
+        candidate = text[start : end + 1]
+        try:
+            payload = json.loads(self._repair_json(candidate))
+        except (json.JSONDecodeError, TypeError, ValueError) as error:
+            logger.warning(
+                "Enrichment JSON parse failed: %s; raw head: %.500s",
+                error,
+                text,
+            )
+            return None
+        if not isinstance(payload, dict):
+            return None
+        return payload
 
     def _parse_report(self, result: object) -> ClinicalReport | None:
         text = str(result)
