@@ -516,11 +516,16 @@ class ClinicalCrew:
             "Create concise narrative enrichment for the verified clinical "
             "analysis below. Do NOT recalculate prediction or risk. Do NOT "
             "change any numeric value, diagnosis, evidence source, or "
-            "monitoring schedule. Do NOT invent citations. Return ONLY "
-            "valid JSON with exactly these keys: patient_summary, "
-            "context, recommendations, limitations, doctor_notice. "
-            "recommendations must be an array of strings. Keep the "
-            "response under 500 words. The report is decision support "
+            "monitoring schedule. Do NOT invent citations. Your entire "
+            "response must be one JSON object and nothing else — no "
+            "greetings, no explanations, no markdown fences. Start your "
+            "response with { and end it with }. Use exactly these keys: "
+            "patient_summary, context, recommendations, limitations, "
+            "doctor_notice. recommendations must be an array of strings. "
+            'Example shape: {"patient_summary": "...", '
+            '"context": "...", "recommendations": ["..."], '
+            '"limitations": "...", "doctor_notice": "..."}. Keep '
+            "the response under 500 words. The report is decision support "
             "only and must be reviewed by a licensed physician.\n\n"
             f"VERIFIED ANALYSIS:\n{json.dumps(prompt, ensure_ascii=False, default=str)}"
         )
