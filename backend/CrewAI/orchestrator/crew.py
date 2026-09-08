@@ -525,7 +525,9 @@ class ClinicalCrew:
             'Example shape: {"patient_summary": "...", '
             '"context": "...", "recommendations": ["..."], '
             '"limitations": "...", "doctor_notice": "..."}. Keep '
-            "the response under 500 words. The report is decision support "
+            "the response under 500 words. Do not include reasoning, "
+            "thinking blocks, or any text outside the JSON object. The "
+            "report is decision support "
             "only and must be reviewed by a licensed physician.\n\n"
             f"VERIFIED ANALYSIS:\n{json.dumps(prompt, ensure_ascii=False, default=str)}"
         )
@@ -683,6 +685,10 @@ class ClinicalCrew:
     def _parse_enrichment(self, result: object) -> dict[str, object] | None:
         """Parse the small JSON object returned by the single writer agent."""
         text = str(result)
+        # Reasoning models (e.g. Qwen3) wrap chain-of-thought in <think>
+        # blocks that can contain stray braces; strip them first so brace
+        # extraction sees only the answer.
+        text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL | re.IGNORECASE)
         start, end = text.find("{"), text.rfind("}")
         if start < 0 or end <= start:
             return None
