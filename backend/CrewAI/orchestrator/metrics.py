@@ -47,11 +47,17 @@ def _output_of(result: Any) -> str:
     if isinstance(result, str):
         return result.strip()
     if isinstance(result, Mapping):
+        if not result:
+            return ""
         for key in ("output", "result"):
             value = result.get(key)
-            if value not in (None, ""):
+            if value is not None and value != "":
                 return str(value).strip()
-        if not result:
+        # No filled output/result key. A mapping that only carries
+        # empty/None output-like values is hollow (incomplete); any
+        # other real payload (e.g. a prediction/risk dict) falls back to
+        # deterministic serialization so it counts as task output.
+        if all(value in (None, "") for value in result.values()):
             return ""
         return _serialize(result)
     if isinstance(result, (list, tuple, set, frozenset)):

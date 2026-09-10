@@ -13,6 +13,8 @@ derivation reads real report fields (nothing is fabricated here).
 
 from __future__ import annotations
 
+import csv
+import io
 import math
 
 from collections.abc import Mapping, Sequence
@@ -626,6 +628,33 @@ def build_analyze_payload(
     if recommendations:
         payload["recommendations"] = list(recommendations)
     return payload
+
+
+def validate_csv_header(csv_bytes: bytes, schema: Sequence[str]) -> list[str]:
+    """
+    Check uploaded CSV headers against the model schema before submitting.
+
+    Parameters
+    ----------
+    csv_bytes : bytes
+        Raw UTF-8 CSV file bytes.
+    schema : Sequence[str]
+        Required model feature columns.
+
+    Returns
+    -------
+    list[str]
+        Schema names missing from the header (empty when the file fits).
+        Unparseable content counts as all missing.
+    """
+
+    try:
+        text = csv_bytes.decode("utf-8-sig")
+        header = next(csv.reader(io.StringIO(text)), [])
+    except (UnicodeDecodeError, csv.Error):
+        return list(schema)
+    present = {normalize_feature_name(cell) for cell in header}
+    return [name for name in schema if normalize_feature_name(name) not in present]
 
 
 def validate_feature_values(

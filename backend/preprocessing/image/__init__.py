@@ -9,6 +9,11 @@ from .augmentation import AugmentationReport, ImageAugmenter
 from .loader import ImageLoader
 from .normalization import ImageNormalizer, NormalizationReport
 from .pipeline import ImagePipeline, ImageResult
+from .preprocessing import (
+    preprocess_batch,
+    preprocess_directory,
+    preprocess_image,
+)
 from .validator import ImageValidationResult, ImageValidator
 
 __all__ = [
@@ -21,4 +26,7 @@ __all__ = [
     "ImageValidationResult",
     "ImageValidator",
     "NormalizationReport",
+    "preprocess_batch",
+    "preprocess_directory",
+    "preprocess_image",
 ]

@@ -706,7 +706,8 @@ class ClinicalCrew:
             return None
         return payload
 
-    def _parse_report(self, result: object) -> ClinicalReport | None:
+    @staticmethod
+    def _parse_report(result: object) -> ClinicalReport | None:
         text = str(result)
         start, end = text.find("{"), text.rfind("}")
         if start < 0 or end <= start:

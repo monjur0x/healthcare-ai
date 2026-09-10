@@ -58,6 +58,7 @@ from dashboard.clinical import (
     is_integer_feature,
     normalize_feature_name,
     parse_blood_pressure_pair,
+    validate_csv_header,
     validate_feature_values,
 )
 
@@ -1104,6 +1105,15 @@ def run_assessment_tab(client: HealthcareAPIClient) -> None:
     if input_mode == "CSV Upload":
         if csv_file is None:
             st.error("Please upload a CSV file before running the assessment.")
+            return
+        missing = validate_csv_header(csv_file.getvalue(), schema)
+        if missing:
+            st.error(
+                "This file does not match the "
+                f"**{assessment_type_label(selected or 'current model')}** "
+                f"assessment — missing columns: {', '.join(missing)}. "
+                "Upload a file with these headers, or switch assessment type."
+            )
             return
         route = resolve_route(
             client,
