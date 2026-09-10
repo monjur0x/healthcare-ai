@@ -526,7 +526,9 @@ def split_dataset(
     """
 
     file_name, target = PRESETS[preset]
-    features, labels, *_ = prepare_tabular_data(dataset_dir / file_name, target, None)
+    features, labels, *_ = prepare_tabular_data(
+        dataset_dir / file_name, target, None, preset=preset
+    )
     return train_test_split(
         features,
         labels,

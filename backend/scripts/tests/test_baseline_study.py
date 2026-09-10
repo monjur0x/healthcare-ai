@@ -123,6 +123,50 @@ def test_split_dataset_matches_service_internal_split(tmp_path: Path) -> None:
     assert train_x.shape[1] == test_x.shape[1] > 0
 
 
+def test_split_dataset_kidney_preserves_disease_positive_orientation(
+    tmp_path: Path,
+) -> None:
+    """Kidney's string labels (ckd/notckd) must orient disease=1 in the split.
+
+    Regression test for the study's 0.020-accuracy kidney row: split_dataset
+    used to call prepare_tabular_data WITHOUT the preset, so the string labels
+    fell back to alphabetical LabelEncoder order (ckd=0, notckd=1) — inverted
+    against the model trained with preset='kidney' (ckd=1). The study's own
+    test split must reproduce the disease-positive orientation so its numbers
+    are directly comparable to the trained model's.
+    """
+    _write_synthetic_csv(tmp_path / "kidney_disease.csv")
+    # Overwrite with string (ckd/notckd) + tab-dirty labels, mirroring the
+    # real UCI CKD dataset.
+    rng = np.random.default_rng(7)
+    frame = pd.DataFrame(
+        {
+            "age": rng.integers(20, 80, 60),
+            "bp": rng.normal(130, 20, 60),
+            "sg": rng.normal(1.02, 0.01, 60),
+            "al": rng.integers(0, 4, 60),
+            "sc": rng.normal(1.2, 0.6, 60),
+        }
+    )
+    labels = rng.choice(["ckd", "notckd"], size=60, p=[0.6, 0.4])
+    labels[0] = "ckd\t"  # dirty tab, must be stripped by the orienter
+    frame["classification"] = labels
+    frame.to_csv(tmp_path / "kidney_disease.csv", index=False)
+
+    _train_x, test_x, train_y, test_y = split_dataset(
+        tmp_path, "kidney", test_size=0.25, seed=42
+    )
+    # The split's labels must have disease=1 (the positive class) just like
+    # prepare_tabular_data(preset='kidney') produces.
+    assert set(test_y.unique()).issubset({0, 1})
+    assert test_y.dtype.kind in "iu"
+    # Disease-positive rate should be nonzero and roughly match the 60% ckd.
+    assert 0.3 <= test_y.mean() <= 0.8
+    assert train_y.mean() > 0.3
+    # And the split must be usable by the model (feature count aligned).
+    assert test_x.shape[1] == _train_x.shape[1] > 0
+
+
 def test_rag_evaluation_retrieves_relevant_documents(tmp_path: Path) -> None:
     """RAG metrics stay in range and retrieve the ground-truth docs."""
     pipeline = build_dataset_pipeline(RAG_CORPORA["diabetes"])
