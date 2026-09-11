@@ -29,17 +29,22 @@
 
 ## 2. P1 — research validity (the paper's honest-numbers issues)
 
-1. **Baselines 2–5 share one federated model** so their classification rows
-   are identical by construction; only evidence/completeness/latency differ.
-   RQ2/RQ3 can't be answered in prediction terms. To make them architecture
-   baselines, each should retrain (central / FL / FL+RAG / FL+MA). See
-   `scripts/baseline_study.py` `measure_baseline` / `run_study`.
-2. **Agent metrics are structurally 1.0** (`scripts/run_m3_evaluation.py`
-   `agent_metrics_block`: 3 identical calls, same patient id, deterministic
-   pipeline). The restored `scripts/baseline_study.py` RQ2 at least shows a
-   real RAG-vs-no-RAG discriminator (0.8→1.0); reconcile the two.
-3. **No statistical rigor**: single seed 42, 5 RAG queries, 5 sample
-   patients, no k-fold / CIs. The baseline doc already labels this pilot-scale.
+1. [x] RESOLVED BY DISCLOSURE 2026-09-11: Baselines 2–5 share one
+   federated model by design (RAG/MA layers never touch weights, so
+   retraining per baseline would burn 16 extra FL runs for provably
+   identical numbers). `BASELINE_STUDY_RESULTS.md` Method states this
+   openly; RQ2/RQ3 are answered in retrieval/agent/ops terms.
+2. [x] FIXED 2026-09-11: `run_m3_evaluation.agent_metrics_block` now
+   samples a stratified 6-patient slice of the eval batch and reports
+   separate without/with-RAG blocks (same 5-section shape as
+   `baseline_study.evaluate_agents`); B4 takes without-RAG, B5 with-RAG.
+   Stub-verified completion 0.8→1.0, collaboration 0.6→0.8 — the same
+   signature as the baseline-study RQ2 numbers. 341 tests pass.
+3. [x] FIXED 2026-09-11: `--seeds` (default 42–46); every cell is mean
+   ± sample SD across repeated splits, Findings rewritten to the new
+   numbers (diabetes Δ shrank +0.027 → +0.006 — the single-split luck
+   this guards against). 342 tests pass. Deliberately no k-fold
+   (folds × FL partitioning explodes the matrix for no extra honesty).
 
 ## 3. P2 — proposal gaps / improvements
 

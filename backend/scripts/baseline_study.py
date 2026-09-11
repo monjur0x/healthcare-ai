@@ -27,8 +27,9 @@ metric modules:
 Design notes (pilot scale — see the generated Findings section):
 
 - The held-out split is reproduced deterministically for every baseline
-  and dataset with ``test_size=0.25`` and ``seed=42`` so all
-  classification numbers are directly comparable.
+  and dataset with ``test_size=0.25``; the study repeats over
+  ``--seeds`` (default 42-46) and every cell reports mean ± sample SD
+  across seeds, so no number rests on a single split.
 - The RAG layer is evaluated on a small fixed query set per dataset
   (5 queries, written literally below). The "answer" graded by
   ``rag_quality_metrics`` is a reference clinical answer written in this
@@ -127,6 +128,9 @@ FEDERATED_ROUNDS = 5
 #: Reproducibility constants for the shared held-out split.
 TEST_SIZE = 0.25
 SEED = 42
+#: Repeated-split seeds: every reported metric is mean ± sample SD across
+#: these seeds (P1.3 — no more single-seed numbers).
+SEEDS = (42, 43, 44, 45, 46)
 
 #: Number of sample patient rows drawn from each test split for the
 #: multi-agent baselines.
@@ -473,6 +477,8 @@ class DatasetStudy:
         Predicted classes for the sampled test rows (decision consistency).
     error : str | None
         Error message when the dataset could not be processed.
+    seed : int | None
+        Random-split seed this study ran under (for multi-seed aggregation).
     """
 
     preset: str
@@ -491,6 +497,7 @@ class DatasetStudy:
     agents_with_rag: AgentMetrics
     sample_predictions: list[str]
     error: str | None = None
+    seed: int | None = None
 
 
 def split_dataset(
@@ -908,6 +915,7 @@ def run_study(
                     agents_without_rag=agents_without_rag,
                     agents_with_rag=agents_with_rag,
                     sample_predictions=predictions,
+                    seed=seed,
                 )
             )
             logger.info("Study complete for %s", preset)
@@ -935,6 +943,7 @@ def run_study(
                     agents_with_rag=AgentMetrics(0.0, 0.0, 0.0),
                     sample_predictions=[],
                     error=str(error),
+                    seed=seed,
                 )
             )
     return studies
@@ -1106,6 +1115,265 @@ def build_study_markdown(
     return "\n".join(sections).rstrip() + "\n"
 
 
+@dataclass
+class SeedAggregate:
+    """
+    Mean ± sample SD of every reported metric for one preset across seeds.
+
+    Each ``dict`` maps a metric name to a ``(mean, sd)`` pair; ``mean`` is
+    ``None`` when every seed reported ``None`` (e.g. ROC-AUC on a
+    single-class split). Failed seeds are excluded and counted in
+    ``n_failed``.
+    """
+
+    preset: str
+    seeds: list[int]
+    n_failed: int
+    n_train: int
+    n_test: int
+    n_features: int
+    central: dict[str, tuple[float | None, float]]
+    federated: dict[str, tuple[float | None, float]]
+    comm_bytes: tuple[float | None, float]
+    conv_round: tuple[float | None, float]
+    rag: dict[str, tuple[float | None, float]]
+    agents_without_rag: dict[str, tuple[float | None, float]]
+    agents_with_rag: dict[str, tuple[float | None, float]]
+
+
+def _mean_sd(values: Sequence[float | int | None]) -> tuple[float | None, float]:
+    """
+    Mean and sample SD of the non-``None`` values.
+
+    Returns ``(None, 0.0)`` when every seed reported ``None`` and a zero
+    SD for a single value, so one-seed runs render as plain numbers.
+    """
+    vals = [float(value) for value in values if value is not None]
+    if not vals:
+        return None, 0.0
+    if len(vals) == 1:
+        return vals[0], 0.0
+    return float(np.mean(vals)), float(np.std(vals, ddof=1))
+
+
+def _ms_cell(mean: float | None, sd: float, digits: int = 3) -> str:
+    """Render a mean ± SD cell, falling back to a plain number or ``n/a``."""
+    if mean is None:
+        return "n/a"
+    if sd == 0.0:
+        return _fmt(mean, digits)
+    return f"{_fmt(mean, digits)} ± {_fmt(sd, digits)}"
+
+
+def aggregate_preset(preset: str, runs: Sequence[DatasetStudy]) -> SeedAggregate:
+    """
+    Aggregate one preset's per-seed studies into mean ± SD statistics.
+
+    Parameters
+    ----------
+    preset : str
+        Dataset preset name.
+    runs : Sequence[DatasetStudy]
+        One study per seed (in seed order); errored runs are excluded
+        from the statistics and counted in ``n_failed``.
+
+    Returns
+    -------
+    SeedAggregate
+        Aggregated metrics (empty statistics when every seed failed).
+    """
+    seeds = [run.seed for run in runs if run.seed is not None]
+    ok = [run for run in runs if run.error is None]
+    first = runs[0]
+
+    def _stat(getter) -> tuple[float | None, float]:
+        return _mean_sd([getter(run) for run in ok])
+
+    central = {
+        name: _stat(lambda run, name=name: getattr(run.central_metrics, name))
+        for name in ("accuracy", "f1_macro", "roc_auc")
+    }
+    federated = {
+        name: _stat(lambda run, name=name: getattr(run.fed_classification, name))
+        for name in ("accuracy", "f1_macro", "roc_auc")
+    }
+    rag = {
+        name: _stat(lambda run, name=name: getattr(run.rag_average, name))
+        for name in (
+            "context_precision",
+            "context_recall",
+            "faithfulness",
+            "answer_relevancy",
+        )
+    }
+    agents = {
+        key: {
+            name: _stat(
+                lambda run, key=key, name=name: getattr(getattr(run, key), name)
+            )
+            for name in (
+                "task_completion_rate",
+                "agent_collaboration_score",
+                "decision_consistency",
+            )
+        }
+        for key in ("agents_without_rag", "agents_with_rag")
+    }
+    return SeedAggregate(
+        preset=preset,
+        seeds=seeds,
+        n_failed=len(runs) - len(ok),
+        n_train=first.n_train,
+        n_test=first.n_test,
+        n_features=first.n_features,
+        central=central,
+        federated=federated,
+        comm_bytes=_stat(
+            lambda run: run.federated_metrics.total_bytes_exchanged or None
+        ),
+        conv_round=_stat(lambda run: run.federated_metrics.convergence_round),
+        rag=rag,
+        agents_without_rag=agents["agents_without_rag"],
+        agents_with_rag=agents["agents_with_rag"],
+    )
+
+
+def build_aggregate_section(agg: SeedAggregate, config: Mapping[str, Any]) -> str:
+    """
+    Render the markdown section (table + metric detail) for one preset.
+
+    Cells show ``mean ± SD`` across seeds; a zero SD renders as a plain
+    number so one-seed runs look exactly like the legacy single-seed
+    table.
+    """
+    name = DATASET_DISPLAY_NAMES.get(agg.preset, agg.preset)
+    header = [
+        f"## {name}",
+        "",
+        f"`{agg.preset}` - {agg.n_train} train / {agg.n_test} test rows, "
+        f"{agg.n_features} features. Repeated splits: test_size="
+        f"{config['test_size']}, seeds={agg.seeds}. Federated: "
+        f"{config['clients']} clients, {config['rounds']} rounds. RAG top-k="
+        f"{config['rag_top_k']}. Agent sample patients={config['n_patients']}.",
+    ]
+    if agg.n_failed:
+        header.append(
+            f"{agg.n_failed} of {len(agg.seeds)} seed(s) failed and are "
+            "excluded from the statistics below."
+        )
+    if not agg.seeds or agg.n_failed == len(agg.seeds):
+        return "\n".join([*header, "", "**Skipped** - every seed failed.", ""])
+
+    ms = _ms_cell
+    rows = [
+        "| Baseline | Accuracy | F1 | ROC-AUC | Comm. cost (bytes) | "
+        "Convergence round | RAG faithfulness | RAG context precision | "
+        "Agent task completion | Agent collaboration |",
+        "|---|---|---|---|---|---|---|---|---|---|",
+        f"| 1. Centralized | {ms(*agg.central['accuracy'])} | "
+        f"{ms(*agg.central['f1_macro'])} | {ms(*agg.central['roc_auc'])} | "
+        "n/a | n/a | n/a | n/a | n/a | n/a |",
+        f"| 2. Federated only | {ms(*agg.federated['accuracy'])} | "
+        f"{ms(*agg.federated['f1_macro'])} | {ms(*agg.federated['roc_auc'])} | "
+        f"{ms(*agg.comm_bytes, 0)} | {ms(*agg.conv_round, 0)} | "
+        "n/a | n/a | n/a | n/a |",
+        f"| 3. Federated + RAG | {ms(*agg.federated['accuracy'])} | "
+        f"{ms(*agg.federated['f1_macro'])} | {ms(*agg.federated['roc_auc'])} | "
+        f"{ms(*agg.comm_bytes, 0)} | {ms(*agg.conv_round, 0)} | "
+        f"{ms(*agg.rag['faithfulness'])} | {ms(*agg.rag['context_precision'])} | "
+        "n/a | n/a |",
+        f"| 4. Federated + Multi-Agent | {ms(*agg.federated['accuracy'])} | "
+        f"{ms(*agg.federated['f1_macro'])} | {ms(*agg.federated['roc_auc'])} | "
+        f"{ms(*agg.comm_bytes, 0)} | {ms(*agg.conv_round, 0)} | n/a | n/a | "
+        f"{ms(*agg.agents_without_rag['task_completion_rate'])} | "
+        f"{ms(*agg.agents_without_rag['agent_collaboration_score'])} |",
+        f"| 5. Proposed (full) | {ms(*agg.federated['accuracy'])} | "
+        f"{ms(*agg.federated['f1_macro'])} | {ms(*agg.federated['roc_auc'])} | "
+        f"{ms(*agg.comm_bytes, 0)} | {ms(*agg.conv_round, 0)} | "
+        f"{ms(*agg.rag['faithfulness'])} | {ms(*agg.rag['context_precision'])} | "
+        f"{ms(*agg.agents_with_rag['task_completion_rate'])} | "
+        f"{ms(*agg.agents_with_rag['agent_collaboration_score'])} |",
+    ]
+
+    ag4, ag5 = agg.agents_without_rag, agg.agents_with_rag
+    detail: list[str] = [
+        "",
+        "### Metric detail (mean ± sample SD across seeds)",
+        "",
+        "- Comm. cost = total bytes exchanged over the whole federated run "
+        f"({config['rounds']} rounds x {config['clients']} clients): "
+        f"{ms(*agg.comm_bytes, 0)}.",
+        f"- Convergence round: {ms(*agg.conv_round, 0)}.",
+        "- Classification: centralized accuracy / F1 / ROC-AUC "
+        f"({ms(*agg.central['accuracy'])} / {ms(*agg.central['f1_macro'])} / "
+        f"{ms(*agg.central['roc_auc'])}) vs federated "
+        f"({ms(*agg.federated['accuracy'])} / "
+        f"{ms(*agg.federated['f1_macro'])} / {ms(*agg.federated['roc_auc'])}).",
+        "- RAG: context precision "
+        f"{ms(*agg.rag['context_precision'])}, context recall "
+        f"{ms(*agg.rag['context_recall'])}, faithfulness "
+        f"{ms(*agg.rag['faithfulness'])}, answer relevancy "
+        f"{ms(*agg.rag['answer_relevancy'])}.",
+        "- Agent task completion: without RAG "
+        f"{ms(*ag4['task_completion_rate'])} "
+        f"(5 sections incl. empty evidence), with RAG "
+        f"{ms(*ag5['task_completion_rate'])}; agent collaboration without "
+        f"RAG {ms(*ag4['agent_collaboration_score'])} / with RAG "
+        f"{ms(*ag5['agent_collaboration_score'])}; decision consistency "
+        f"without RAG {ms(*ag4['decision_consistency'])} / with RAG "
+        f"{ms(*ag5['decision_consistency'])} over "
+        f"{config['n_patients']} sampled patients per seed.",
+        "- Baseline 4 runs the crew without the RAG evidence step; Baseline 5 "
+        "wires the RAG pipeline into the same crew (evidence context fills "
+        "the retrieval task, which is why task completion rises).",
+    ]
+    return "\n".join([*header, *rows, *detail])
+
+
+def build_multiseed_markdown(
+    aggregates: Sequence[SeedAggregate], config: Mapping[str, Any]
+) -> str:
+    """
+    Render the full multi-seed study document (intro, tables, detail).
+
+    A hand-written Findings section already present in the output file is
+    preserved by :func:`write_results`.
+    """
+    seeds = config["seeds"]
+    sections = [
+        "# Baseline Comparison Study (paper §13)",
+        "",
+        "Generated by `backend/scripts/baseline_study.py` on "
+        f"{date.today().isoformat()}. "
+        "Every metric is produced by the existing modules "
+        "(`evaluation/metrics.py`, `federated/metrics.py`, `rag/metrics.py`, "
+        "`CrewAI/orchestrator/metrics.py`) - nothing here reimplements them.",
+        "",
+        "**Method.** Each dataset is split once per seed with `test_size="
+        f"{config['test_size']}`, `seeds={list(seeds)}`, and every baseline "
+        "is scored on that seed's held-out split; every table cell is the "
+        f"mean ± sample SD across the {len(seeds)} seeds (a zero SD renders "
+        "as a plain number). Baselines 2-5 share the federated model "
+        f"(`{config['clients']}` clients, `{config['rounds']}` rounds); "
+        "RAG and multi-agent layers do not retrain it, so their classification "
+        "block is reported once and reused. The RAG layer is graded on 5 literal "
+        "clinical queries per dataset against reference answers grounded in a "
+        "literal per-dataset corpus. Agent metrics come from the deterministic, "
+        "LLM-free crew over a handful of sample test rows. `n/a` means the metric "
+        "does not apply to that configuration — no cells are fabricated.",
+        "",
+        "n8n is the orchestration layer (webhook → FastAPI → crew) already "
+        "exercised live in `docs/CHANGELOG.md`'s verification entries; it adds no "
+        "independent metric, so the Proposed row is the union of the classification, "
+        "RAG, and agent metrics.",
+        "",
+    ]
+    for agg in aggregates:
+        sections.append(build_aggregate_section(agg, config))
+        sections.append("")
+    return "\n".join(sections).rstrip() + "\n"
+
+
 _FINDINGS_MARKER = "\n## Findings\n"
 
 
@@ -1173,7 +1441,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--clients", type=int, default=FEDERATED_CLIENTS)
     parser.add_argument("--rounds", type=int, default=FEDERATED_ROUNDS)
     parser.add_argument("--test-size", type=float, default=TEST_SIZE)
-    parser.add_argument("--seed", type=int, default=SEED)
+    parser.add_argument(
+        "--seeds",
+        type=int,
+        nargs="+",
+        default=list(SEEDS),
+        help="Repeated random-split seeds; every metric is reported as "
+        "mean ± sample SD across these seeds.",
+    )
     parser.add_argument("--n-patients", type=int, default=N_PATIENTS)
     parser.add_argument(
         "--only",
@@ -1185,24 +1460,35 @@ def main(argv: list[str] | None = None) -> int:
 
     config: Mapping[str, Any] = {
         "test_size": args.test_size,
-        "seed": args.seed,
+        "seeds": list(args.seeds),
         "clients": args.clients,
         "rounds": args.rounds,
         "n_patients": args.n_patients,
         "rag_top_k": RAG_TOP_K,
     }
     presets = [args.only] if args.only is not None else None
-    studies = run_study(
-        dataset_dir=args.dataset_dir,
-        artifacts_dir=args.artifacts_dir,
-        clients=args.clients,
-        rounds=args.rounds,
-        test_size=args.test_size,
-        seed=args.seed,
-        n_patients=args.n_patients,
-        presets=presets,
-    )
-    markdown = build_study_markdown(studies, config)
+    per_seed: list[list[DatasetStudy]] = []
+    for seed in args.seeds:
+        logger.info("Study seed %s", seed)
+        per_seed.append(
+            run_study(
+                dataset_dir=args.dataset_dir,
+                artifacts_dir=args.artifacts_dir,
+                clients=args.clients,
+                rounds=args.rounds,
+                test_size=args.test_size,
+                seed=seed,
+                n_patients=args.n_patients,
+                presets=presets,
+            )
+        )
+    order = [study.preset for study in per_seed[0]] if per_seed else []
+    by_preset: dict[str, list[DatasetStudy]] = {preset: [] for preset in order}
+    for run in per_seed:
+        for study in run:
+            by_preset.setdefault(study.preset, []).append(study)
+    aggregates = [aggregate_preset(preset, by_preset[preset]) for preset in by_preset]
+    markdown = build_multiseed_markdown(aggregates, config)
     write_results(args.out, markdown)
     sys.stdout.write(markdown)
     return 0

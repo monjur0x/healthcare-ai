@@ -359,7 +359,19 @@ round timing; 7-tab dashboard outputs; ChromaDB satisfies the
    Note: current FastAPI keeps included-router routes in an
    `_IncludedRouter` entry — enumerate served paths via
    `app.openapi()["paths"]`, not `app.routes`.
-4. Then P1/P2 in existing order.
+4. P1/P2 in existing order (NEXT_TASK.md §2/§3):
+   - [x] DONE 2026-09-11 (P1.2): M3 `agent_metrics_block` structural
+     1.0 fixed — stratified 6-patient sample, separate
+     without/with-RAG blocks, B4/B5 wired accordingly; stub smoke
+     reproduces the baseline-study RQ2 signature (0.8→1.0,
+     collab 0.6→0.8). 341 tests pass, ruff clean.
+   - [x] RESOLVED BY DISCLOSURE 2026-09-11 (P1.1): shared-model
+     baselines stay as-is (retraining = identical numbers by
+     construction); Method note already states it.
+   - [x] DONE 2026-09-11 (P1.3): `--seeds` (default 42–46),
+     `SeedAggregate` + mean ± SD rendering, Findings updated; full
+     5-seed run ~5 min CPU-only, 342 tests pass, ruff clean.
+   - [ ] NEXT: P2 in order (P2.1 mortality/readmission heads first).
 
 ### Epic (tracked, not started): heterogeneous study arm
 

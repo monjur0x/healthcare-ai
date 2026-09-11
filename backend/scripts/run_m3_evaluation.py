@@ -324,39 +324,84 @@ def rag_metrics_block(
     return out
 
 
-def agent_metrics_block(svc: AnalysisService) -> dict:
-    """§12 Agent metrics over the deterministic pipeline stages."""
-    features = {
-        "age": 55,
-        "gender": 1,
-        "bmi": 36,
-        "blood_pressure": 92,
-        "heart_rate": 88,
-        "spo2": 95,
-        "glucose": 185,
-        "creatinine": 1.8,
-        "cholesterol": 240,
-        "hemoglobin": 12,
-        "albumin": 3.5,
-    }
-    predictions, stages = [], []
-    for _ in range(3):
-        report = svc.analyze(
-            patient=PatientInfo(name="AgentProbe", id="AG-1"),
-            features=features,
-            markers={"glucose": 185, "bmi": 36},
-            input_type="csv",
-        )
-        import json
+def _agent_sections(report) -> tuple[list[str], str]:
+    """Five deterministic crew-task outputs plus the predicted class.
 
-        predictions.append(str(report.prediction.predicted_class))
-        stages = [
-            json.dumps(report.prediction.model_dump()),
-            json.dumps(report.risk.model_dump()),
-            json.dumps([e.model_dump() for e in report.evidence]),
+    Mirrors ``baseline_study._report_sections`` so the two studies score
+    the same responsibilities (summary, prediction, risk, evidence,
+    recommendations) and stay comparable: the evidence section is empty
+    when no RAG pipeline is wired, which is what lets the with/without-RAG
+    completion gap discriminate.
+    """
+    prediction = report.prediction.predicted_class if report.prediction else ""
+    risk_parts: list[str] = []
+    if report.risk is not None:
+        risk_parts.append(report.risk.risk_level)
+        risk_parts.extend(report.risk.risk_factors)
+    evidence = " ".join(item.text for item in report.evidence)
+    return (
+        [
             report.patient_summary,
-        ]
-    return compute_agent_metrics(stages, predictions).to_dict()
+            prediction,
+            " ".join(risk_parts),
+            evidence,
+            " ".join(report.recommendations),
+        ],
+        prediction,
+    )
+
+
+def agent_metrics_block(
+    svc: AnalysisService, batch: pd.DataFrame, n_patients: int = 6
+) -> dict:
+    """§12 Agent metrics over varied patients, with and without RAG.
+
+    The previous revision analyzed one fixed patient three times and
+    scored only the last report's four stage strings, so decision
+    consistency was 1.0 by construction and completion could not
+    discriminate the evidence step. This mirrors
+    ``baseline_study.evaluate_agents`` instead: a stratified sample of
+    eval-batch rows is analyzed with retrieval disabled and enabled,
+    and each condition reports its own block — the without/with-RAG
+    completion gap is the discriminative signal (0.8→1.0 when RAG fills
+    the evidence section).
+    """
+    per_class = max(1, n_patients // 2)
+    sample = pd.concat(
+        [frame.head(per_class) for _, frame in batch.groupby(TARGET_COLUMN)]
+    ).head(n_patients)
+    feature_names = list(svc.model.feature_names or batch.columns[:-1])
+
+    original_pipeline = svc.rag_pipeline
+    blocks: dict[str, dict[str, float]] = {}
+    try:
+        for label, pipeline in (
+            ("without_rag", None),
+            ("with_rag", original_pipeline),
+        ):
+            svc.rag_pipeline = pipeline
+            sections: list[str] = []
+            predictions: list[str] = []
+            for position, (_, row) in enumerate(sample.iterrows()):
+                features = {name: float(row[name]) for name in feature_names}
+                markers = {
+                    key: features[key]
+                    for key in ("glucose", "bmi", "blood_pressure", "creatinine")
+                    if key in features
+                }
+                report = svc.analyze(
+                    patient=PatientInfo(name="M3Agent", id=f"M3A-{label}-{position}"),
+                    features=features,
+                    markers=markers,
+                    input_type="csv",
+                )
+                report_sections, predicted = _agent_sections(report)
+                sections.extend(report_sections)
+                predictions.append(predicted)
+            blocks[label] = compute_agent_metrics(sections, predictions).to_dict()
+    finally:
+        svc.rag_pipeline = original_pipeline
+    return blocks
 
 
 def n8n_probe(base_url: str | None) -> dict:
@@ -440,9 +485,10 @@ def main() -> int:
     print(f"  averages: {avg}")
 
     # ---- §12 Agent metrics ----------------------------------------------
-    print("\n=== AGENT METRICS (deterministic pipeline stages) ===")
-    agents_block = agent_metrics_block(svc)
-    print(f"  {agents_block}")
+    print("\n=== AGENT METRICS (varied patients, with/without RAG) ===")
+    agents_block = agent_metrics_block(svc, batch)
+    print(f"  without_rag={agents_block['without_rag']}")
+    print(f"  with_rag={agents_block['with_rag']}")
 
     # ---- §13 Baselines ---------------------------------------------------
     print("\n=== BASELINES (same federated global model) ===")
@@ -457,7 +503,7 @@ def main() -> int:
         f"evidence={b3['avg_evidence_items']} complete={b3['report_completeness']}"
     )
     b4, _ = measure_baseline(svc, batch, use_rag=False)
-    b4["agent_metrics"] = agents_block
+    b4["agent_metrics"] = agents_block["without_rag"]
     # Prediction parity across B2-B5 is by construction (same model);
     # the baselines compare retrieval/agent/ops dimensions. Record
     # whether the LLM-enriched crew path was even available.
@@ -468,7 +514,7 @@ def main() -> int:
         f"complete={b4['report_completeness']}"
     )
     b5, _ = measure_baseline(svc, batch, use_rag=True)
-    b5["agent_metrics"] = agents_block
+    b5["agent_metrics"] = agents_block["with_rag"]
     b5["llm_configured"] = llm_configured
     # Liveness probe only: the analyses above run through the API, not
     # through the n8n workflow.
@@ -512,8 +558,18 @@ def main() -> int:
         "|---|---|",
     ]
     md += [f"| {k} | {v:.4f} |" for k, v in avg.items()]
-    md += ["", "## Agent metrics", "", "| metric | value |", "|---|---|"]
-    md += [f"| {k} | {v:.3f} |" for k, v in agents_block.items()]
+    md += [
+        "",
+        "## Agent metrics",
+        "",
+        "| metric | without RAG | with RAG |",
+        "|---|---|---|",
+    ]
+    for key in agents_block["without_rag"]:
+        md.append(
+            f"| {key} | {agents_block['without_rag'][key]:.3f} "
+            f"| {agents_block['with_rag'][key]:.3f} |"
+        )
 
     def _row(label: str, b: dict) -> str:
         return (

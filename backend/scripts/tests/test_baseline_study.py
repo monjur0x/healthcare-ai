@@ -17,7 +17,10 @@ from api.services import AnalysisService
 from scripts.baseline_study import (
     RAG_CORPORA,
     RAG_EVALUATION,
+    aggregate_preset,
+    build_aggregate_section,
     build_dataset_pipeline,
+    build_multiseed_markdown,
     build_study_markdown,
     evaluate_agents,
     evaluate_rag,
@@ -107,6 +110,51 @@ def test_study_runs_end_to_end_on_synthetic_data(tmp_path: Path) -> None:
     assert "| 2. Federated only |" in markdown
     assert "| 5. Proposed (full) |" in markdown
     assert "| n/a |" in markdown
+
+
+def test_aggregate_preset_reports_mean_sd_across_seeds(tmp_path: Path) -> None:
+    """Multi-seed aggregation carries seed identity and mean ± SD stats."""
+    dataset_dir = tmp_path / "data"
+    dataset_dir.mkdir()
+    _write_synthetic_csv(dataset_dir / "diabetes.csv")
+
+    runs = [
+        run_study(
+            dataset_dir=dataset_dir,
+            artifacts_dir=tmp_path / f"artifacts-{seed}",
+            clients=2,
+            rounds=2,
+            test_size=0.25,
+            seed=seed,
+            n_patients=3,
+            presets=["diabetes"],
+        )[0]
+        for seed in (42, 43)
+    ]
+
+    agg = aggregate_preset("diabetes", runs)
+    assert agg.seeds == [42, 43]
+    assert agg.n_failed == 0
+    for block in (agg.central, agg.federated):
+        mean, sdv = block["accuracy"]
+        assert mean is not None and 0.0 <= mean <= 1.0
+        assert sdv >= 0.0
+    assert agg.rag["faithfulness"][0] is not None
+    assert agg.agents_with_rag["task_completion_rate"][0] is not None
+
+    config = {
+        "test_size": 0.25,
+        "seeds": [42, 43],
+        "clients": 2,
+        "rounds": 2,
+        "n_patients": 3,
+        "rag_top_k": 5,
+    }
+    section = build_aggregate_section(agg, config)
+    assert "seeds=[42, 43]" in section
+    assert "| 5. Proposed (full) |" in section
+    markdown = build_multiseed_markdown([agg], config)
+    assert "mean ± sample SD across the 2 seeds" in markdown
 
 
 def test_split_dataset_matches_service_internal_split(tmp_path: Path) -> None:
