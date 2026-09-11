@@ -385,3 +385,57 @@ Reason
   handles requests on multiple threads.
 - n8n `risk-monitoring.json` polls `/api/v1/risk/alerts` every 15 minutes
   and fires clinician notifications per active escalation alert.
+
+---
+
+ADR-018
+
+Secondary-outcome heads (P2.1): the sepsis disease model no longer trains on
+`readmission_30day` (target leakage — a future outcome column was a
+feature), and a separate `readmission_30day` head trains via
+`POST /api/v1/train {"preset": "sepsis", "outcome": "readmission_30day"}`.
+
+Reason
+
+- A diagnosis model must only see admission-time features. `readmission_30day`
+  is known only after discharge, so training on it leaks the future; the
+  sepsis feature count drops 75 → 74 and the baseline study was regenerated.
+- The head trains on the same admission-time vector (fellow secondaries and
+  the disease target are also excluded), so both models share an identical
+  feature space and `analyze()` scores both from one row.
+- Honest numbers on the real label (central logistic): accuracy 0.946 but
+  F1 0.486 / ROC-AUC 0.500 — the 5.4%-positive label means accuracy is
+  mostly the majority class; the head has no ranking signal yet.
+- Mortality stays un-trainable: no shipped dataset has a mortality column
+  (verified at header level). It is blocked on a credentialed MIMIC-IV
+  extract (P2.6 track), not on modelling — the dashboard says so instead of
+  "Not estimated".
+
+---
+
+ADR-019
+
+Model-derived explanations (P2.2): the Explainability Expert no longer
+reports magnitude-sort as the explanation. Tabular drivers are SHAP values
+from the fitted estimator — exact `LinearExplainer` for logistic
+regression, bounded `KernelExplainer` otherwise — and the image CNN
+explains via Grad-CAM from the last convolutional layer. Magnitude-sort
+survives only as an explicitly labeled heuristic fallback.
+
+Reason
+
+- "Largest raw value drives the prediction" is not an explanation of the
+  model; SHAP attributes the fitted model's own disease-class output, so
+  the text names what actually pushed the prediction. Class `1` is always
+  the disease class, hence positive SHAP means toward disease.
+- SHAP needs an honest reference distribution, so `train()` persists a
+  stratified ≤25-row preprocessed background per preset
+  (`artifacts/<preset>/shap_background.joblib`); the served background
+  only applies when its preset matches the active one, otherwise the
+  fallback says it is not model-derived instead of silently mixing
+  distributions.
+- KernelExplainer cost scales with background size and feature count, so
+  both are capped (25 rows, ≤500 evals) — a single-row explanation stays
+  near ~1s on CPU.
+- Grad-CAM needs no extra dependency (native torch hooks) and returns a
+  normalized [0, 1] heatmap plus a peak-quadrant/coverage summary line.

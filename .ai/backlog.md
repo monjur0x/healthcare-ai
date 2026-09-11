@@ -371,7 +371,14 @@ round timing; 7-tab dashboard outputs; ChromaDB satisfies the
    - [x] DONE 2026-09-11 (P1.3): `--seeds` (default 42–46),
      `SeedAggregate` + mean ± SD rendering, Findings updated; full
      5-seed run ~5 min CPU-only, 342 tests pass, ruff clean.
-   - [ ] NEXT: P2 in order (P2.1 mortality/readmission heads first).
+   - [x] DONE 2026-09-11 (P2.1 readmission half): `train_outcome` +
+     route `outcome` branch + `report.readmission` attach + leakage
+     exclusion (sepsis 75→74 feats, study regen); head acc 0.946 /
+     F1 0.486 / AUC 0.500. Mortality DATA-BLOCKED (no label in any
+     shipped dataset; needs MIMIC-IV extract). 351 tests pass.
+   - [x] DONE 2026-09-11 (P2.2 explainability, ADR-019): SHAP tabular
+     + Grad-CAM image + labeled heuristic fallback; 371 tests pass.
+   - [ ] NEXT: P2 in order (P2.3 evidence-grounded treatments next).
 
 ### Epic (tracked, not started): heterogeneous study arm
 

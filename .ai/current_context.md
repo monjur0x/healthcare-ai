@@ -29,3 +29,5 @@ Working tree clean except untracked `dataset` symlink (keep out of commits).
 - Kidney baseline bug fixed: study split now matches training orientation (kidney 0.980 acc / 1.000 ROC across all baselines).
 - RQ1/RQ2/RQ3 answers in `docs/BASELINE_STUDY_RESULTS.md` Findings (regenerated tables match hand-written section).
 - Frontend smoke tests updated for the 7-tab app (keyed widgets + session-state feature inputs).
+- P2.1 readmission DONE 2026-09-11 (ADR-018): `train_outcome` + route `outcome` branch + `report.readmission` + leakage exclusion (sepsis 75→74 feats, study regen); mortality data-blocked. 352 tests pass.
+- P2.2 explainability DONE 2026-09-11 (ADR-019): `explain.py` (SHAP tabular + Grad-CAM), per-preset background persist/match, Agent 5 method tags, `shap_driven` route flag, labeled heuristic fallback. 371 backend tests pass, ruff clean.

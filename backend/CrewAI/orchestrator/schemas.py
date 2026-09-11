@@ -163,6 +163,12 @@ class ClinicalReport(BaseModel):
     input_type: str = "csv"
     patient_summary: str = ""
     prediction: PredictionResult | None = None
+    #: 30-day readmission head (P2.1). Populated by
+    #: ``AnalysisService.analyze`` when a ``readmission_30day`` outcome
+    #: model is trained for the active preset; None otherwise (including
+    #: presets with no readmission label, and mortality, which no shipped
+    #: dataset labels).
+    readmission: PredictionResult | None = None
     risk: RiskResult | None = None
     evidence: list[EvidenceItem] = Field(default_factory=list)
     context: str = ""

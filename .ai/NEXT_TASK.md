@@ -48,16 +48,21 @@
 
 ## 3. P2 — proposal gaps / improvements
 
-1. **Mortality & readmission prediction, binarized away.**
-   Proposal expects mortality/readmission/CKD-stage outputs; everything was
-   collapsed to binary `has_disease` (`services.py` `_preset_binary_labels`,
-   `docs/DECISIONS.md` ADR-015). Frontend hardcodes
-   `"Not estimated"` (`streamlit_app.py:490,496`; `clinical.py:958-959`).
-   Add two small heads (mortality, readmission_30day) over the canonical
-   tabular model.
-2. **Explainability is magnitude-sort, not model-derived.**
-   `crew.py:313-333` Explainability Expert sorts features by `abs(value)`.
-   No SHAP/LIME/Grad-CAM (proposal §6/§7 promises them).
+1. [x] SPLIT 2026-09-11 (ADR-018): **readmission head DONE** —
+   `train_outcome(preset="sepsis", outcome="readmission_30day")` + route
+   branch + `report.readmission` attach + leakage exclusion (sepsis
+   75→74 features, study regenerated); honest head numbers acc 0.946 /
+   F1 0.486 / AUC 0.500 (5.4% positive — no ranking signal yet).
+   **Mortality DATA-BLOCKED**: no shipped dataset has a mortality column
+   (header-verified); needs credentialed MIMIC-IV extract (P2.6 track).
+   Dashboard states the blocked reason instead of "Not estimated".
+2. [x] DONE 2026-09-11 (ADR-019): **model-derived explanations** —
+   tabular SHAP (`LinearExplainer` logistic / bounded `KernelExplainer`
+   otherwise) via `CrewAI/orchestrator/explain.py`, Grad-CAM for the CNN,
+   stratified ≤25-row background persisted per preset and preset-matched
+   at serve time; Agent 5 tags `shap_linear|shap_kernel|grad_cam` vs
+   labeled `magnitude_heuristic` fallback; route returns `shap_driven`.
+   19 P2.2 tests; 371 backend tests pass, ruff clean.
 3. **Treatment recommendation is a static playbook lookup.**
    `build_treatment_recommendations` returns hardcoded disease strings.
    Not evidence-grounded or model-graded.

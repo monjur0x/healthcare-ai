@@ -199,6 +199,13 @@ class ImageClassifier(BaseModel):
         """Number of input channels expected by the model."""
         return self._in_channels
 
+    @property
+    def torch_module(self) -> nn.Module:
+        """Underlying fitted torch module (for explainers like Grad-CAM)."""
+        self._require_fitted()
+        assert self._model is not None
+        return self._model
+
     def fit(self, X: Any, y: np.ndarray) -> ImageClassifier:
         """
         Train the CNN on a preprocessed image batch.

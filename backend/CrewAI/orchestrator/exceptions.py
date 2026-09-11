@@ -39,6 +39,12 @@ class ReportError(CrewError):
     """
 
 
+class ExplanationError(CrewError):
+    """
+    Raised when a model-derived explanation cannot be produced.
+    """
+
+
 class LLMNotConfiguredError(CrewError):
     """
     Raised when LLM orchestration is requested without a configured
@@ -48,6 +54,7 @@ class LLMNotConfiguredError(CrewError):
 
 __all__ = [
     "CrewError",
+    "ExplanationError",
     "LLMNotConfiguredError",
     "OrchestrationError",
     "PredictionToolError",

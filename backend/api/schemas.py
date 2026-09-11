@@ -54,6 +54,11 @@ class TrainRequest(BaseModel):
         Explicit path to a CSV (mutually exclusive with ``preset``).
     target : str | None
         Target column name (required when ``dataset`` is given).
+    outcome : str | None
+        Secondary-outcome head to train instead of the disease model
+        (P2.1), e.g. ``readmission_30day`` with ``preset="sepsis"``.
+        Must be registered for the preset; ``dataset``/``target`` are
+        ignored when set.
     model : Literal["mlp", "logistic"]
         Scikit-learn model family to fit.
     test_size : float
@@ -100,6 +105,7 @@ class TrainRequest(BaseModel):
     preset: DatasetPreset | None = None
     dataset: str | None = None
     target: str | None = None
+    outcome: str | None = None
     model: Literal["mlp", "logistic"] = "mlp"
     test_size: float = Field(default=0.25, ge=0.1, le=0.5)
     seed: int = 42

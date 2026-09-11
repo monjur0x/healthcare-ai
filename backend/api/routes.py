@@ -19,7 +19,11 @@ from CrewAI.orchestrator.schemas import (
 )
 from preprocessing.logger import get_logger
 
-from .exceptions import AuthenticationError, ServiceUnavailableError
+from .exceptions import (
+    AuthenticationError,
+    InvalidInputError,
+    ServiceUnavailableError,
+)
 from .schemas import (
     AgentStepRequest,
     AnalyzeCSVRequest,
@@ -138,6 +142,35 @@ def train(request: TrainRequest, service: ServiceDependency) -> TrainResponse:
         if request.dataset is not None
         else None
     )
+    if request.outcome is not None:
+        if request.preset is None:
+            raise InvalidInputError(
+                "Training a secondary-outcome head requires 'preset'."
+            )
+        result = service.train_outcome(
+            preset=request.preset,
+            outcome=request.outcome,
+            model=request.model,
+            test_size=request.test_size,
+            seed=request.seed,
+            max_rows=request.max_rows,
+            federated=request.federated,
+            distributed=request.distributed,
+            clients=request.clients,
+            rounds=request.rounds,
+            differential_privacy=request.differential_privacy,
+            noise_multiplier=request.noise_multiplier,
+            max_grad_norm=request.max_grad_norm,
+            privacy_delta=request.privacy_delta,
+            secure_aggregation=request.secure_aggregation,
+            tls_enabled=request.tls_enabled,
+            tls_ca_cert=request.tls_ca_cert,
+            tls_server_cert=request.tls_server_cert,
+            tls_server_key=request.tls_server_key,
+            tls_client_cert=request.tls_client_cert,
+            tls_client_key=request.tls_client_key,
+        )
+        return TrainResponse(**result.to_dict())
     result = service.train(
         preset=request.preset,
         dataset=str(dataset) if dataset is not None else None,
@@ -758,9 +791,12 @@ def agent_treatment_planner(
 
 @router.post("/agents/explainability")
 def agent_explainability(request: AgentStepRequest, service: ServiceDependency) -> dict:
-    """Explainability Expert agent: explain the prediction."""
-    from CrewAI.orchestrator.services import build_explanation
+    """Explainability Expert agent: explain the prediction.
 
+    SHAP attributions come from the served model when a background is
+    available; otherwise the magnitude-sort heuristic applies and says
+    so in the text.
+    """
     prediction = None
     fallback = False
     try:
@@ -769,12 +805,21 @@ def agent_explainability(request: AgentStepRequest, service: ServiceDependency) 
         logger.warning("explainability step could not run prediction: %s", error)
         fallback = True
 
-    explanation, contributing = build_explanation(prediction, request.features)
+    if prediction is None:
+        from CrewAI.orchestrator.services import build_explanation
+
+        explanation, contributing = build_explanation(prediction, request.features)
+    else:
+        explanation, contributing = service.explain_prediction(
+            prediction, request.features
+        )
+    shap_driven = explanation.startswith("SHAP (")
 
     return {
         "explanation": explanation or "Insufficient data for explanation.",
         "contributing_features": contributing,
         "fallback": fallback or prediction is None,
+        "shap_driven": shap_driven,
     }
 
 

@@ -413,3 +413,202 @@ def test_analyze_image_invalid_bytes_raises(tmp_path):
         service.analyze_image(
             patient=PatientInfo(id="p1"), image=b"not-an-image-at-all"
         )
+
+
+# -------------------------------------------------------------------------
+# P2.1 secondary-outcome heads (readmission) + leakage exclusion
+# -------------------------------------------------------------------------
+
+
+def _write_sepsis_csv(tmp_path, n=120) -> Path:
+    """Sepsis-like CSV with a real ``readmission_30day`` outcome column."""
+    rng = np.random.default_rng(11)
+    frame = pd.DataFrame(
+        {
+            "heart_rate": rng.uniform(60, 140, n),
+            "sbp": rng.uniform(80, 180, n),
+            "lactate": rng.uniform(0.5, 6.0, n),
+            "age": rng.integers(20, 90, n),
+        }
+    )
+    frame["sepsis_label"] = (
+        (frame["lactate"] > 2.0) & (frame["heart_rate"] > 90)
+    ).astype(int)
+    frame["readmission_30day"] = (
+        (frame["age"] > 65) | (frame["lactate"] > 4.0)
+    ).astype(int)
+    path = tmp_path / "sepsis_icu_synthetic.csv"
+    frame.to_csv(path, index=False)
+    return path
+
+
+def test_prepare_tabular_data_exclude_drops_leakage_columns(tmp_path):
+    dataset = _write_sepsis_csv(tmp_path)
+    features, labels, _, _, _ = prepare_tabular_data(
+        dataset,
+        "sepsis_label",
+        max_rows=None,
+        preset="sepsis",
+        exclude=["readmission_30day"],
+    )
+    assert "readmission_30day" not in features.columns
+    assert "sepsis_label" not in features.columns
+    assert set(labels.unique()) == {0, 1}
+
+
+def test_prepare_tabular_data_exclude_rejects_target(tmp_path):
+    dataset = _write_sepsis_csv(tmp_path)
+    with pytest.raises(InvalidInputError, match="training target"):
+        prepare_tabular_data(
+            dataset,
+            "sepsis_label",
+            max_rows=None,
+            preset="sepsis",
+            exclude=["sepsis_label"],
+        )
+
+
+def test_train_sepsis_drops_readmission_leak(tmp_path):
+    """The disease model must not train on the future readmission label."""
+    _write_sepsis_csv(tmp_path)
+    service = AnalysisService(
+        artifacts_dir=tmp_path / "artifacts",
+        dataset_dir=tmp_path,
+    )
+    service.train(preset="sepsis", model="logistic")
+    assert service.model is not None
+    assert "readmission_30day" not in (service.model.feature_names or ())
+
+
+def test_train_outcome_trains_readmission_head(tmp_path):
+    _write_sepsis_csv(tmp_path)
+    service = AnalysisService(
+        artifacts_dir=tmp_path / "artifacts",
+        dataset_dir=tmp_path,
+    )
+    result = service.train_outcome(
+        preset="sepsis", outcome="readmission_30day", model="logistic"
+    )
+    assert result.target == "readmission_30day"
+    assert result.model_path.endswith("readmission_30day_model.joblib")
+    assert 0.0 <= result.accuracy <= 1.0
+    head = service.outcome_models[("sepsis", "readmission_30day")]
+    # The head shares the disease model's admission-time feature space:
+    # neither the disease target nor the outcome itself is a feature.
+    assert "sepsis_label" not in (head.feature_names or ())
+    assert "readmission_30day" not in (head.feature_names or ())
+    # The disease model is untouched by head training.
+    assert service.model is None
+
+
+def test_train_outcome_unknown_outcome_raises(tmp_path):
+    _write_sepsis_csv(tmp_path)
+    service = AnalysisService(
+        artifacts_dir=tmp_path / "artifacts",
+        dataset_dir=tmp_path,
+    )
+    with pytest.raises(InvalidInputError, match="no secondary outcome"):
+        service.train_outcome(preset="sepsis", outcome="mortality")
+    with pytest.raises(InvalidInputError, match="no secondary outcome"):
+        service.train_outcome(preset="diabetes", outcome="readmission_30day")
+    with pytest.raises(InvalidInputError, match="Unknown preset"):
+        service.train_outcome(preset="unknown", outcome="readmission_30day")
+
+
+def test_analyze_attaches_readmission_when_head_trained(tmp_path):
+    _write_sepsis_csv(tmp_path)
+    service = AnalysisService(
+        artifacts_dir=tmp_path / "artifacts",
+        dataset_dir=tmp_path,
+    )
+    service.train(preset="sepsis", model="logistic")
+    service.train_outcome(
+        preset="sepsis", outcome="readmission_30day", model="logistic"
+    )
+    report = service.analyze(
+        patient=PatientInfo(name="Test", id="p-readm"),
+        features={"heart_rate": 110.0, "sbp": 100.0, "lactate": 3.0, "age": 70.0},
+    )
+    assert report.prediction is not None
+    assert report.readmission is not None
+    assert report.readmission.predicted_class in {"0", "1"}
+    assert set(report.readmission.probabilities) == {"0", "1"}
+
+
+def test_analyze_without_head_leaves_readmission_none(tmp_path):
+    _write_sepsis_csv(tmp_path)
+    service = AnalysisService(
+        artifacts_dir=tmp_path / "artifacts",
+        dataset_dir=tmp_path,
+    )
+    service.train(preset="sepsis", model="logistic")
+    report = service.analyze(
+        patient=PatientInfo(name="Test", id="p-noreadm"),
+        features={"heart_rate": 80.0, "sbp": 120.0, "lactate": 1.0, "age": 40.0},
+    )
+    assert report.prediction is not None
+    assert report.readmission is None
+
+
+# -------------------------------------------------------------------------
+# P2.2 SHAP explanation backgrounds
+# -------------------------------------------------------------------------
+
+
+def test_train_persists_shap_background(tmp_path):
+    _write_csv(tmp_path, name="diabetes.csv")
+    service = AnalysisService(
+        artifacts_dir=tmp_path / "artifacts",
+        dataset_dir=tmp_path,
+    )
+    service.train(preset="diabetes", model="logistic")
+    assert service.background_preset == "diabetes"
+    assert service.explanation_background is not None
+    assert len(service.explanation_background) <= 25
+    assert (tmp_path / "artifacts" / "diabetes" / "shap_background.joblib").exists()
+
+
+def test_explain_prediction_uses_shap_when_preset_matches(tmp_path):
+    _write_csv(tmp_path, name="diabetes.csv")
+    service = AnalysisService(
+        artifacts_dir=tmp_path / "artifacts",
+        dataset_dir=tmp_path,
+    )
+    service.train(preset="diabetes", model="logistic")
+    features = {"glucose": 180.0, "bmi": 32.0, "age": 55.0}
+    prediction = service.predict(features)
+    text, contributing = service.explain_prediction(prediction, features)
+    assert text.startswith("SHAP (shap_linear)")
+    assert contributing and contributing[0] == "glucose"
+
+
+def test_explain_prediction_falls_back_on_preset_mismatch(tmp_path):
+    _write_csv(tmp_path, name="diabetes.csv")
+    service = AnalysisService(
+        artifacts_dir=tmp_path / "artifacts",
+        dataset_dir=tmp_path,
+    )
+    service.train(preset="diabetes", model="logistic")
+    service.background_preset = "sepsis"
+    features = {"glucose": 180.0, "bmi": 32.0, "age": 55.0}
+    prediction = service.predict(features)
+    text, _ = service.explain_prediction(prediction, features)
+    assert "not model-derived" in text
+
+
+def test_load_explanation_background_roundtrip(tmp_path):
+    _write_csv(tmp_path, name="diabetes.csv")
+    trained = AnalysisService(
+        artifacts_dir=tmp_path / "artifacts",
+        dataset_dir=tmp_path,
+    )
+    trained.train(preset="diabetes", model="logistic")
+    fresh = AnalysisService(
+        artifacts_dir=tmp_path / "artifacts",
+        dataset_dir=tmp_path,
+        active_preset="diabetes",
+    )
+    fresh._load_explanation_background()
+    assert fresh.background_preset == "diabetes"
+    assert fresh.explanation_background is not None
+    assert len(fresh.explanation_background) == len(trained.explanation_background)

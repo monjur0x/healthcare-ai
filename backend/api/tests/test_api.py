@@ -80,6 +80,18 @@ class FakeService(AnalysisService):
             federated_metrics=None,
         )
 
+    def train_outcome(self, preset=None, outcome=None, **kwargs):
+        return TrainResult(
+            model_path=f"/tmp/fake/{outcome}_model.joblib",
+            dataset="sepsis_icu_synthetic.csv",
+            target=outcome,
+            accuracy=0.75,
+            roc_auc=0.83,
+            f1=0.71,
+            federated=bool(kwargs.get("federated", False)),
+            federated_metrics=None,
+        )
+
     def analyze_image(
         self, patient, image, markers=None, recommendations=None, **kwargs
     ):
@@ -239,6 +251,23 @@ def test_train_invalid_preset_is_422(client):
     response = client.post("/api/v1/train", json={"preset": "unknown"})
     assert response.status_code == 422
     assert response.json()["detail"][0]["loc"] == ["body", "preset"]
+
+
+def test_train_outcome_head_routes_to_train_outcome(client):
+    response = client.post(
+        "/api/v1/train",
+        json={"preset": "sepsis", "outcome": "readmission_30day"},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["model_path"].endswith("readmission_30day_model.joblib")
+    assert payload["target"] == "readmission_30day"
+
+
+def test_train_outcome_head_requires_preset(client):
+    response = client.post("/api/v1/train", json={"outcome": "readmission_30day"})
+    assert response.status_code == 422
+    assert "preset" in response.json()["detail"]["message"]
 
 
 def test_train_bad_model_choice_is_422(client):
@@ -503,3 +532,52 @@ def test_store_report_unavailable_without_store(client):
     )
     assert response.status_code == 503
     assert response.json()["detail"]["code"] == "service_unavailable"
+
+
+def _explainability_body():
+    return {
+        "patient": {"id": "p-explain", "name": "P", "age": 55},
+        "features": {"glucose": 180.0, "bmi": 32.0},
+    }
+
+
+def test_agents_explainability_heuristic_without_background(client):
+    response = client.post("/api/v1/agents/explainability", json=_explainability_body())
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["fallback"] is False
+    assert payload["shap_driven"] is False
+    assert "not model-derived" in payload["explanation"]
+    assert payload["contributing_features"]
+
+
+def test_agents_explainability_falls_back_without_model():
+    class NoModelService(FakeService):
+        def predict(self, features):
+            raise ServiceUnavailableError("No prediction model is configured.")
+
+    app = create_app(cfg=APISettings(_env_file=None), service=NoModelService())
+    response = TestClient(app).post(
+        "/api/v1/agents/explainability", json=_explainability_body()
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["fallback"] is True
+    assert payload["shap_driven"] is False
+
+
+def test_agents_explainability_reports_shap_driven():
+    service = FakeService()
+    service.explain_prediction = lambda prediction, features: (
+        "SHAP (shap_linear): top drivers of diabetes risk — glucose.",
+        ["glucose"],
+    )
+    app = create_app(cfg=APISettings(_env_file=None), service=service)
+    response = TestClient(app).post(
+        "/api/v1/agents/explainability", json=_explainability_body()
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["fallback"] is False
+    assert payload["shap_driven"] is True
+    assert payload["explanation"].startswith("SHAP (")

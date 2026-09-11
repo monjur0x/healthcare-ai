@@ -11,6 +11,7 @@ step run and be tested without an LLM API key (ADR-008).
 from __future__ import annotations
 
 from collections.abc import Mapping
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -24,11 +25,13 @@ from rag.exceptions import EmptyCorpusError, EmptyQueryError
 
 from .config import settings
 from .exceptions import (
+    ExplanationError,
     PredictionToolError,
     ReportError,
     RetrievalToolError,
     RiskToolError,
 )
+from .explain import attribute_tabular
 from .schemas import (
     ClinicalReport,
     EvidenceItem,
@@ -748,16 +751,30 @@ def build_evidence_query(features: Mapping[str, float] | None) -> str:
 def build_explanation(
     prediction: PredictionResult | None,
     features: Mapping[str, float],
+    model: Any | None = None,
+    background: pd.DataFrame | np.ndarray | None = None,
+    preprocessed: bool = False,
 ) -> tuple[str, list[str]]:
     """
-    Explain a prediction via its top-magnitude features.
+    Explain a prediction from the fitted model when possible (P2.2).
+
+    With a fitted ``model`` and a preprocessed ``background`` sample the
+    top drivers are SHAP attributions for the disease class; otherwise
+    the legacy top-magnitude heuristic applies and says so.
 
     Parameters
     ----------
     prediction : PredictionResult | None
         Model prediction (None yields an empty explanation).
     features : Mapping[str, float]
-        Raw input features ranked by absolute value.
+        Input feature row.
+    model : Any | None
+        Fitted tabular model for SHAP; None keeps the heuristic.
+    background : pd.DataFrame | np.ndarray | None
+        Preprocessed reference rows for SHAP; None keeps the heuristic.
+    preprocessed : bool
+        True when ``features`` already went through the training
+        pipeline.
 
     Returns
     -------
@@ -766,16 +783,33 @@ def build_explanation(
         contributing feature names.
     """
 
+    if prediction is None:
+        return "", []
+    if model is not None and background is not None:
+        try:
+            attribution = attribute_tabular(
+                model,
+                features,
+                background=background,
+                preprocessed=preprocessed,
+            )
+            top = attribution.top(3)
+            return (
+                attribution.text(disease=prediction.disease)
+                + f" Model confidence: {prediction.confidence:.1%}.",
+                [attr.feature for attr in top],
+            )
+        except ExplanationError as error:
+            logger.warning("SHAP explanation failed, using heuristic: %s", error)
     top_features = sorted(
         features.items(),
         key=lambda x: abs(x[1] if isinstance(x[1], (int, float)) else 0),
         reverse=True,
     )[:3]
     contributing = [key for key, _ in top_features]
-    if prediction is None:
-        return "", contributing
     explanation = (
-        "Prediction driven primarily by: "
+        "Prediction driven primarily by (heuristic — largest raw values, "
+        "not model-derived): "
         + ", ".join(f"{k}={v}" for k, v in top_features)
         + f". Model confidence: {prediction.confidence:.1%}."
     )

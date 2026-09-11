@@ -15,6 +15,10 @@ uvicorn[standard]>=0.32.0
 scikit-learn>=1.6.0
 torch>=2.2.0
 
+# Explainability (P2.2: SHAP attributions for tabular models; Grad-CAM
+# uses native torch hooks, no extra dependency)
+shap>=0.52.0
+
 # Retrieval (RAG) - core
 sentence-transformers>=3.0.0
 

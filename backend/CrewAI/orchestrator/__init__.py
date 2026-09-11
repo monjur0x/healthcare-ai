@@ -12,11 +12,19 @@ from .config import CrewSettings, settings
 from .crew import ClinicalCrew
 from .exceptions import (
     CrewError,
+    ExplanationError,
     OrchestrationError,
     PredictionToolError,
     ReportError,
     RetrievalToolError,
     RiskToolError,
+)
+from .explain import (
+    FeatureAttribution,
+    TabularAttribution,
+    attribute_tabular,
+    grad_cam_heatmap,
+    summarize_grad_cam,
 )
 from .metrics import (
     AgentMetrics,
@@ -58,6 +66,8 @@ __all__ = [
     "CrewError",
     "CrewSettings",
     "EvidenceItem",
+    "ExplanationError",
+    "FeatureAttribution",
     "LLMNotConfiguredError",
     "OrchestrationError",
     "PatientInfo",
@@ -70,18 +80,22 @@ __all__ = [
     "RiskAssessmentTool",
     "RiskResult",
     "RiskToolError",
+    "TabularAttribution",
     "agent_collaboration_score",
     "assemble_clinical_report",
     "assess_risk",
+    "attribute_tabular",
     "build_disease_query",
     "build_evidence_query",
     "build_explanation",
     "build_treatment_recommendations",
     "compute_agent_metrics",
     "decision_consistency",
+    "grad_cam_heatmap",
     "retrieve_evidence",
     "run_prediction",
     "settings",
+    "summarize_grad_cam",
     "summarize_patient",
     "task_completion_rate",
 ]

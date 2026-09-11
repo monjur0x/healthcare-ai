@@ -87,8 +87,10 @@ _DEFAULT_OUT = _REPO_DIR / "docs" / "BASELINE_STUDY_RESULTS.md"
 
 from api.services import (  # noqa: E402
     PRESETS,
+    SECONDARY_OUTCOMES,
     AnalysisService,
     TrainResult,
+    _normalize_token,
     prepare_tabular_data,
 )
 from CrewAI.orchestrator import (  # noqa: E402
@@ -533,8 +535,16 @@ def split_dataset(
     """
 
     file_name, target = PRESETS[preset]
+    # Same leakage exclusion as AnalysisService.train (P2.1): secondary
+    # outcome columns are not features, so the study split must match the
+    # trained model's feature space exactly.
+    exclude = [
+        column
+        for column in SECONDARY_OUTCOMES.get(preset, ())
+        if _normalize_token(column) != _normalize_token(target)
+    ]
     features, labels, *_ = prepare_tabular_data(
-        dataset_dir / file_name, target, None, preset=preset
+        dataset_dir / file_name, target, None, preset=preset, exclude=exclude
     )
     return train_test_split(
         features,

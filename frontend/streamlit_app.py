@@ -487,15 +487,25 @@ def render_clinical_results(
 
     st.markdown("### Mortality Risk")
     st.info(
-        "Not estimated — the current model does not predict mortality risk. "
-        "This is documented as future work."
+        "Not estimated — no shipped dataset carries a mortality label, so "
+        "no mortality head can be trained. This is blocked on a "
+        "credentialed MIMIC-IV extract, not on modelling."
     )
 
-    st.markdown("### Readmission Risk")
-    st.info(
-        "Not estimated — the current model does not predict readmission risk. "
-        "This is documented as future work."
-    )
+    st.markdown("### Readmission Risk (30-day)")
+    readmission = report.get("readmission") or {}
+    if readmission.get("predicted_class") is not None:
+        st.markdown(
+            f"**Predicted readmission class:** {readmission.get('predicted_class')} "
+            f"(confidence {float(readmission.get('confidence') or 0.0):.1%}, "
+            f"model {readmission.get('model_name') or 'N/A'})"
+        )
+    else:
+        st.info(
+            "Not estimated — no readmission head is trained for this "
+            "dataset. Train one with POST /api/v1/train "
+            '{"preset": "sepsis", "outcome": "readmission_30day"}.'
+        )
 
     st.markdown("### Treatment Recommendation")
     recommendations = report.get("recommendations") or []

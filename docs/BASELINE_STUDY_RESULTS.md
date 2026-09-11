@@ -68,20 +68,20 @@ n8n is the orchestration layer (webhook → FastAPI → crew) already exercised 
 
 ## Sepsis (synthetic ICU)
 
-`sepsis` - 3750 train / 1250 test rows, 75 features. Repeated splits: test_size=0.25, seeds=[42, 43, 44, 45, 46]. Federated: 3 clients, 5 rounds. RAG top-k=5. Agent sample patients=5.
+`sepsis` - 3750 train / 1250 test rows, 74 features. Repeated splits: test_size=0.25, seeds=[42, 43, 44, 45, 46]. Federated: 3 clients, 5 rounds. RAG top-k=5. Agent sample patients=5.
 | Baseline | Accuracy | F1 | ROC-AUC | Comm. cost (bytes) | Convergence round | RAG faithfulness | RAG context precision | Agent task completion | Agent collaboration |
 |---|---|---|---|---|---|---|---|---|---|
-| 1. Centralized | 1.000 ± 0.000 | 1.000 ± 0.001 | 1.000 | n/a | n/a | n/a | n/a | n/a | n/a |
-| 2. Federated only | 1.000 ± 0.000 | 0.999 ± 0.001 | 1.000 | 1674480 | 2 | n/a | n/a | n/a | n/a |
-| 3. Federated + RAG | 1.000 ± 0.000 | 0.999 ± 0.001 | 1.000 | 1674480 | 2 | 1.000 | 0.350 | n/a | n/a |
-| 4. Federated + Multi-Agent | 1.000 ± 0.000 | 0.999 ± 0.001 | 1.000 | 1674480 | 2 | n/a | n/a | 0.800 | 0.600 |
-| 5. Proposed (full) | 1.000 ± 0.000 | 0.999 ± 0.001 | 1.000 | 1674480 | 2 | 1.000 | 0.350 | 1.000 | 0.800 |
+| 1. Centralized | 1.000 ± 0.000 | 1.000 ± 0.001 | 1.000 ± 0.000 | n/a | n/a | n/a | n/a | n/a | n/a |
+| 2. Federated only | 1.000 ± 0.000 | 1.000 ± 0.001 | 1.000 ± 0.000 | 1659120 | 2 | n/a | n/a | n/a | n/a |
+| 3. Federated + RAG | 1.000 ± 0.000 | 1.000 ± 0.001 | 1.000 ± 0.000 | 1659120 | 2 | 1.000 | 0.350 | n/a | n/a |
+| 4. Federated + Multi-Agent | 1.000 ± 0.000 | 1.000 ± 0.001 | 1.000 ± 0.000 | 1659120 | 2 | n/a | n/a | 0.800 | 0.600 |
+| 5. Proposed (full) | 1.000 ± 0.000 | 1.000 ± 0.001 | 1.000 ± 0.000 | 1659120 | 2 | 1.000 | 0.350 | 1.000 | 0.800 |
 
 ### Metric detail (mean ± sample SD across seeds)
 
-- Comm. cost = total bytes exchanged over the whole federated run (5 rounds x 3 clients): 1674480.
+- Comm. cost = total bytes exchanged over the whole federated run (5 rounds x 3 clients): 1659120.
 - Convergence round: 2.
-- Classification: centralized accuracy / F1 / ROC-AUC (1.000 ± 0.000 / 1.000 ± 0.001 / 1.000) vs federated (1.000 ± 0.000 / 0.999 ± 0.001 / 1.000).
+- Classification: centralized accuracy / F1 / ROC-AUC (1.000 ± 0.000 / 1.000 ± 0.001 / 1.000 ± 0.000) vs federated (1.000 ± 0.000 / 1.000 ± 0.001 / 1.000 ± 0.000).
 - RAG: context precision 0.350, context recall 1.000, faithfulness 1.000, answer relevancy 0.295.
 - Agent task completion: without RAG 0.800 (5 sections incl. empty evidence), with RAG 1.000; agent collaboration without RAG 0.600 / with RAG 0.800; decision consistency without RAG 0.880 ± 0.110 / with RAG 0.880 ± 0.110 over 5 sampled patients per seed.
 - Baseline 4 runs the crew without the RAG evidence step; Baseline 5 wires the RAG pipeline into the same crew (evidence context fills the retrieval task, which is why task completion rises).
@@ -114,7 +114,11 @@ numbers are scored on a server-held central hold-out slice
 rows even though training never moves them (client-side hold-out evaluation
 is future work); and the federated model's communication cost grew with
 model size — 0.62 MB (diabetes, 8 features), 0.69 MB (heart, 13), 0.82 MB
-(kidney, 22), 1.60 MB (sepsis, 75) across 3 clients × 5 rounds.
+(kidney, 22), 1.58 MB (sepsis, 74) across 3 clients × 5 rounds.
+(Sepsis dropped from 75 to 74 features when the `readmission_30day` target
+leak — a post-discharge outcome column training as a disease feature — was
+excluded; the 1.000 scores are unchanged because the synthetic data is
+separable with or without it.)
 Convergence averaged round 2–3 where the data was separable (heart 2 ± 0,
 kidney 2 ± 1, sepsis 2); diabetes converged at 3 ± 2, i.e. the round itself
 varies seed to seed on the hardest dataset.

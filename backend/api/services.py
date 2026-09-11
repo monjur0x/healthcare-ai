@@ -14,11 +14,12 @@ import subprocess
 import sys
 import threading
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
+import joblib
 import numpy as np
 import pandas as pd
 
@@ -26,7 +27,8 @@ from sklearn.model_selection import StratifiedKFold, train_test_split
 from sklearn.preprocessing import LabelEncoder
 
 from CrewAI.orchestrator import ClinicalCrew
-from CrewAI.orchestrator.exceptions import CrewError
+from CrewAI.orchestrator.exceptions import CrewError, PredictionToolError
+from CrewAI.orchestrator.explain import MAX_BACKGROUND_ROWS
 from CrewAI.orchestrator.schemas import (
     ClinicalReport,
     EvidenceItem,
@@ -35,6 +37,7 @@ from CrewAI.orchestrator.schemas import (
 )
 from CrewAI.orchestrator.services import (
     DISEASE_REGISTRY,
+    build_explanation,
     retrieve_evidence,
     run_prediction,
 )
@@ -101,8 +104,24 @@ def _normalize_columns(dataframe: pd.DataFrame) -> pd.DataFrame:
     return dataframe
 
 
+#: Secondary outcome columns per preset that must never be model
+#: features — they are future information relative to a diagnosis
+#: prediction (P2.1). ``sepsis_icu_synthetic.csv`` carries a real
+#: ``readmission_30day`` label, so the sepsis disease model was training
+#: on it as a feature (target leakage); it is now excluded unless it is
+#: the active training target. No shipped dataset has a mortality column,
+#: so mortality stays un-trainable (blocked on a MIMIC-IV extract).
+SECONDARY_OUTCOMES: dict[str, tuple[str, ...]] = {
+    "sepsis": ("readmission_30day",),
+}
+
+
 def prepare_tabular_data(
-    dataset: Path, target: str, max_rows: int | None, preset: str | None = None
+    dataset: Path,
+    target: str,
+    max_rows: int | None,
+    preset: str | None = None,
+    exclude: Sequence[str] | None = None,
 ) -> tuple[
     pd.DataFrame, pd.Series, dict[str, object], dict[str, object], dict[str, object]
 ]:
@@ -121,6 +140,10 @@ def prepare_tabular_data(
         Dataset preset name; when it resolves in ``DISEASE_REGISTRY``,
         binary string labels are oriented so class ``1`` is the disease
         (see :func:`_preset_binary_labels`).
+    exclude : Sequence[str] | None
+        Extra columns to drop from the feature frame (e.g. secondary
+        outcome columns that would leak future information). Must not
+        contain the target.
 
     Returns
     -------
@@ -139,7 +162,8 @@ def prepare_tabular_data(
     Raises
     ------
     InvalidInputError
-        If the target column is missing or the pipeline yields no data.
+        If the target column is missing, an excluded column is the
+        target, or the pipeline yields no data.
     """
 
     raw = pd.read_csv(dataset)
@@ -150,6 +174,13 @@ def prepare_tabular_data(
 
     if target not in raw.columns:
         raise InvalidInputError(f"Target column '{target}' not found in {dataset}.")
+    excluded = [_normalize_token(column) for column in (exclude or ())]
+    if target in excluded:
+        raise InvalidInputError(f"Excluded column '{target}' is the training target.")
+    dropped = [column for column in excluded if column in raw.columns]
+    if dropped:
+        logger.info("Dropping non-feature columns %s from %s.", dropped, dataset)
+        raw = raw.drop(columns=dropped)
 
     y_raw = raw[target]
     feature_frame = raw.drop(columns=[target])
@@ -304,6 +335,41 @@ def _partition_shards(
         (features[index], labels[index])
         for index, _ in splitter.split(features, labels)
     ]
+
+
+def _sample_background(
+    train_x: pd.DataFrame,
+    train_y: pd.Series,
+    seed: int,
+    n: int = 50,
+) -> pd.DataFrame:
+    """Stratified reference sample of preprocessed rows for SHAP (P2.2).
+
+    Both classes stay represented even under imbalance, so the
+    explainer's baseline is not the majority class alone.
+    """
+    if len(train_x) <= n:
+        return train_x.reset_index(drop=True)
+    labels = sorted(train_y.unique())
+    quota = max(1, -(-n // max(len(labels), 1)))  # ceil(n / n_classes)
+    rng = np.random.default_rng(seed)
+    parts = []
+    for label in labels:
+        pool = train_x[train_y.to_numpy() == label]
+        parts.append(
+            pool.sample(
+                n=min(len(pool), quota),
+                random_state=int(rng.integers(1 << 31)),
+            )
+        )
+    taken = pd.concat(parts)
+    remaining = train_x.drop(index=taken.index.unique(), errors="ignore")
+    need = min(n - len(taken), len(remaining))
+    if need > 0:
+        taken = pd.concat([taken, remaining.sample(n=need, random_state=seed)])
+    # The stratified quota rounds up (ceil), so trim the tail — both
+    # classes keep representation since each quota block leads its pool.
+    return taken.head(n).reset_index(drop=True)
 
 
 def load_predictive_model(path: str | Path) -> TabularClassifier:
@@ -511,6 +577,17 @@ class AnalysisService:
     #: Dataset preset the in-memory tabular model was trained on, when
     #: known (None for a model loaded from ``API_MODEL_PATH``).
     active_preset: str | None = None
+    #: Secondary-outcome heads (P2.1) keyed by ``(preset, outcome)``,
+    #: e.g. ``("sepsis", "readmission_30day")``. Scored best-effort in
+    #: :meth:`analyze` when their preset is active.
+    outcome_models: dict[tuple[str, str], BaseModel] = field(default_factory=dict)
+    #: Preprocessed reference rows for SHAP explanations (P2.2), sampled
+    #: from the disease model's training split and persisted per preset.
+    #: None when no model was trained (or loaded) with a background.
+    explanation_background: pd.DataFrame | None = None
+    #: Preset the explanation background was sampled from; explanations
+    #: only use it when it matches the active preset.
+    background_preset: str | None = None
     #: Persistent clinician-feedback store for the retrain loop.
     feedback_store: FeedbackStore | None = None
     #: Persistent risk history store for longitudinal monitoring.
@@ -554,7 +631,7 @@ class AnalysisService:
         feedback_db = artifacts_dir / "feedback.db"
         risk_history_db = artifacts_dir / "risk_history.db"
         reports_db = artifacts_dir / "reports.db"
-        return cls(
+        service = cls(
             model=model,
             image_model=image_model,
             rag_pipeline=rag_pipeline,
@@ -565,6 +642,60 @@ class AnalysisService:
             risk_history_store=RiskHistoryStore(risk_history_db),
             report_store=ReportStore(reports_db),
         )
+        service._load_outcome_heads()
+        service._load_explanation_background()
+        return service
+
+    def _load_explanation_background(self) -> None:
+        """Best-effort load of the persisted SHAP background (P2.2).
+
+        Reads ``artifacts/<preset>/shap_background.joblib`` for the
+        active preset. A missing or unloadable background only costs
+        model-derived explanations — callers fall back to the
+        magnitude-sort heuristic.
+        """
+        preset = self.active_preset
+        if not preset:
+            return
+        artifact = self.artifacts_dir / preset / "shap_background.joblib"
+        if not artifact.exists():
+            return
+        try:
+            background = joblib.load(artifact)
+        except Exception as error:  # noqa: BLE001 — best-effort cache load
+            logger.warning(
+                "Skipping unloadable SHAP background %s: %s", artifact, error
+            )
+            return
+        if not isinstance(background, pd.DataFrame) or background.empty:
+            logger.warning(
+                "Skipping SHAP background %s: not a non-empty frame.", artifact
+            )
+            return
+        self.explanation_background = background
+        self.background_preset = preset
+
+    def _load_outcome_heads(self) -> None:
+        """Best-effort load of persisted secondary-outcome heads (P2.1).
+
+        For the active preset, each registered secondary outcome looks
+        for ``artifacts/<preset>/<outcome>_model.joblib``. Missing or
+        unloadable artifacts are skipped with a warning — the disease
+        model still serves, and :meth:`analyze` simply omits that head.
+        """
+        preset = self.active_preset
+        if not preset:
+            return
+        for outcome in SECONDARY_OUTCOMES.get(preset, ()):
+            artifact = self.artifacts_dir / preset / f"{outcome}_model.joblib"
+            if not artifact.exists():
+                continue
+            try:
+                self.outcome_models[(preset, outcome)] = load_predictive_model(artifact)
+            except (ServiceUnavailableError, OSError) as error:
+                logger.warning(
+                    "Skipping unloadable outcome head %s: %s", artifact, error
+                )
 
     def train(
         self,
@@ -664,9 +795,100 @@ class AnalysisService:
         """
 
         dataset_path, target = self._resolve_dataset(preset, dataset, target)
+        # Secondary outcome columns (e.g. sepsis ``readmission_30day``) are
+        # future information relative to a diagnosis prediction — training
+        # on them as features is target leakage (P2.1). Drop them unless
+        # one is the active target. Explicit dataset/target calls without
+        # a preset cannot be mapped to a registry, so no exclusion applies.
+        secondaries = SECONDARY_OUTCOMES.get(preset, ()) if preset else ()
+        exclude = [
+            column
+            for column in secondaries
+            if _normalize_token(column) != _normalize_token(target)
+        ]
+        result, fitted = self._train_impl(
+            preset=preset,
+            dataset_path=dataset_path,
+            target=target,
+            model=model,
+            test_size=test_size,
+            seed=seed,
+            max_rows=max_rows,
+            federated=federated,
+            distributed=distributed,
+            clients=clients,
+            rounds=rounds,
+            differential_privacy=differential_privacy,
+            noise_multiplier=noise_multiplier,
+            max_grad_norm=max_grad_norm,
+            privacy_delta=privacy_delta,
+            secure_aggregation=secure_aggregation,
+            tls_enabled=tls_enabled,
+            tls_ca_cert=tls_ca_cert,
+            tls_server_cert=tls_server_cert,
+            tls_server_key=tls_server_key,
+            tls_client_cert=tls_client_cert,
+            tls_client_key=tls_client_key,
+            exclude=exclude,
+            artifact_name="global_model",
+            persist_background=True,
+        )
+
+        with self._lock:
+            self.model = fitted
+            self.active_preset = preset
+        logger.info(
+            "Trained %s model on %s (federated=%s): accuracy=%.4f artifact=%s",
+            model,
+            dataset_path,
+            federated,
+            result.accuracy,
+            result.model_path,
+        )
+        return result
+
+    def _train_impl(
+        self,
+        *,
+        preset: str | None,
+        dataset_path: Path,
+        target: str,
+        model: Literal["mlp", "logistic"],
+        test_size: float,
+        seed: int,
+        max_rows: int | None,
+        federated: bool,
+        distributed: bool,
+        clients: int,
+        rounds: int,
+        differential_privacy: bool,
+        noise_multiplier: float,
+        max_grad_norm: float,
+        privacy_delta: float,
+        secure_aggregation: bool,
+        tls_enabled: bool,
+        tls_ca_cert: str | None,
+        tls_server_cert: str | None,
+        tls_server_key: str | None,
+        tls_client_cert: str | None,
+        tls_client_key: str | None,
+        exclude: Sequence[str],
+        artifact_name: str,
+        persist_background: bool = False,
+    ) -> tuple[TrainResult, BaseModel]:
+        """Fit, evaluate, and persist one tabular model; no service swap.
+
+        Shared by :meth:`train` (disease model) and :meth:`train_outcome`
+        (secondary-outcome head). The caller owns the lock-guarded swap
+        into ``self.model`` / ``self.outcome_models``. Only the disease
+        path persists a SHAP background (``persist_background``) — heads
+        are never explained, only scored.
+        """
         try:
             features, labels, scaler_params, encoder_params, imputer_params = (
-                prepare_tabular_data(dataset_path, target, max_rows, preset=preset)
+                prepare_tabular_data(
+                    dataset_path, target, max_rows, preset=preset, exclude=exclude
+                )
             )
         except (OSError, ValueError) as error:
             raise InvalidInputError(str(error)) from error
@@ -740,20 +962,25 @@ class AnalysisService:
         metrics = evaluate_classifier(fitted, test_x, test_y)
         out_dir = self.artifacts_dir / (preset or dataset_path.stem)
         out_dir.mkdir(parents=True, exist_ok=True)
-        model_path = out_dir / "global_model.joblib"
+        model_path = out_dir / f"{artifact_name}.joblib"
         fitted.save(model_path)
+        if persist_background:
+            # Cap at MAX_BACKGROUND_ROWS: KernelExplainer cost scales
+            # with background size, and _background_matrix would trim
+            # anything larger at explain time anyway.
+            background = _sample_background(
+                train_x, train_y, seed, n=MAX_BACKGROUND_ROWS
+            )
+            joblib.dump(background, out_dir / "shap_background.joblib")
+            with self._lock:
+                self.explanation_background = background
+                self.background_preset = preset
+            logger.info(
+                "Persisted SHAP background (%d rows) for preset %s.",
+                len(background),
+                preset,
+            )
 
-        with self._lock:
-            self.model = fitted
-            self.active_preset = preset
-        logger.info(
-            "Trained %s model on %s (federated=%s): accuracy=%.4f artifact=%s",
-            model,
-            dataset_path,
-            federated,
-            metrics.accuracy,
-            model_path,
-        )
         return TrainResult(
             model_path=str(model_path),
             dataset=str(dataset_path),
@@ -763,7 +990,120 @@ class AnalysisService:
             f1=float(metrics.f1_macro),
             federated=federated,
             federated_metrics=fed_metrics,
+        ), fitted
+
+    def train_outcome(
+        self,
+        preset: str,
+        outcome: str,
+        model: Literal["mlp", "logistic"] = "mlp",
+        test_size: float = 0.25,
+        seed: int = 42,
+        max_rows: int | None = None,
+        federated: bool = False,
+        distributed: bool = False,
+        clients: int = 3,
+        rounds: int = 3,
+        differential_privacy: bool = False,
+        noise_multiplier: float = 1.1,
+        max_grad_norm: float = 1.0,
+        privacy_delta: float = 1e-5,
+        secure_aggregation: bool = False,
+        tls_enabled: bool = False,
+        tls_ca_cert: str | None = None,
+        tls_server_cert: str | None = None,
+        tls_server_key: str | None = None,
+        tls_client_cert: str | None = None,
+        tls_client_key: str | None = None,
+    ) -> TrainResult:
+        """
+        Train a secondary-outcome head for a preset and serve it alongside
+        the disease model (P2.1).
+
+        The head trains on the same admission-time feature vector as the
+        disease model: fellow secondary outcomes and the preset's disease
+        target are excluded (both are future information at prediction
+        time), so the two models share an identical feature space and
+        :meth:`analyze` can score both from one row.
+
+        Parameters
+        ----------
+        preset : str
+            Named dataset preset (must list ``outcome`` in
+            ``SECONDARY_OUTCOMES``).
+        outcome : str
+            Secondary outcome column to predict (e.g.
+            ``readmission_30day`` for ``sepsis``).
+
+        Returns
+        -------
+        TrainResult
+            Artifact path and hold-out metrics for the outcome head.
+
+        Raises
+        ------
+        InvalidInputError
+            If the preset has no such secondary outcome.
+        """
+
+        if preset not in PRESETS:
+            raise InvalidInputError(
+                f"Unknown preset '{preset}'. Choose from {sorted(PRESETS)}."
+            )
+        allowed = SECONDARY_OUTCOMES.get(preset, ())
+        if _normalize_token(outcome) not in [_normalize_token(a) for a in allowed]:
+            raise InvalidInputError(
+                f"Preset '{preset}' has no secondary outcome '{outcome}'. "
+                f"Available: {list(allowed) or 'none'}."
+            )
+        dataset_path, _ = self._resolve_dataset(preset, None, None)
+        outcome_target = _normalize_token(outcome)
+        _, disease_target = PRESETS[preset]
+        exclude = [
+            column
+            for column in (*allowed, disease_target)
+            if _normalize_token(column) != outcome_target
+        ]
+        result, fitted = self._train_impl(
+            preset=preset,
+            dataset_path=dataset_path,
+            target=outcome,
+            model=model,
+            test_size=test_size,
+            seed=seed,
+            max_rows=max_rows,
+            federated=federated,
+            distributed=distributed,
+            clients=clients,
+            rounds=rounds,
+            differential_privacy=differential_privacy,
+            noise_multiplier=noise_multiplier,
+            max_grad_norm=max_grad_norm,
+            privacy_delta=privacy_delta,
+            secure_aggregation=secure_aggregation,
+            tls_enabled=tls_enabled,
+            tls_ca_cert=tls_ca_cert,
+            tls_server_cert=tls_server_cert,
+            tls_server_key=tls_server_key,
+            tls_client_cert=tls_client_cert,
+            tls_client_key=tls_client_key,
+            exclude=exclude,
+            artifact_name=f"{outcome_target}_model",
         )
+
+        with self._lock:
+            self.outcome_models[(preset, outcome_target)] = fitted
+        logger.info(
+            "Trained %s outcome head '%s' on %s (federated=%s): accuracy=%.4f "
+            "artifact=%s",
+            model,
+            outcome_target,
+            dataset_path,
+            federated,
+            result.accuracy,
+            result.model_path,
+        )
+        return result
 
     def _resolve_dataset(
         self, preset: str | None, dataset: str | None, target: str | None
@@ -1489,6 +1829,51 @@ class AnalysisService:
         logger.info("API prediction: %s", result.predicted_class)
         return result
 
+    def explain_prediction(
+        self,
+        prediction: PredictionResult,
+        features: Mapping[str, float],
+        preprocessed: bool = False,
+    ) -> tuple[str, list[str]]:
+        """
+        Explain a prediction from the served model when possible (P2.2).
+
+        Delegates to :func:`build_explanation` with the served disease
+        model and its SHAP background (only when the background's preset
+        matches the active preset); otherwise the magnitude-sort
+        heuristic applies and says so.
+
+        Parameters
+        ----------
+        prediction : PredictionResult
+            Model prediction to explain.
+        features : Mapping[str, float]
+            Input feature row.
+        preprocessed : bool
+            True when ``features`` already went through the training
+            pipeline.
+
+        Returns
+        -------
+        tuple[str, list[str]]
+            Explanation text and the top contributing feature names.
+        """
+
+        with self._lock:
+            model = self.model
+            background = (
+                self.explanation_background
+                if self.background_preset == self.active_preset
+                else None
+            )
+        return build_explanation(
+            prediction,
+            features,
+            model=model,
+            background=background,
+            preprocessed=preprocessed,
+        )
+
     def retrieve(self, query: str, top_k: int | None = None) -> list[EvidenceItem]:
         """
         Retrieve evidence chunks for a query.
@@ -1954,6 +2339,12 @@ class AnalysisService:
         """
 
         model, active_preset = self._snapshot_model()
+        with self._lock:
+            background = (
+                self.explanation_background
+                if self.background_preset == active_preset
+                else None
+            )
         crew = ClinicalCrew(
             patient=patient,
             input_type=input_type,
@@ -1964,11 +2355,14 @@ class AnalysisService:
             recommendations=recommendations,
             preprocessed=preprocessed,
             disease=active_preset,
+            background=background,
         )
         try:
             report = crew.run()
         except CrewError as error:
             raise InvalidInputError(str(error)) from error
+
+        self._attach_outcome_predictions(report, features, preprocessed)
 
         if report.risk and self.risk_history_store:
             self._persist_risk_history(
@@ -1980,6 +2374,39 @@ class AnalysisService:
 
         logger.info("API analysis complete for patient %s", patient.id)
         return report
+
+    def _attach_outcome_predictions(
+        self,
+        report: ClinicalReport,
+        features: Mapping[str, float],
+        preprocessed: bool,
+    ) -> None:
+        """Score secondary-outcome heads into the report, best-effort (P2.1).
+
+        Each head registered for the active preset (e.g. sepsis
+        ``readmission_30day``) is scored on the same feature row via the
+        shared :func:`run_prediction` helper. A head that cannot score
+        (feature mismatch, unfitted model) is skipped with a warning —
+        the disease prediction still stands. No shipped dataset has a
+        mortality column, so no mortality head exists; the frontend
+        reports that as data-blocked rather than "Not estimated".
+        """
+        with self._lock:
+            active = self.active_preset
+            heads = dict(self.outcome_models)
+        if active is None:
+            return
+        for outcome in SECONDARY_OUTCOMES.get(active, ()):
+            head = heads.get((active, outcome))
+            if head is None:
+                continue
+            try:
+                scored = run_prediction(head, features, preprocessed=preprocessed)
+            except PredictionToolError as error:
+                logger.warning("Skipping outcome head '%s': %s", outcome, error)
+                continue
+            if outcome == "readmission_30day":
+                report.readmission = scored
 
     def _persist_risk_history(
         self,
@@ -2013,6 +2440,7 @@ class AnalysisService:
 __all__ = [
     "DEFAULT_CORPUS",
     "PRESETS",
+    "SECONDARY_OUTCOMES",
     "AnalysisService",
     "TrainResult",
     "build_rag_pipeline",

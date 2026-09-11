@@ -215,6 +215,43 @@ def test_split_dataset_kidney_preserves_disease_positive_orientation(
     assert test_x.shape[1] == _train_x.shape[1] > 0
 
 
+def test_split_dataset_excludes_secondary_outcomes(tmp_path: Path) -> None:
+    """The study split must match the trained feature space (P2.1).
+
+    Regression test: after the readmission-leakage fix the sepsis
+    disease model trains on 74 features (no ``readmission_30day``), so
+    ``split_dataset`` must exclude it too — otherwise every study seed
+    fails on the feature mismatch.
+    """
+    from api.services import SECONDARY_OUTCOMES
+
+    assert "readmission_30day" in SECONDARY_OUTCOMES.get("sepsis", ())
+    rng = np.random.default_rng(11)
+    n = 120
+    frame = pd.DataFrame(
+        {
+            "heart_rate": rng.uniform(60, 140, n),
+            "sbp": rng.uniform(80, 180, n),
+            "lactate": rng.uniform(0.5, 6.0, n),
+            "age": rng.integers(20, 90, n),
+        }
+    )
+    frame["sepsis_label"] = (
+        (frame["lactate"] > 2.0) & (frame["heart_rate"] > 90)
+    ).astype(int)
+    frame["readmission_30day"] = (
+        (frame["age"] > 65) | (frame["lactate"] > 4.0)
+    ).astype(int)
+    frame.to_csv(tmp_path / "sepsis_icu_synthetic.csv", index=False)
+
+    train_x, test_x, _train_y, test_y = split_dataset(
+        tmp_path, "sepsis", test_size=0.25, seed=42
+    )
+    assert "readmission_30day" not in test_x.columns
+    assert "readmission_30day" not in train_x.columns
+    assert set(test_y.unique()).issubset({0, 1})
+
+
 def test_rag_evaluation_retrieves_relevant_documents(tmp_path: Path) -> None:
     """RAG metrics stay in range and retrieve the ground-truth docs."""
     pipeline = build_dataset_pipeline(RAG_CORPORA["diabetes"])

@@ -27,7 +27,16 @@ from preprocessing.logger import get_logger
 
 from .agent_tracing import AgentTrace, CrewTrace
 from .config import settings
-from .exceptions import LLMNotConfiguredError, OrchestrationError
+from .exceptions import (
+    ExplanationError,
+    LLMNotConfiguredError,
+    OrchestrationError,
+)
+from .explain import (
+    attribute_tabular,
+    grad_cam_heatmap,
+    summarize_grad_cam,
+)
 from .metrics import compute_agent_metrics
 from .schemas import ClinicalReport, PatientInfo
 from .services import (
@@ -102,6 +111,7 @@ class ClinicalCrew:
         recommendations: list[str] | None = None,
         preprocessed: bool = False,
         disease: str | None = None,
+        background: object | None = None,
     ) -> None:
         self.patient = patient
         self.input_type = input_type
@@ -110,6 +120,9 @@ class ClinicalCrew:
         self._preprocessed = preprocessed
         self._image_model = image_model
         self._image = image
+        #: Preprocessed reference rows for SHAP explanations (P2.2); None
+        #: keeps Agent 5 on the magnitude-sort fallback.
+        self._background = background
         self._rag_pipeline = rag_pipeline
         self._markers = dict(markers or {})
         self._recommendations = list(recommendations or [])
@@ -118,6 +131,59 @@ class ClinicalCrew:
         self._disease_context = resolve_disease(disease)
         #: Populated after run_analysis() with per-agent traces.
         self.crew_trace: CrewTrace | None = None
+
+    def _explain_drivers(self, prediction: object) -> tuple[str, str]:
+        """
+        Explain what drove a prediction, model-first (P2.2).
+
+        SHAP (tabular) and Grad-CAM (image) attributions come from the
+        fitted model; the magnitude-sort heuristic survives only as a
+        labeled fallback when no model or reference data is available.
+
+        Returns
+        -------
+        tuple[str, str]
+            Explanation sentence and the method tag (``shap_linear``,
+            ``shap_kernel``, ``grad_cam``, or ``magnitude_heuristic``).
+        """
+        disease = getattr(prediction, "disease", None)
+        if (
+            self.input_type == "image"
+            and self._image_model is not None
+            and self._image is not None
+        ):
+            try:
+                heatmap = grad_cam_heatmap(self._image_model, self._image)
+                label = getattr(prediction, "predicted_class", "?") or "?"
+                return (
+                    summarize_grad_cam(heatmap, str(label)),
+                    "grad_cam",
+                )
+            except ExplanationError as error:
+                logger.warning("Grad-CAM failed, using heuristic: %s", error)
+        elif self._model is not None and self._background is not None:
+            try:
+                attribution = attribute_tabular(
+                    self._model,
+                    self._features,
+                    background=self._background,
+                    preprocessed=self._preprocessed,
+                )
+                return (
+                    attribution.text(disease=disease),
+                    attribution.method,
+                )
+            except ExplanationError as error:
+                logger.warning("SHAP failed, using heuristic: %s", error)
+        top_features = sorted(
+            self._features.items(), key=lambda x: abs(x[1]), reverse=True
+        )[:3]
+        return (
+            "Prediction driven primarily by (heuristic — largest raw "
+            "values, not model-derived): "
+            + ", ".join(f"{k}={v}" for k, v in top_features),
+            "magnitude_heuristic",
+        )
 
     # ------------------------------------------------------------------
     # Deterministic multi-agent pipeline (M4 DoD)
@@ -309,10 +375,8 @@ class ClinicalCrew:
         s = time.perf_counter()
         explanation_parts = []
         try:
+            method = "none"
             if prediction:
-                top_features = sorted(
-                    self._features.items(), key=lambda x: abs(x[1]), reverse=True
-                )[:3]
                 outcome = prediction.predicted_label or prediction.predicted_class
                 if prediction.disease and prediction.positive_probability is not None:
                     disease_name = prediction.disease.replace("_", " ")
@@ -327,10 +391,8 @@ class ClinicalCrew:
                         f"Predicted outcome: {outcome} "
                         f"(model confidence {prediction.confidence:.1%})"
                     )
-                explanation_parts.append(
-                    "Prediction driven primarily by: "
-                    + ", ".join(f"{k}={v}" for k, v in top_features)
-                )
+                driver_text, method = self._explain_drivers(prediction)
+                explanation_parts.append(driver_text)
             if risk and risk.risk_factors:
                 explanation_parts.append(
                     "Risk factors: " + "; ".join(risk.risk_factors)
@@ -339,11 +401,15 @@ class ClinicalCrew:
                 f"prediction={prediction.predicted_label if prediction else 'N/A'}"
             )
             step5.output_summary = "; ".join(explanation_parts)[:200]
-            step5.output_data = {"explanation": explanation_parts}
+            step5.output_data = {
+                "explanation": explanation_parts,
+                "method": method,
+            }
             step5.execution_time_s = time.perf_counter() - s
             step5.status = "SUCCESS" if prediction else "SKIPPED"
             logger.info(
-                "[AGENT 5/7 ✓] Explainability Expert (%.4fs)",
+                "[AGENT 5/7 ✓] Explainability Expert (%s, %.4fs)",
+                method,
                 step5.execution_time_s,
             )
         except Exception as e:  # noqa: BLE001

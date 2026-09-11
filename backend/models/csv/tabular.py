@@ -186,6 +186,12 @@ class TabularClassifier(BaseModel):
         """Column names captured during fit, if any."""
         return self._feature_names
 
+    @property
+    def estimator(self) -> Any:
+        """Underlying fitted sklearn estimator (for explainers)."""
+        self._require_fitted()
+        return self._classifier
+
     def fit(self, X: np.ndarray | pd.DataFrame, y: np.ndarray) -> TabularClassifier:
         """
         Fit the classifier on preprocessed features and labels.
