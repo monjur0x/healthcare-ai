@@ -25,8 +25,12 @@ project history — read `.ai/NEXT_TASK.md` for the full prioritized list and
 
 1. `.ai/NEXT_TASK.md` §1 P0 items (mTLS/plaintext gRPC, hospital-site
    clobber, train-dataset path traversal, image z-score).
-2. Re-run `DATASET_DIR=~/dataset ./CrewAI/.venv-opencode/bin/python scripts/baseline_study.py`
-   after each change to catch label-orientation regressions.
+2. Re-run the baseline study from `backend/`:
+   `DATASET_DIR=~/dataset ./CrewAI/.venv-opencode/bin/python scripts/baseline_study.py`
+   (script lives at `backend/scripts/`; the venv path is relative to
+   `backend/`). Re-run after each change to catch label-orientation
+   regressions. Last full re-run 2026-09-11: all numbers reproduced
+   exactly (doc date only).
 
 ## Do not start without asking
 

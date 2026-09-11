@@ -21,7 +21,7 @@ Working tree clean except untracked `dataset` symlink (keep out of commits).
 - Ruff: `~/.local/bin/ruff`.
 - Datasets live at `/home/monjur0x0/dataset` (symlinked as `dataset/`; real preset files: `diabetes.csv`, `heart_disease_uci.csv`, `kidney_disease.csv`, `sepsis_icu_synthetic.csv`). NOT committed.
 - Backend start: `cd backend && DATASET_DIR=~/dataset ./CrewAI/.venv-opencode/bin/python -m uvicorn api.main:app --port 8000`. n8n via `scripts/start_demo.py` or Docker.
-- Baseline study: `DATASET_DIR=~/dataset ./CrewAI/.venv-opencode/bin/python scripts/baseline_study.py` (regenerates `docs/BASELINE_STUDY_RESULTS.md` tables; preserves hand-written Findings section).
+- Baseline study (run from `backend/`): `DATASET_DIR=~/dataset ./CrewAI/.venv-opencode/bin/python scripts/baseline_study.py` (regenerates `docs/BASELINE_STUDY_RESULTS.md` tables; preserves hand-written Findings section).
 - Backend suite from `backend/`: `./CrewAI/.venv-opencode/bin/python -m pytest`. Frontend from `frontend/`: same python `-m pytest dashboard/tests/`.
 
 ## Verified live

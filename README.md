@@ -85,7 +85,7 @@ flowchart TB
 
     subgraph API["FastAPI"]
         R["/api/v1 routes<br/>train · predict · retrieve<br/>analyze · analyze/image · model · presets"]
-        AG["Per-agent endpoints<br/>agents/patient-analyst<br/>agents/disease-predictor<br/>agents/evidence-retrieval<br/>agents/treatment-planner<br/>agents/explainability"]
+        AG["Per-agent endpoints<br/>agents/patient-analyst<br/>agents/disease-predictor<br/>agents/evidence-retrieval<br/>agents/treatment-planner<br/>agents/explainability<br/>agents/risk-monitor"]
     end
 
     MAN --> R
@@ -353,6 +353,9 @@ automated alerting.
 | POST | `/api/v1/agents/evidence-retrieval` | Per-agent step: RAG evidence |
 | POST | `/api/v1/agents/treatment-planner` | Per-agent step: recommendations |
 | POST | `/api/v1/agents/explainability` | Per-agent step: explanation |
+| POST | `/api/v1/agents/risk-monitor` | Agent 6: risk + trend + escalation alert |
+| POST | `/api/v1/reports` | Store an assembled n8n pipeline report |
+| GET | `/api/v1/reports/{report_id}` | Retrieve a persisted report |
 
 Optional bearer auth: set `API_TOKEN` and send
 `Authorization: Bearer <token>` (all `/api/v1` routes).

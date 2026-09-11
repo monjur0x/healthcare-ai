@@ -410,3 +410,96 @@ def test_token_required_when_configured():
     assert good_auth.status_code == 200
 
     assert client.get("/health").status_code == 200
+
+
+def _risk_monitor_body(patient_id="p-risk"):
+    return {
+        "patient": {"id": patient_id, "name": "P", "age": 55},
+        "features": {"glucose": 180.0, "bmi": 32.0},
+    }
+
+
+def test_agents_risk_monitor_returns_assessment_without_store(client):
+    response = client.post("/api/v1/agents/risk-monitor", json=_risk_monitor_body())
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["fallback"] is False
+    assert payload["risk_level"] in ("low", "medium", "high")
+    assert payload["risk_score"] >= 0.0
+    # No store configured on the fake service: no trend claimed.
+    assert payload["trend_direction"] is None
+    assert payload["assessments_count"] == 0
+    assert payload["escalation_alert"] is False
+
+
+def test_agents_risk_monitor_records_trend_with_store(tmp_path):
+    from risk import RiskHistoryStore
+
+    service = FakeService()
+    service.risk_history_store = RiskHistoryStore(tmp_path / "risk.db")
+    tester = TestClient(create_app(cfg=APISettings(_env_file=None), service=service))
+    first = tester.post(
+        "/api/v1/agents/risk-monitor", json=_risk_monitor_body("p-trend")
+    )
+    assert first.status_code == 200
+    assert first.json()["assessments_count"] == 1
+    second = tester.post(
+        "/api/v1/agents/risk-monitor", json=_risk_monitor_body("p-trend")
+    )
+    assert second.status_code == 200
+    payload = second.json()
+    assert payload["assessments_count"] == 2
+    assert payload["trend_direction"] in ("improving", "stable", "worsening")
+
+
+def test_agents_risk_monitor_falls_back_without_model():
+    class NoModelService(FakeService):
+        def predict(self, features):
+            raise ServiceUnavailableError("No prediction model is configured.")
+
+    app = create_app(cfg=APISettings(_env_file=None), service=NoModelService())
+    response = TestClient(app).post(
+        "/api/v1/agents/risk-monitor", json=_risk_monitor_body()
+    )
+    assert response.status_code == 200
+    assert response.json()["fallback"] is True
+
+
+def _stored_report_client(tmp_path):
+    from reports import ReportStore
+
+    service = FakeService()
+    service.report_store = ReportStore(tmp_path / "reports.db")
+    return TestClient(create_app(cfg=APISettings(_env_file=None), service=service))
+
+
+def test_store_report_and_retrieve(tmp_path):
+    tester = _stored_report_client(tmp_path)
+    stored = tester.post(
+        "/api/v1/reports",
+        json={
+            "patient_id": "p-rep",
+            "preset": "diabetes",
+            "report": {"status": "success", "risk": {"risk_level": "high"}},
+        },
+    )
+    assert stored.status_code == 200
+    report_id = stored.json()["report_id"]
+    assert stored.json()["stored_at"]
+
+    fetched = tester.get(f"/api/v1/reports/{report_id}")
+    assert fetched.status_code == 200
+    payload = fetched.json()
+    assert payload["patient_id"] == "p-rep"
+    assert payload["report"]["risk"]["risk_level"] == "high"
+
+    assert tester.get("/api/v1/reports/9999").status_code == 404
+
+
+def test_store_report_unavailable_without_store(client):
+    response = client.post(
+        "/api/v1/reports",
+        json={"patient_id": "p", "preset": "diabetes", "report": {}},
+    )
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "service_unavailable"

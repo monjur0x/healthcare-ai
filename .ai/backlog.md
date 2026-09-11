@@ -270,3 +270,104 @@ load-bearing claims verified by read (`crew.py:555`, `store_chroma.py:137`,
   explainability, and ViT/Swin fusion are project-scale work
   requiring new datasets, architectures, and a training pipeline —
   recorded as future research, not attempted here.
+
+## Proposal audit vs `ai-automation-research.md` (2026-09-11)
+
+Full claim-by-claim review; baseline study re-run the same day
+reproduced every committed number exactly (only the doc date changed),
+so these are gaps vs the paper, not regressions.
+
+### Science validity (reviewer risks — fix or re-scope first)
+
+- [ ] Single-disease federation vs §4 multi-hospital simulation.
+  `build_hospital_sites` (`backend/federated/hospitals.py:125`) shards
+  ONE preset across sites; the baseline study runs 3 clients × 5 rounds
+  per preset. Proposal §4 wants A=diabetes, B=heart, C=CKD, D=MIMIC-IV
+  collaborating. The heterogeneous canonical mode
+  (`canonical.py:229` `HOSPITAL_PRESETS`) implements that mapping but
+  the study never runs it — RQ1 is tested on near-IID shards.
+- [ ] `central_holdout.csv` is centrally-held raw data
+  (`hospitals.py:237`, read at `__main__.py:143`). "No hospital shares
+  raw data" is false in-simulation; disclose in the paper or move
+  evaluation to client-side holdouts.
+- [ ] Baseline 5 "+n8n" is unmeasured by design (Findings: RQ4
+  "deliberately unmeasured") yet the flagship row is named for it.
+  Measure e2e latency manual-vs-n8n, or rename the row.
+- [ ] `anonymize_frame` wired into `hospitals.py:205` +
+  `canonical.py:271` (the old "unwired" note is half-stale) but NOT
+  into the heterogeneous client path (`__main__.py:184-196`, local
+  CSV used as-is) — the proposal's own mapping trains without §8
+  anonymization.
+
+### Missing outputs (proposal promises, code says "Not estimated")
+
+- [ ] Mortality + readmission heads (Expected Outputs;
+  `streamlit_app.py:490,496` hardcode "Not estimated").
+- [ ] CKD Stage collapsed to binary `has_disease`; Previous
+  Diseases / Medication History inputs omitted (documented in
+  `canonical.py`, still proposal-listed inputs the dashboard can't
+  accept).
+- [ ] n8n `clinical-full-v2.json` never calls Agent 6 (Risk
+  Monitoring) — 5 agent endpoints only — and Step 8 "Store Results"
+  has no persistence node (respond-only).
+
+### Partial implementations (exist, not as proposed)
+
+- [ ] Multi-agent = 1 LLM report-writer over a deterministic
+  pipeline (`agents.py`: "The expensive multi-agent chain is
+  intentionally avoided").
+- [ ] LLM default is proprietary Gemini (`config.py:35`); proposal
+  §5 recommends Llama 3 / Qwen 3 / Mistral (switchable via
+  `CREW_LLM_BASE_URL`, default still contradicts).
+- [ ] RAG PubMed/NICE/WHO fetchers (`rag/data_ingestion.py`) unwired
+  — zero imports outside tests/scripts; API serves 7 hand-written
+  `.md` files, so proposal §9 sources are aspirational at runtime.
+- [ ] Image `cnn.py` has `fit()` but `/api/v1/train` only fits
+  `TabularClassifier` (`services.py:725`); no federated image path —
+  inference-only in practice.
+- [ ] Privacy budget ε≈45 vs `epsilon_target=4.0` (`privacy.py:79`).
+  MIA AUROC / leakage / attack-resistance metrics ARE implemented
+  (`run_privacy_experiment.py`) — that part is fine.
+
+### Verified fine (no action)
+
+PR-AUC + MCC (`evaluation/metrics.py`); comm cost / convergence /
+round timing; 7-tab dashboard outputs; ChromaDB satisfies the
+"Qdrant or ChromaDB" wording; n8n validate/notify/error paths live.
+
+### Agreed fix order (2026-09-11)
+
+1. [x] RE-SCOPED 2026-09-11: `BASELINE_STUDY_RESULTS.md` Method +
+   RQ1 now state the study is same-disease cross-silo FL; the
+   heterogeneous canonical mode is named as an unevaluated separate
+   capability. (Hybrid option chosen over the 3–5 session
+   heterogeneous study arm.)
+2. [x] DISCLOSED 2026-09-11 (same edit): RQ1 notes the federated
+   scores come from a server-held `central_holdout.csv`. Removal
+   (client-side hold-out eval) still open.
+3. [x] DONE 2026-09-11: Agent 6 + store step wired in.
+   New `POST /api/v1/agents/risk-monitor` (predict + assess_risk,
+   records the point in the risk history store, returns trend +
+   escalation) and `POST/GET /api/v1/reports` (SQLite `ReportStore`,
+   same locking/WAL pattern as risk/feedback stores).
+   `n8n/clinical-full-v2.json` chain is now Explainability →
+   8.Risk Monitor → Assemble Report (incl. `risk_monitor` block, no
+   more hardcoded `stored:true`) → Store Report → Attach Store ID →
+   IF:High Risk?; webhook response still the full report. Contract
+   tests pin the chain + backend-URL↔route mapping
+   (`test_n8n_workflows.py`). 341 backend tests pass, ruff clean.
+   Note: current FastAPI keeps included-router routes in an
+   `_IncludedRouter` entry — enumerate served paths via
+   `app.openapi()["paths"]`, not `app.routes`.
+4. Then P1/P2 in existing order.
+
+### Epic (tracked, not started): heterogeneous study arm
+
+Estimate 3–5 sessions: (a) per-disease data setup under
+`data/hospitals/` (no setup script exists); (b) shared-scaling
+experiment — clients train on raw unscaled features, canonical
+zero-fill is asymmetric (schedule risk); (c) `--heterogeneous`
+plumbing through `service.train`/`_train_distributed` + per-hospital
+and pooled eval (incl. siloed-models counterfactual for RQ1);
+(d) Findings/ADR rewrite. Do not start mid-stream; needs its own
+session with a fresh estimate check.

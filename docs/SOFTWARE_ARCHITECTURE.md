@@ -217,6 +217,9 @@ Responsibilities
   - `POST /api/v1/agents/evidence-retrieval`
   - `POST /api/v1/agents/treatment-planner`
   - `POST /api/v1/agents/explainability`
+  - `POST /api/v1/agents/risk-monitor` (Agent 6: risk + trend + escalation)
+- Report persistence for the n8n Store Results step:
+  - `POST /api/v1/reports` / `GET /api/v1/reports/{report_id}`
 
 Business logic remains in the service layer (`AnalysisService`). Routes never contain business logic.
 

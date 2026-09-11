@@ -167,14 +167,67 @@
     },
     {
       "parameters": {
-        "jsCode": "const patient=$('1.Receive Patient Data').first().json.body.patient||{};\nconst analyst=$('3.Patient Analyst').first().json||{};\nconst pred=$('4.Disease Predictor').first().json||{};\nlet evidence=[];\ntry{const rag=$('5.Medical Researcher').all();evidence=rag.map(r=>({document_id:r.json.document_id||'',source:r.json.source||'',score:r.json.score||0,text:(r.json.text||'').substring(0,200)}));}catch(e){}\nconst treat=$('6.Treatment Planner').first().json||{};\nconst explain=$('7.Explainability Expert').first().json||{};\nreturn [{json:{status:'success',patient,input_type:'csv',\npatient_summary:analyst.patient_summary||'',\nprediction:{predicted_class:pred.predicted_class||'',probabilities:pred.probabilities||{},confidence:pred.confidence||0},\nrisk:{risk_score:pred.risk_score||0,risk_level:pred.risk_level||'unknown',risk_factors:pred.risk_factors||[]},\nevidence,recommendations:treat.recommendations||[],monitoring_schedule:treat.monitoring_schedule||[],\nexplanation:explain.explanation||'',limitations:'AI decision support tool.',doctor_notice:'AI-assisted report.',\nstored:true,stored_at:new Date().toISOString()}}];"
+        "method": "POST",
+        "url": "={{ $env.BACKEND_URL || 'http://127.0.0.1:8000' }}/api/v1/agents/risk-monitor",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({patient:$('1.Receive Patient Data').first().json.body.patient,features:$('1.Receive Patient Data').first().json.body.features,markers:$('1.Receive Patient Data').first().json.body.markers}) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "n18",
+      "name": "8.Risk Monitor",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1920,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const patient=$('1.Receive Patient Data').first().json.body.patient||{};\nconst analyst=$('3.Patient Analyst').first().json||{};\nconst pred=$('4.Disease Predictor').first().json||{};\nlet evidence=[];\ntry{const rag=$('5.Medical Researcher').all();evidence=rag.map(r=>({document_id:r.json.document_id||'',source:r.json.source||'',score:r.json.score||0,text:(r.json.text||'').substring(0,200)}));}catch(e){}\nconst treat=$('6.Treatment Planner').first().json||{};\nconst explain=$('7.Explainability Expert').first().json||{};\nreturn [{json:{status:'success',patient,input_type:'csv',\npatient_summary:analyst.patient_summary||'',\nprediction:{predicted_class:pred.predicted_class||'',probabilities:pred.probabilities||{},confidence:pred.confidence||0},\nrisk:{risk_score:pred.risk_score||0,risk_level:pred.risk_level||'unknown',risk_factors:pred.risk_factors||[]},\nevidence,recommendations:treat.recommendations||[],monitoring_schedule:treat.monitoring_schedule||[],\nexplanation:explain.explanation||'',limitations:'AI decision support tool.',doctor_notice:'AI-assisted report.',\nrisk_monitor:$('8.Risk Monitor').first().json||{}}];"
       },
       "id": "n09",
       "name": "Assemble Report",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1920,
+        2160,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.BACKEND_URL || 'http://127.0.0.1:8000' }}/api/v1/reports",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({patient_id: $('1.Receive Patient Data').first().json.body.patient?.id || 'unknown', preset: $('1.Receive Patient Data').first().json.body.preset || 'unknown', report: $json}) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "n19",
+      "name": "Store Report",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2400,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const r=$('Assemble Report').first().json;\nconst s=$json;\nreturn [{json:{...r,report_id:(s.report_id!==undefined?s.report_id:null),stored_at:(s.stored_at||new Date().toISOString()),stored:(s.report_id!==undefined&&s.report_id!==null)}}];"
+      },
+      "id": "n20",
+      "name": "Attach Store ID",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2640,
         300
       ]
     },
@@ -207,7 +260,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.3,
       "position": [
-        2160,
+        2880,
         300
       ]
     },
@@ -227,21 +280,21 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        2400,
+        3120,
         180
       ],
       "onError": "continueRegularOutput"
     },
     {
       "parameters": {
-        "jsCode": "const r=$('Assemble Report').first().json;\nreturn [{json:{...r,notified:true}}];"
+        "jsCode": "const r=$('Attach Store ID').first().json;\nreturn [{json:{...r,notified:true}}];"
       },
       "id": "n12",
       "name": "Pass Report",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2640,
+        3360,
         180
       ]
     },
@@ -255,7 +308,7 @@
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
       "position": [
-        2880,
+        3600,
         300
       ]
     },
@@ -410,6 +463,17 @@
       "main": [
         [
           {
+            "node": "8.Risk Monitor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "8.Risk Monitor": {
+      "main": [
+        [
+          {
             "node": "Assemble Report",
             "type": "main",
             "index": 0
@@ -418,6 +482,28 @@
       ]
     },
     "Assemble Report": {
+      "main": [
+        [
+          {
+            "node": "Store Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store Report": {
+      "main": [
+        [
+          {
+            "node": "Attach Store ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Attach Store ID": {
       "main": [
         [
           {

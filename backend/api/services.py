@@ -63,6 +63,7 @@ from preprocessing.image import ImagePipeline
 from preprocessing.logger import get_logger
 from rag import RAGPipeline
 from rag.corpus import load_bundled_corpus, load_documents
+from reports import ReportStore
 from risk import RiskHistoryStore, RiskHistoryStoreError
 
 from .config import APISettings
@@ -514,6 +515,8 @@ class AnalysisService:
     feedback_store: FeedbackStore | None = None
     #: Persistent risk history store for longitudinal monitoring.
     risk_history_store: RiskHistoryStore | None = None
+    #: Persistent store for assembled n8n pipeline reports.
+    report_store: ReportStore | None = None
     #: Guards model/preset swaps against concurrent train + analyze races.
     _lock: threading.RLock = field(
         default_factory=threading.RLock, repr=False, compare=False
@@ -550,6 +553,7 @@ class AnalysisService:
         artifacts_dir = Path(cfg.ARTIFACTS_DIR)
         feedback_db = artifacts_dir / "feedback.db"
         risk_history_db = artifacts_dir / "risk_history.db"
+        reports_db = artifacts_dir / "reports.db"
         return cls(
             model=model,
             image_model=image_model,
@@ -559,6 +563,7 @@ class AnalysisService:
             active_preset=cfg.ACTIVE_PRESET or None,
             feedback_store=FeedbackStore(feedback_db),
             risk_history_store=RiskHistoryStore(risk_history_db),
+            report_store=ReportStore(reports_db),
         )
 
     def train(

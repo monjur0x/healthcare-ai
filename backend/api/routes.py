@@ -41,7 +41,10 @@ from .schemas import (
     RetrieveRequest,
     RiskHistoryResponse,
     RiskHistorySummary,
+    RiskMonitorResponse,
     RiskTrend,
+    StoreReportRequest,
+    StoreReportResponse,
     TrainRequest,
     TrainResponse,
 )
@@ -772,4 +775,99 @@ def agent_explainability(request: AgentStepRequest, service: ServiceDependency) 
         "explanation": explanation or "Insufficient data for explanation.",
         "contributing_features": contributing,
         "fallback": fallback or prediction is None,
+    }
+
+
+@router.post("/agents/risk-monitor", response_model=RiskMonitorResponse)
+def agent_risk_monitor(
+    request: AgentStepRequest, service: ServiceDependency
+) -> RiskMonitorResponse:
+    """Risk Monitoring agent (Agent 6): assess risk and evaluate the trend.
+
+    Runs the prediction + risk assessment, records the point in the
+    longitudinal risk history store (when configured), and returns the
+    trend direction plus any escalation alert — the proposal's
+    "continuous risk evaluation over historical records → alert score".
+    """
+    from CrewAI.orchestrator.services import assess_risk
+
+    try:
+        prediction = service.predict(request.features)
+        risk = assess_risk(prediction, request.markers)
+    except Exception as error:  # noqa: BLE001 — best-effort step: fall back, but log
+        logger.warning("risk-monitor step fell back to medium risk: %s", error)
+        return RiskMonitorResponse(fallback=True)
+
+    patient_id = request.patient.id or "unknown"
+    preset = service.active_preset or "unknown"
+    trend_direction: str | None = None
+    assessments_count = 0
+    escalation_alert = False
+    if service.risk_history_store is not None:
+        try:
+            service.risk_history_store.add(
+                patient_id=patient_id,
+                preset=preset,
+                risk_score=risk.risk_score,
+                risk_level=risk.risk_level,
+                prediction=int(prediction.predicted_class)
+                if str(prediction.predicted_class).lstrip("-").isdigit()
+                else None,
+                confidence=prediction.confidence,
+                markers=request.markers,
+            )
+            trend = service.risk_history_store.compute_trend(patient_id, preset)
+            trend_direction = trend.trend_direction
+            assessments_count = trend.n_points
+            escalation_alert = bool(trend.escalation_alert)
+        except Exception as error:  # noqa: BLE001 — trend augments, never blocks
+            logger.warning("risk-monitor trend lookup failed: %s", error)
+
+    return RiskMonitorResponse(
+        risk_score=risk.risk_score,
+        risk_level=risk.risk_level,
+        risk_factors=risk.risk_factors,
+        trend_direction=trend_direction,
+        assessments_count=assessments_count,
+        escalation_alert=escalation_alert,
+        fallback=False,
+    )
+
+
+@router.post("/reports", response_model=StoreReportResponse)
+def store_report(
+    request: StoreReportRequest, service: ServiceDependency
+) -> StoreReportResponse:
+    """Store Results step (proposal §10, step 8): persist an assembled report."""
+    from reports import ReportStoreError
+
+    if service.report_store is None:
+        raise ServiceUnavailableError("Report store is not configured.")
+    try:
+        record = service.report_store.add(
+            patient_id=request.patient_id,
+            preset=request.preset,
+            report=request.report,
+        )
+    except ReportStoreError as error:
+        raise ServiceUnavailableError(f"Could not store report: {error}") from error
+    return StoreReportResponse(report_id=record.report_id, stored_at=record.stored_at)
+
+
+@router.get("/reports/{report_id}")
+def get_report(report_id: int, service: ServiceDependency) -> dict:
+    """Retrieve one persisted report by id."""
+    if service.report_store is None:
+        raise ServiceUnavailableError("Report store is not configured.")
+    record = service.report_store.get(report_id)
+    if record is None:
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=404, detail="Report not found.")
+    return {
+        "report_id": record.report_id,
+        "patient_id": record.patient_id,
+        "preset": record.preset,
+        "stored_at": record.stored_at,
+        "report": record.report,
     }

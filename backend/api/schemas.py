@@ -706,3 +706,30 @@ class ReportWriterResponse(BaseModel):
 
     report: dict[str, Any]
     crew_trace: dict[str, Any] | None = None
+
+
+class RiskMonitorResponse(BaseModel):
+    """Output of the Risk Monitoring agent (Agent 6)."""
+
+    risk_score: float = 0.0
+    risk_level: str = "unknown"
+    risk_factors: list[str] = Field(default_factory=list)
+    trend_direction: str | None = None
+    assessments_count: int = 0
+    escalation_alert: bool = False
+    fallback: bool = False
+
+
+class StoreReportRequest(BaseModel):
+    """Persist an assembled n8n pipeline report (proposal §10, step 8)."""
+
+    patient_id: str = "unknown"
+    preset: str = "unknown"
+    report: dict[str, Any] = Field(default_factory=dict)
+
+
+class StoreReportResponse(BaseModel):
+    """Pointer to a persisted report."""
+
+    report_id: int
+    stored_at: str
