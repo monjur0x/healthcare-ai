@@ -1,79 +1,31 @@
 # Current Context
 
-## Current Milestone
-M5 — Bug-fix sweep against the research proposal (deferred clinical issues)
+## Project state (as of 2026-09-10)
 
-## Current Module
-`backend/CrewAI/orchestrator/`, `backend/api/`, `backend/scripts/`
+Federated multi-agent healthcare CDS framework (proposal: `ai-automation-research.md`). Backend 309 tests + frontend 58 tests pass; `ruff` clean. Two recent commits on `main`/`origin`:
 
-## Current Task
-- ✅ Bug-fix sweep completed (see .ai/backlog.md "Deferred issues" for the list)
-- ✅ n8n consolidation: retired `clinical-full` v1 + `clinical-analysis`
-  to `n8n/archive/` (with README); canonical set is now
-  `healthcare-endtoend`, `clinical-full-v2`, `risk-monitoring`,
-  `feedback-retrain`. Demo console, `start_demo.py`, README, and
-  RUN_GUIDE retargeted to `clinical-full-v2` (response keys verified
-  compatible; rejection expectation updated).
-- ✅ Full-project review completed — findings logged to .ai/backlog.md
-  "Full-project review (2026-09-03)" as P0/P1/P2 (no fixes applied)
-- ✅ P0 batch 1 completed: crew `_parse_report` binding fix + encoder
-  mapping persistence (params/from_params, transformer/pipeline/model/
-  API wiring, unseen-category fail-loud)
-- ✅ CrewAI rebuilt lean (user call): 5 agents × 5 sequential tasks,
-  max_iter 1, max_rpm pacing, short prompts; dropped analyst +
-  explainer agents (folded into predictor/report tasks) and the dead
-  logging shim; retry/backoff + `llm_path` hardening kept. Verified:
-  ruff clean, 5/5 wiring in serving env, deterministic run unchanged
-  (high 0.994, 0.04s). Live LLM proof awaits a working key.
-- ✅ P0 batch 2 completed: torch scaler/encoder parity
-  (`TorchMLPClassifier` params interface + artifact persistence,
-  fixes `analyze_csv` / crew-scaler `AttributeError` for served torch
-  models)
-- ✅ P0 batch 3 completed: Chroma availability-flag fix (import probe
-  governs again; both absent/stubbed paths verified)
-- ✅ P0 batch 4 completed: DP-trained weights sync back into the client
-  model (`_apply_trained_weights` with prefix-strip + fail-loud
-  mismatch; DP/non-DP paths verified 5/5)
-- ✅ P0 batch 5 completed: SQLite locking across registry + risk +
-  feedback stores (RLock, WAL, atomic versioning, duplicate-round
-  rollback, registry try/finally; 8-thread contention verified)
-- ✅ P1 batch 1 completed: FedAvg count-weighting on both servers with
-  secure/non-secure parity (optional counts, pre-scaled masked mean;
-  verified identical globals)
-- ✅ P1 batch 2 completed: per-round worst-case epsilon accounting on
-  both servers (no more ×N overcount; verified end-to-end)
-- ✅ P1 batch 3 completed: OTP seed+round-bound masks, canonical
-  bu-fix + label/mapping hygiene, agent-metrics payload visibility,
-  full LLM tool wiring, API service lock + subprocess timeout +
-  route delegation with fallback flags, risk trend/ALERTS/n8n-dedup,
-  feedback consumed visibility + guarded consume, baseline rigor
-  (M2/M3/privacy scripts), RAG ground-truth/metrics/threshold/
-  BGE/refit fixes — all verified incl. live M3 + RAG eval runs
+- `6b75585` — restored the deleted test suite + `scripts/baseline_study.py`; fixed `metrics._output_of` (empty-output over-count) and `crew._parse_report` (missing `@staticmethod`).
+- `4cef96e` — fixed kidney label inversion in baseline study (`split_dataset` now passes `preset=preset`); added orientation regression test; refreshed `docs/BASELINE_STUDY_RESULTS.md`.
 
-## Completed
-- ✅ M3.1: Privacy layer (anonymize_frame) wired into hospital data loading
-- ✅ M3.2: RAG evaluation with 18 clinical queries
-- ✅ M4: CrewAI logging enhancement (agent execution logging)
-- ✅ M3.4: n8n risk-monitoring + clinical-full workflows
-- ✅ Bug sweep: RAG query markers, marker-aware risk score, LLM task
-  context injection, crew_logging.py recursion, RAG evaluation metrics
-  aggregation, silent-exception logging in agent routes
+Working tree clean except untracked `dataset` symlink (keep out of commits).
 
-## Remaining Backlog
-- Dense embedder for better RAG faithfulness (sentence-transformers;
-  blocked on installing the optional dep + model download — code path
-  ready: `RAG_EMBEDDING_MODEL=sentence-transformer`)
-- Corpus expansion (add topic docs so eval ground truth maps 1:1;
-  deferred: new clinical summaries need expert review before merging)
-- ~~Six-agent pipeline as distinct CrewAI agents in run_llm~~ — done:
-  stale item, `run_llm` already builds 7 distinct agents × 7 tasks
-  with tools (verified `AGENT_PROFILES` + `create_tasks` keys)
-- Full-project review items (see .ai/backlog.md) — P0 closed, P1
-  closed, P2 closed except explicitly scoped-out multimodal research
-  (datasets + architectures + training pipeline). Next: verify live
-  system + commit.
+## Entry points
 
-## Next Steps
-1. ~~Commit the bug-fix sweep~~ — done (see session log below).
-2. Rerun the M3 RAG evaluation with the improved marker-aware queries.
-3. Pick P0 review items from .ai/backlog.md for the next fix session.
+- READ THIS FIRST for the fix list: `.ai/NEXT_TASK.md` (self-contained, prioritized).
+- Detailed P0/P1/P2 audit (partly fixed, partly stale): `.ai/backlog.md`.
+- Proposal: `ai-automation-research.md` · Architecture: `docs/SOFTWARE_ARCHITECTURE.md` · Decisions: `docs/DECISIONS.md` · Privacy honesty: `docs/PRIVACY_NOTES.md`.
+
+## Environment
+
+- Python venv: `backend/CrewAI/.venv-opencode/bin/python` (has torch/opacus/flwr/crewai/streamlit/chromadb/pytest).
+- Ruff: `~/.local/bin/ruff`.
+- Datasets live at `/home/monjur0x0/dataset` (symlinked as `dataset/`; real preset files: `diabetes.csv`, `heart_disease_uci.csv`, `kidney_disease.csv`, `sepsis_icu_synthetic.csv`). NOT committed.
+- Backend start: `cd backend && DATASET_DIR=~/dataset ./CrewAI/.venv-opencode/bin/python -m uvicorn api.main:app --port 8000`. n8n via `scripts/start_demo.py` or Docker.
+- Baseline study: `DATASET_DIR=~/dataset ./CrewAI/.venv-opencode/bin/python scripts/baseline_study.py` (regenerates `docs/BASELINE_STUDY_RESULTS.md` tables; preserves hand-written Findings section).
+- Backend suite from `backend/`: `./CrewAI/.venv-opencode/bin/python -m pytest`. Frontend from `frontend/`: same python `-m pytest dashboard/tests/`.
+
+## Verified live
+
+- Kidney baseline bug fixed: study split now matches training orientation (kidney 0.980 acc / 1.000 ROC across all baselines).
+- RQ1/RQ2/RQ3 answers in `docs/BASELINE_STUDY_RESULTS.md` Findings (regenerated tables match hand-written section).
+- Frontend smoke tests updated for the 7-tab app (keyed widgets + session-state feature inputs).

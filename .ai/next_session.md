@@ -2,124 +2,37 @@
 
 ## Objective
 
-Bug-fix sweep against the research proposal is complete and verified.
-Commit the changes, then optionally re-run the RAG evaluation to confirm
-the marker-aware queries improved retrieval quality.
+Fix the P0 correctness/security defects (see `.ai/NEXT_TASK.md` §1), then
+re-run the baseline study to confirm nothing regressed. Do NOT re-derive
+project history — read `.ai/NEXT_TASK.md` for the full prioritized list and
+`.ai/current_context.md` for entry points.
 
-## Done This Session
+## Done recently (2026-09-10)
 
-- `services.py`: `build_disease_query(prediction, markers)` appends
-  elevated markers (from `MARKER_THRESHOLDS`, capped at 5 terms) to the
-  disease-anchored RAG query; `assess_risk` now computes
-  `max(model P(disease), CREW_RISK_MARKER_WEIGHT * max normalized marker
-  elevation)` via `_marker_evidence`, so flagged markers can raise (never
-  lower) the score and `risk_factors` never contradict `risk_score`.
-- `config.py`: new `RISK_MARKER_WEIGHT` (default 0.5; markers alone cap
-  at the medium band). Documented in `backend/.env.example`.
-- `tasks.py`: `create_tasks` accepts `features` / `markers` /
-  `disease_context` and injects them via `_clinical_context_block` into
-  the patient-analysis, disease-prediction, explanation, and
-  risk-monitoring task descriptions (fixes LLM narratives ignoring
-  clinical values).
-- `crew.py`: `_build_query` passes markers; step-3 no longer hits a
-  latent `NameError` when the RAG pipeline is absent; duplicate
-  `@staticmethod` removed; `run_llm` passes the new task context.
-- `crew_logging.py`: rewritten — the old wrapper reassigned
-  `crew.kickoff` then called it from inside the wrapper (infinite
-  recursion), referenced an undefined `wrap_task_execution` (F821), and
-  had duplicated dead bodies (F811) / unused imports (F401).
-- `scripts/run_rag_evaluation.py`: metrics are now accumulated and
-  aggregated (mean P@1/3/5/10, R@1/3/5/10, MRR) and persisted to
-  `artifacts/experiments/rag_evaluation.json` instead of a placeholder
-  note; duplicate pipeline init removed. Verified run: MRR 0.49,
-  R@10 0.5 (TF-IDF).
-- `scripts/ingest_clinical_knowledge.py`: removed duplicated
-  output/logging blocks; `ClinicalKnowledgeIngestor` now receives the
-  output *directory* (was passed the file path); respects `--output`.
-- `api/routes.py`: treatment-planner / explainability agent routes log
-  prediction failures instead of silent `except: pass`; module logger
-  added.
-- Verified: backend-wide `ruff check` + `ruff format --check` clean;
-  import smoke OK; deterministic end-to-end analyze (7/7 agents) OK;
-  unit-level assertions on the new risk/query/task behavior all pass.
+1. Restored the stripped test suite + `scripts/baseline_study.py` from the
+   pre-strip commit `6630867^`, adapted to current main. Fixed two real
+   regressions the restored tests exposed: `metrics._output_of` over-counting
+   empty-output dicts (task_completion_rate inflated), and
+   `crew._parse_report` missing `@staticmethod`. Backend 309 pass + frontend
+   58 pass + ruff clean. Commit `6b75585`.
+2. Re-ran the baseline study; found + fixed a real kidney label-inversion bug
+   (`split_dataset` dropped `preset=preset`, so string labels oriented
+   alphabetically instead of disease-positive). Kidney 0.020 → 0.980 acc.
+   Added a regression test + refreshed the Findings doc. Commit `4cef96e`.
+3. Rewrote `.ai/NEXT_TASK.md` as a self-contained handoff.
 
-## Next Steps
+## Next steps
 
-1. Commit (suggested: `fix(clinical): marker-aware risk & RAG queries,
-   LLM task context injection, lint/dead-code cleanup`).
-2. Re-run `scripts/run_m3_evaluation.py` (faithfulness) with the
-   improved queries to confirm §12 RAG metrics improved.
-3. Backlog candidates: dense embedder, corpus expansion.
-4. New: full-project review logged to `.ai/backlog.md` ("Full-project
-   review (2026-09-03)") as P0/P1/P2 — no fixes applied this session.
-   Suggested next fix order: `crew.py:555` parse bug → encoder re-fit →
-   torch scaler → Chroma flag → DP return → registry locking.
-5. Update 2026-09-03: P0 batch 1 done (crew parse binding + encoder
-   persistence chain, verified 7/7 checks + legacy-artifact compat,
-   `ruff check` / `ruff format --check` clean). Next: torch scaler,
-   Chroma flag, DP return, registry locking.
-6. Update 2026-09-04: P0 batch 2 done (torch scaler/encoder parity +
-   artifact persistence, verified 5/5 checks incl. legacy torch
-   artifact compat, `ruff` clean). Next: Chroma flag, DP return,
-   registry locking.
-7. Update 2026-09-04: P0 batch 3 done (Chroma flag line removed, probe
-   governs; absent/stubbed paths verified 2/2, `ruff` clean). Next:
-   DP return, registry locking.
-8. Update 2026-09-04: P0 batch 4 done (DP weight sync-back incl.
-   prefix-strip + fail-loud mismatch, verified 5/5 through real
-   `_train_locally`, `ruff` clean). Next: registry locking.
-9. Update 2026-09-04: P0 batch 5 done (SQLite RLock + WAL + atomic
-   versioning + duplicate rollback + registry try/finally; 8-thread
-   contention verified on all three stores, `ruff` clean). All P0
-   closed — P1 next.
-10. Update 2026-09-04: P1 batch 1 done (FedAvg count-weighting both
-    servers, secure/non-secure parity; 12/12 checks incl. end-to-end
-    server runs, `ruff` clean). P1 next: DP accounting, OTP nonce.
-11. Update 2026-09-04: P1 batch 2 done (per-round worst-case epsilon
-    on both servers; 4/4 checks end-to-end, `ruff` clean). P1 next:
-    OTP nonce, canonical mappings.
-12. Update 2026-09-04: P1 fully complete in one sweep — OTP
-    (seed+round-bound masks), canonical (bu-fix, label hygiene,
-    schema rationale), agent metrics (payload visibility), LLM tools
-    (csv_summary + full wiring + arg pass-throughs), API (service
-    lock, FED_SUBPROCESS_TIMEOUT, route delegation, fallback flags),
-    risk (real sub-threshold values, ALERTS_ENABLED, n8n dedup),
-    feedback (consumed visibility, guarded consume), baselines
-    (M3 timing/consistency/labels, M2 guards/validation, privacy
-    partitioned sharding + honest flags), RAG (ground-truth remap,
-    shared metrics, 0.3 default, embed_query, refit-rebuild,
-    anchored output). Live proofs: M3 exit 0 (agent metrics
-    0/0→1.0/1.0, B2 vs B3 differentiated), RAG MRR 0.49→0.669.
-    `ruff` clean. Remaining: P2.
-13. Update 2026-09-04: P2 complete — config aliases bind live
-    (73/73 vars machine-checked), crew/rag TOP_K decoupled, env
-    example completed, n8n BACKEND_URL parameterized (surgical),
-    pandas dep, disease playbooks x4 (coverage-verified), README +
-    gitignore corrected, multimodal explicitly scoped out. `ruff`
-    clean. Next: live system check + commit.
-14. Update 2026-09-04: n8n consolidation done — 6→4 workflows
-    (v1 + analyze-only archived with README); demo, start_demo,
-    README, RUN_GUIDE (local-only, gitignored) retargeted to v2;
-    zero new lint (13 pre-existing in touched contrib scripts).
-    Note: RUN_GUIDE.md is gitignored + untracked (stray .gitignore
-    line?) — left as-is, flagging for owner decision.
-15. Update 2026-09-04: FULL SYSTEM LIVE on this machine — installed
-    CPU torch + requirements into the launcher venv; fixed launcher
-    dashboard path (streamlit_app.py) + activation names; stripped
-    dead httpHeaderAuth credential/auth refs from 3 workflows
-    (backend auth is opt-in, v2 already auth-free). Proven end to
-    end: v2 success + rejection paths, high-risk pager notify,
-    feedback→n8n retrain→hot redeploy (5 consumed, acc 0.834),
-    escalation alert live (0.521→1.0), dashboard 200, 4/4 workflows
-    active. Sparse-feature 422s during the run were correct
-    rejections (model changed under the API after retrain).
-16. Update 2026-09-04: recovered from a server restart — relaunched
-    API (with API_MODEL_PATH pointed at the retrained artifact;
-    fresh boots otherwise serve model-less), re-imported +
-    re-activated all 4 workflows into a clean n8n DB, re-verified
-    the full smoke (low-risk report with evidence). Lesson: boot
-    the API with API_MODEL_PATH set or retrain before demoing.
+1. `.ai/NEXT_TASK.md` §1 P0 items (mTLS/plaintext gRPC, hospital-site
+   clobber, train-dataset path traversal, image z-score).
+2. Re-run `DATASET_DIR=~/dataset ./CrewAI/.venv-opencode/bin/python scripts/baseline_study.py`
+   after each change to catch label-orientation regressions.
 
-## Open Questions
+## Do not start without asking
 
-- None blocking.
+- Commit / push actions
+- Dashboard redesign
+- n8n workflow changes
+- New agents / diseases
+- Federated architecture changes (beyond the P0 cert/site-clobber fixes)
+- Anything requiring a CrewAI/LLM API key — ask the user.
