@@ -67,6 +67,21 @@ class ImageNormalizer:
         self._mean = tuple(mean) if mean is not None else tuple(settings.IMAGE_MEAN)
         self._std = tuple(std) if std is not None else tuple(settings.IMAGE_STD)
 
+    def _to_float_unit_range(self, array: np.ndarray) -> np.ndarray:
+        """
+        Convert pixels to the [0, 1] float range expected by the
+        ``IMAGE_MEAN`` / ``IMAGE_STD`` statistics.
+
+        ``uint8`` (0-255) pixels are divided by 255 so z-scores stay in a
+        sane magnitude for both the config defaults (ImageNet-style means
+        for [0, 1] input) and per-channel statistics fitted from data.
+        Floating input is returned unchanged (assumed already normalized).
+        """
+        data = np.asarray(array)
+        if data.dtype == np.uint8:
+            return data.astype(np.float32) / 255.0
+        return data.astype(np.float32)
+
     def fit(self, array: np.ndarray) -> ImageNormalizer:
         """
         Fit per-channel statistics for "standard" mode on an array or batch.
@@ -88,7 +103,7 @@ class ImageNormalizer:
             If the array has no spatial data.
         """
 
-        data = np.asarray(array, dtype=np.float32)
+        data = self._to_float_unit_range(array)
         channels = self._channel_count(data)
 
         if data.size == 0:
@@ -173,7 +188,7 @@ class ImageNormalizer:
             mean = tuple(float(m) for m in self._mean)
             std = tuple(float(s) for s in self._std)
 
-        data = array.astype(np.float32)
+        data = self._to_float_unit_range(array)
         channels = self._channel_count(data)
 
         if len(mean) != channels or len(std) != channels:

@@ -127,9 +127,17 @@ def train(request: TrainRequest, service: ServiceDependency) -> TrainResponse:
         Artifact path and hold-out metrics.
     """
 
+    # Reject untrusted explicit dataset paths at the HTTP boundary: the
+    # dataset must resolve inside the configured dataset/artifacts
+    # directories, closing the local file-read / path traversal.
+    dataset = (
+        service.confine_dataset_path(request.dataset)
+        if request.dataset is not None
+        else None
+    )
     result = service.train(
         preset=request.preset,
-        dataset=request.dataset,
+        dataset=str(dataset) if dataset is not None else None,
         target=request.target,
         model=request.model,
         test_size=request.test_size,

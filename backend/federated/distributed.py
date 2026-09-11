@@ -70,30 +70,87 @@ def _load_certificates(
     return ca, cert, key
 
 
+#: Maximum number of plaintext-transport warnings per (server/client) to
+#: avoid spamming the log on repeated connections within one process.
+_plaintext_warned: set[str] = set()
+
+
+def _warn_plaintext(side: str) -> None:
+    """
+    Emit a prominent warning that the hospital<->server gRPC link is
+    running WITHOUT TLS (plaintext).
+
+    TLS is off by default in ``federated/config.py``, so creating a real
+    deployment requires setting ``FED_TLS_ENABLED=true`` and providing
+    certificate paths. The framework must not silently claim "Encrypted
+    Communication" (proposal §8) when the transport is actually open.
+    """
+    message = (
+        "Hospital<->server gRPC transport is PLAINTEXT (no TLS). "
+        "Model weights travel unencrypted; only use this on a trusted "
+        "loopback network or when datasets are public. Set "
+        "FED_TLS_ENABLED=true (plus FED_TLS_CA_CERT / "
+        "FED_TLS_SERVER_CERT / FED_TLS_SERVER_KEY on the server, and "
+        "FED_TLS_CA_CERT on each client) to enable encrypted transport."
+    )
+    emitted = f"{side}:plaintext"
+    if emitted in _plaintext_warned:
+        return
+    _plaintext_warned.add(emitted)
+    logger.warning("TLS disabled on %s: %s", side, message)
+
+
 def _load_client_certificates(
     tls_enabled: bool,
     ca_cert: str | None,
     client_cert: str | None,
     client_key: str | None,
-) -> bytes | tuple[bytes, bytes, bytes] | None:
+) -> bytes | None:
     """
-    Load TLS certificates for Flower gRPC client.
+    Load TLS CA certificates for a Flower gRPC client.
 
-    Returns:
-    - None if TLS is disabled
-    - CA cert bytes only (server verification only)
-    - Tuple of (ca_cert, client_cert, client_key) for mutual TLS
+    The legacy NumpyClient transport :func:`flwr.client.start_numpy_client`
+    only accepts a single CA certificate (``root_certificates`` bytes); it
+    has no client-certificate authentication plumbing. This means:
+
+    - **One-way TLS** (server-authenticated encryption) is supported:
+      provide ``ca_cert`` and it encrypts the channel.
+    - **Mutual TLS** (client certificate authentication) is NOT supported
+      on this transport. Requesting it fails loudly with a clear error
+      instead of silently misconfiguring the channel.
+
+    Returns
+    -------
+    bytes | None
+        The CA certificate bytes when TLS is enabled, or None when TLS is
+        disabled.
+
+    Raises
+    ------
+    ValueError
+        If TLS is enabled without ``ca_cert``, or if client certificate /
+        key paths are supplied (mTLS unsupported on this transport).
     """
     if not tls_enabled:
+        if client_cert or client_key:
+            logger.warning(
+                "Client certificate/key paths were supplied but TLS is "
+                "disabled; they are ignored. Enable FED_TLS_ENABLED to use "
+                "them (mutual TLS is unsupported on the Flower legacy "
+                "NumpyClient transport regardless)."
+            )
         return None
     if not ca_cert:
         raise ValueError("TLS enabled but ca_cert path is required.")
-    ca = Path(ca_cert).read_bytes()
-    if client_cert and client_key:
-        cert = Path(client_cert).read_bytes()
-        key = Path(client_key).read_bytes()
-        return ca, cert, key
-    return ca
+    if client_cert or client_key:
+        raise ValueError(
+            "Mutual TLS is not supported by the Flower NumpyClient "
+            "transport (client certificates cannot be wired into "
+            "root_certificates). Use one-way TLS by providing only "
+            "FED_TLS_CA_CERT on the client, or terminate TLS behind a "
+            "reverse proxy for client authentication."
+        )
+    return Path(ca_cert).read_bytes()
 
 
 @dataclass(frozen=True)
@@ -488,6 +545,10 @@ def run_distributed_server(
     certs = _load_certificates(
         tls_enabled, tls_ca_cert, tls_server_cert, tls_server_key
     )
+    if certs is None:
+        _warn_plaintext("server")
+    else:
+        logger.info("Distributed Flower server TLS is ENABLED (one-way).")
     start_server(
         server_address=address,
         config=ServerConfig(num_rounds=num_rounds),
@@ -631,12 +692,17 @@ def run_hospital_client(
         address,
         features.shape[0],
     )
+    root_certificates = _load_client_certificates(
+        tls_enabled, tls_ca_cert, tls_client_cert, tls_client_key
+    )
+    if root_certificates is None:
+        _warn_plaintext("client")
+    else:
+        logger.info("Hospital %s TLS is ENABLED (one-way).", hospital.hospital_id)
     start_numpy_client(
         server_address=address,
         client=client,
-        root_certificates=_load_client_certificates(
-            tls_enabled, tls_ca_cert, tls_client_cert, tls_client_key
-        ),
+        root_certificates=root_certificates,
     )
     logger.info("Hospital %s finished federation", hospital.hospital_id)
 

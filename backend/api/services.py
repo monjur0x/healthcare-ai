@@ -784,6 +784,42 @@ class AnalysisService:
             )
         return Path(dataset), target
 
+    def confine_dataset_path(self, dataset: str | Path) -> Path:
+        """
+        Normalize an explicit dataset path and require it to live under an
+        allowed root.
+
+        This is the API boundary check for ``POST /api/v1/train``: the
+        untrusted ``dataset`` field must resolve to a file inside the
+        configured dataset directory (bundled preset CSVs) or the artifacts
+        directory (feedback-augmented datasets). Any path outside those
+        roots (``..`` traversal, absolute paths elsewhere on the
+        filesystem) raises :class:`InvalidInputError`, closing the
+        arbitrary local-file read.
+
+        The internal service keeps accepting arbitrary paths for library
+        callers (feedback retrain, scripts, tests) that are trusted.
+        """
+        candidate = Path(dataset).expanduser()
+        if candidate.is_absolute():
+            resolved = candidate.resolve()
+        else:
+            # Relative paths are resolved against the dataset root so a
+            # bare file name (e.g. ``"data.csv"``) stays inside it.
+            resolved = (Path(self.dataset_dir) / candidate).resolve()
+
+        for root in (Path(self.dataset_dir), Path(self.artifacts_dir)):
+            try:
+                resolved.relative_to(root.resolve())
+                return resolved
+            except ValueError:
+                continue
+        raise InvalidInputError(
+            "Explicit dataset paths must live under the dataset directory "
+            f"({Path(self.dataset_dir).resolve()}) or the artifacts directory "
+            f"({Path(self.artifacts_dir).resolve()})."
+        )
+
     def record_feedback(
         self,
         preset: str,

@@ -114,13 +114,14 @@ def _preset_target(preset: str) -> str | None:
 
 
 def cmd_sites(args: argparse.Namespace) -> int:
-    """Build the per-hospital local data slices."""
+    """(Re)build the per-hospital local data slices."""
     sites = build_hospital_sites(
         preset=args.preset,
         n_sites=args.hospitals,
         dataset_dir=_dataset_dir(),
         hospitals_dir=_hospital_root(),
         seed=args.seed,
+        overwrite=True,
     )
     for site in sites:
         print(f"{site.hospital_id}\t{site.name}\t{site.dataset_path}\t{site.target}")

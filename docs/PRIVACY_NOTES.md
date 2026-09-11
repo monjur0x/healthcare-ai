@@ -194,7 +194,48 @@ for production deployment, `secure_mode=True` should be used and validated.
 
 ---
 
-## 8. Summary Table
+## 8. Encrypted Transport (TLS)
+
+### What it provides
+
+Hospital↔server gRPC connections can be encrypted with **one-way TLS**
+(server-authenticated): the Flower server presents a certificate chain, and
+each client pins the CA (`FED_TLS_CA_CERT`). When enabled, model weights
+travel over TLS. The server loads `(ca, server_cert, server_key)` and the
+client passes the CA as `root_certificates` (which Flower wires into
+`grpc.ssl_channel_credentials`).
+
+### What it does NOT provide
+
+- **Not the default.** `FED_TLS_ENABLED` defaults to `False`, so out of the
+  box the gRPC transport is **plaintext**. The run path logs a prominent
+  warning every time TLS is off — the framework does not silently claim
+  "Encrypted Communication" when it is not operational.
+- **No mutual TLS (client certificate authentication).** The Flower legacy
+  `NumpyClient` transport only accepts a single CA via
+  `root_certificates`; there is no client-certificate plumbing. Requesting
+  client certs with TLS enabled now raises a clear error instead of
+  silently misconfiguring the channel. For client auth, terminate TLS at a
+  reverse proxy or use a Flower deployment that supports it.
+- **Not certificate-managed.** Generating/rotating certs is out of scope;
+  this repo just consumes PEM files.
+
+### How to enable
+
+```bash
+# server
+FED_TLS_ENABLED=true FED_TLS_CA_CERT=ca.crt \
+FED_TLS_SERVER_CERT=server.crt FED_TLS_SERVER_KEY=server.key \
+./CrewAI/.venv-opencode/bin/python -m federated server ...
+
+# client (one-way TLS: pin the CA only)
+FED_TLS_ENABLED=true FED_TLS_CA_CERT=ca.crt \
+./CrewAI/.venv-opencode/bin/python -m federated client ...
+```
+
+---
+
+## 9. Summary Table
 
 | Mechanism | Implemented | Production-grade | Key limitation |
 |-----------|------------|-----------------|----------------|
@@ -203,4 +244,4 @@ for production deployment, `secure_mode=True` should be used and validated.
 | Data Anonymization | ✅ | ⚠️ Pattern-match | Column-name patterns only |
 | MIA Audit | ✅ Baseline | ⚠️ Simplified | Confidence-based only, no shadow models |
 | Data Leakage Audit | ✅ Measured | ⚠️ Structural checks | Cannot detect gradient inversion |
-| Encrypted Transport (TLS) | ✅ Configurable | ⚠️ Not default | Requires cert generation |
+| Encrypted Transport (TLS) | ✅ One-way, opt-in | ⚠️ Not default | Plaintext by default; no mTLS on the gRPC client |

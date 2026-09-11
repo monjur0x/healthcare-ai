@@ -213,6 +213,54 @@ def test_train_missing_dataset_file_raises(tmp_path):
         service.train(dataset=str(tmp_path / "nope.csv"), target="Outcome")
 
 
+# -------------------------------------------------------------------------
+# Explicit-dataset path confinement (POST /api/v1/train traversal guard)
+# -------------------------------------------------------------------------
+
+
+def test_confine_accepts_dataset_inside_root(tmp_path):
+    dataset = _write_csv(tmp_path, name="diabetes.csv")
+    service = AnalysisService(dataset_dir=tmp_path)
+    assert service.confine_dataset_path(str(dataset)) == dataset.resolve()
+
+
+def test_confine_accepts_relative_filename_in_dataset_root(tmp_path):
+    _write_csv(tmp_path, name="data.csv")
+    service = AnalysisService(dataset_dir=tmp_path)
+    assert service.confine_dataset_path("data.csv").parent == tmp_path.resolve()
+
+
+def test_confine_accepts_artifacts_dir(tmp_path):
+    service = AnalysisService(artifacts_dir=tmp_path / "artifacts")
+    augmented = tmp_path / "artifacts" / "diabetes" / "feedback_augmented.csv"
+    augmented.parent.mkdir(parents=True)
+    augmented.write_text("a,b\n1,2\n")
+    # Hidden path traversal is neutralized by resolve(), so the raw path
+    # with `..` still maps back inside the artifacts root and is allowed.
+    sneaky = tmp_path / "artifacts" / "x" / ".." / "diabetes" / "feedback_augmented.csv"
+    assert service.confine_dataset_path(str(sneaky)) == augmented.resolve()
+
+
+def test_confine_rejects_path_outside_roots(tmp_path):
+    (tmp_path / "elsewhere").mkdir()
+    outside = _write_csv(tmp_path / "elsewhere", name="secret.csv")
+    service = AnalysisService(dataset_dir=tmp_path / "datasets")
+    with pytest.raises(InvalidInputError):
+        service.confine_dataset_path(str(outside))
+
+
+def test_confine_rejects_traversal_to_etc(tmp_path):
+    service = AnalysisService(dataset_dir=tmp_path / "datasets")
+    with pytest.raises(InvalidInputError):
+        service.confine_dataset_path("../../../../etc/passwd")
+
+
+def test_confine_rejects_absolute_system_file(tmp_path):
+    service = AnalysisService(dataset_dir=tmp_path / "datasets")
+    with pytest.raises(InvalidInputError):
+        service.confine_dataset_path("/etc/passwd")
+
+
 def test_train_federated_aggregates_global_model(tmp_path):
     dataset = _write_csv(tmp_path, n=120)
     service = AnalysisService(artifacts_dir=tmp_path / "artifacts")

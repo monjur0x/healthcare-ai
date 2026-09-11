@@ -171,6 +171,31 @@ def test_normalizer_standard_uses_defaults() -> None:
     assert scaled.dtype == np.float32
 
 
+def test_normalizer_standard_uint8_has_sane_magnitude() -> None:
+    # Regression: z-scoring raw uint8 0-255 against [0,1]-space means
+    # produced values ~±500. uint8 input must be scaled into [0,1] first.
+    array = np.full((8, 8, 3), 128, dtype=np.uint8)
+    scaled, _ = ImageNormalizer(mode="standard").transform(array)
+    assert abs(scaled.max()) < 3.0
+    # 128/255=0.502 in every channel: (0.502 - mean_c) / std_c per channel.
+    expected = (128.0 / 255.0 - np.array([0.485, 0.456, 0.406])) / np.array(
+        [0.229, 0.224, 0.225]
+    )
+    np.testing.assert_allclose(scaled[0, 0], expected, rtol=1e-5, atol=1e-6)
+
+
+def test_normalizer_standard_fit_rescales_uint8() -> None:
+    # Fitted statistics must be computed in the same [0,1] space the
+    # transform uses, so fitted z-scores stay in a sane range.
+    array = np.random.randint(0, 256, size=(32, 32, 3), dtype=np.uint8)
+    normalizer = ImageNormalizer(mode="standard").fit(array)
+    assert normalizer._fitted_mean is not None
+    assert abs(normalizer._fitted_mean[0]) <= 1.0
+    scaled, _ = normalizer.transform(array)
+    assert np.isfinite(scaled).all()
+    assert abs(scaled.max()) < 10.0
+
+
 def test_normalizer_standard_fit() -> None:
     array = np.random.randint(0, 256, size=(32, 32, 3), dtype=np.uint8)
     normalizer = ImageNormalizer(mode="standard").fit(array)

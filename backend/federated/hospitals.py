@@ -10,6 +10,8 @@ weights travel over the network.
 
 from __future__ import annotations
 
+import json
+
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -31,6 +33,53 @@ PRESETS: dict[str, tuple[str, str]] = {
     "kidney": ("kidney_disease.csv", "classification"),
     "sepsis": ("sepsis_icu_synthetic.csv", "sepsis_label"),
 }
+
+#: File name of the site-build manifest under the hospitals root.
+_SITES_MANIFEST = "sites.json"
+
+
+def _manifest_path(root: Path) -> Path:
+    """Return the path to the site-build manifest inside ``root``."""
+    return root / _SITES_MANIFEST
+
+
+def _write_sites_manifest(
+    root: Path, preset: str, n_sites: int, seed: int, source: Path
+) -> None:
+    """Record the parameters that produced the current hospital slices."""
+    _manifest_path(root).write_text(
+        json.dumps(
+            {
+                "preset": preset,
+                "n_sites": n_sites,
+                "seed": seed,
+                "source": str(source),
+            },
+            indent=2,
+        )
+    )
+
+
+def _slices_match(
+    root: Path, preset: str, n_sites: int, seed: int, source: Path
+) -> bool:
+    """
+    True when the existing hospital slices were built from the given
+    parameters, so they can be reused instead of re-partitioned.
+    """
+    manifest = _manifest_path(root)
+    if not manifest.is_file():
+        return False
+    try:
+        state = json.loads(manifest.read_text())
+    except (OSError, ValueError):
+        return False
+    return (
+        state.get("preset") == preset
+        and state.get("n_sites") == n_sites
+        and state.get("seed") == seed
+        and state.get("source") == str(source)
+    )
 
 
 @dataclass(frozen=True)
@@ -71,6 +120,8 @@ def build_hospital_sites(
     dataset_dir: str | Path,
     hospitals_dir: str | Path,
     seed: int = 42,
+    *,
+    overwrite: bool = False,
 ) -> list[HospitalConfig]:
     """
     Partition a preset dataset into per-hospital local CSV slices.
@@ -80,6 +131,12 @@ def build_hospital_sites(
     ``hospitals_dir/<hospital_id>/data.csv`` so every hospital preprocesses
     its own local copy. A single validation slice is additionally written
     to ``hospitals_dir/central_holdout.csv`` for server-side evaluation.
+
+    Slices are only (re)written when they do not already exist for the
+    requested ``(preset, n_sites, seed, source)`` combination, unless
+    ``overwrite`` is true. This keeps repeated ``run`` / ``client``
+    invocations from clobbering the hospitals' local data — a hospital's
+    slice is its own file and must not be silently regenerated.
 
     Parameters
     ----------
@@ -94,6 +151,9 @@ def build_hospital_sites(
         Root directory where per-hospital slices are written.
     seed : int
         Random seed for the stratified split.
+    overwrite : bool
+        When true, re-partition and rewrite the slices even if they
+        already exist for these parameters.
 
     Returns
     -------
@@ -119,6 +179,25 @@ def build_hospital_sites(
 
     root = Path(hospitals_dir)
     root.mkdir(parents=True, exist_ok=True)
+
+    if not overwrite and _slices_match(root, preset, n_sites, seed, source):
+        existing = [
+            HospitalConfig(
+                hospital_id=f"hospital_{chr(ord('A') + index)}",
+                name=f"Hospital {chr(ord('A') + index)}",
+                dataset_path=root / f"hospital_{chr(ord('A') + index)}" / "data.csv",
+                target=PRESETS[preset][1].strip().lower().replace(" ", "_"),
+            )
+            for index in range(n_sites)
+        ]
+        if all(site.dataset_path.is_file() for site in existing):
+            logger.info(
+                "Reusing existing hospital slices for '%s' (%d sites) at %s",
+                preset,
+                n_sites,
+                root,
+            )
+            return existing
 
     raw = pd.read_csv(source)
     # Privacy layer (proposal §8): drop PII-like columns before the raw
@@ -184,6 +263,7 @@ def build_hospital_sites(
             len(test_index),
             slice_path,
         )
+    _write_sites_manifest(root, preset, n_sites, seed, source)
     return sites
 
 
