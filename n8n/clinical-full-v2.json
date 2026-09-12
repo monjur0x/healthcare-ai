@@ -94,7 +94,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const pred=$json;\nconst parts=[];\nif(pred.risk_factors&&pred.risk_factors.length)parts.push(pred.risk_factors.join(' '));\nif(pred.predicted_class==='1')parts.push('diabetes treatment');\nelse parts.push('healthy lifestyle');\nreturn [{json:{query:parts.join(' ')}}];"
+        "jsCode": "// Disease-aware RAG query (P2.4): anchor on the predicted condition\n// name from the Disease Predictor step \u2014 never a hardcoded disease.\n// Mirrors backend build_disease_query: positive outcomes pull\n// diagnosis/management guidelines, negative ones pull prevention and\n// screening guidance. Falls back to generic terms when the predictor\n// exposes no disease (custom models without a preset).\nconst pred = $json;\nconst parts = [];\nif (pred.risk_factors && pred.risk_factors.length) parts.push(pred.risk_factors.join(' '));\nconst disease = String(pred.disease || '').replace(/_/g, ' ').trim();\nif (disease) {\n  if (pred.predicted_class === '1') parts.push(disease + ' clinical guidelines diagnosis management treatment');\n  else parts.push(disease + ' prevention risk factors screening guidelines');\n} else if (pred.predicted_label) {\n  parts.push('clinical evidence for ' + pred.predicted_label + ' management');\n} else {\n  if (pred.predicted_class === '1') parts.push('clinical treatment guidelines');\n  else parts.push('healthy lifestyle prevention screening');\n}\nreturn [{ json: { query: parts.join(' ') } }];"
       },
       "id": "n05",
       "name": "Build RAG Query",

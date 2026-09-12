@@ -63,16 +63,26 @@
    at serve time; Agent 5 tags `shap_linear|shap_kernel|grad_cam` vs
    labeled `magnitude_heuristic` fallback; route returns `shap_driven`.
    19 P2.2 tests; 371 backend tests pass, ruff clean.
-3. **Treatment recommendation is a static playbook lookup.**
-   `build_treatment_recommendations` returns hardcoded disease strings.
-   Not evidence-grounded or model-graded.
-4. **n8n RAG query builder is hardcoded to diabetes.**
-   `n8n/clinical-full-v2.json` "Build RAG Query" node emits
-   `'diabetes treatment'` / `'healthy lifestyle'` regardless of dataset.
-5. **Multi-agent claim vs single-agent implementation.**
-   README says "5 lean agents"; `crew.py` runs a single-agent LLM writer over
-   a deterministic pipeline. If the paper's title claims "Multi-Agent,"
-   either restore a genuine multi-agent LLM path or re-scope the proposal.
+3. [x] DONE 2026-09-11 (ADR-020): **evidence-grounded, model-graded
+   treatments** — `treatments.grade_recommendations` scores playbook
+   candidates by evidence token-overlap + SHAP-driver relevance, ranks
+   them, cites `[evidence: doc]` or labels `[playbook-only]`; Agent 4
+   shares one SHAP attribution with Agent 5; treatment-planner route
+   returns `graded` + `evidence_grounded`. Legacy order/strings kept
+   when no evidence or drivers. 10 P2.3 tests; 381 backend pass.
+4. [x] DONE 2026-09-11 (ADR-021): **disease-aware n8n RAG query** —
+   query node anchors on predictor `disease` (mirrors
+   `build_disease_query`); its output was also silently ignored, so
+   `evidence-retrieval` now honors caller `query` and
+   `disease-predictor` exposes `disease` + `predicted_label`. JS
+   executed under node (6 shapes); 6 new tests; 387 backend pass.
+5. [x] DONE 2026-09-11 (ADR-022): **multi-agent claim re-scoped** —
+   optional LLM layer is one report-writer agent / one task / one kickoff
+   over the deterministic base (predictions preserved); the "multi-agent"
+   claim rests on the 7 deterministic traced stages (AgentTrace→CrewTrace
+   + metrics), pinned by `test_run_analysis_traces_seven_agents_in_order`.
+   README + SOFTWARE_ARCHITECTURE + proposal §6 updated; stale 5-agent
+   comments in `agents.py`/`config.py` fixed.
 6. **MIMIC-IV never used.** Hospital D is a synthetic "MIMIC-IV-style" sepsis
    CSV; every model scores 1.000. The proposal lists MIMIC-IV as main dataset.
 7. **Privacy budget is weak.** Cumulative ε ≈ 45 over 5 rounds

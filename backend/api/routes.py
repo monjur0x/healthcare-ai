@@ -702,11 +702,20 @@ def agent_disease_predictor(
 ) -> dict:
     """Disease Predictor agent: run ML prediction + risk assessment."""
     prediction = service.predict(request.features)
-    from CrewAI.orchestrator.services import assess_risk
+    from CrewAI.orchestrator.services import (
+        assess_risk,
+        enrich_prediction,
+        resolve_disease,
+    )
 
+    # Attach disease context so downstream steps (e.g. the n8n RAG
+    # query builder) can anchor on the condition name, not a raw class.
+    enriched = enrich_prediction(prediction, resolve_disease(service.active_preset))
     risk = assess_risk(prediction, request.markers)
     return {
         "predicted_class": prediction.predicted_class,
+        "predicted_label": enriched.predicted_label,
+        "disease": enriched.disease,
         "confidence": prediction.confidence,
         "probabilities": prediction.probabilities,
         "risk_score": risk.risk_score,
@@ -722,7 +731,10 @@ def agent_evidence_retrieval(
     """Medical Researcher agent: retrieve clinical evidence via RAG."""
     from CrewAI.orchestrator.services import build_evidence_query
 
-    query = build_evidence_query(request.features)
+    # A caller-built query (n8n query-builder node) carries disease and
+    # risk context the feature-only builder cannot see; prefer it, and
+    # fall back to the marker-anchored builder otherwise.
+    query = (request.query or "").strip() or build_evidence_query(request.features)
     evidence = service.retrieve(query, top_k=3)
     return [e.model_dump() for e in evidence]
 
@@ -731,9 +743,10 @@ def agent_evidence_retrieval(
 def agent_treatment_planner(
     request: AgentStepRequest, service: ServiceDependency
 ) -> dict:
-    """Treatment Planner agent: generate recommendations from risk level."""
+    """Treatment Planner agent: evidence-grounded, model-graded recommendations."""
     from CrewAI.orchestrator.services import (
         assess_risk,
+        build_evidence_query,
         build_treatment_recommendations,
     )
 
@@ -748,7 +761,28 @@ def agent_treatment_planner(
         fallback = True
 
     if not fallback:
-        recs, monitoring = build_treatment_recommendations(prediction, risk)
+        # Grounding inputs are best-effort: without evidence or
+        # SHAP-driven drivers the builder keeps playbook order.
+        evidence = None
+        try:
+            evidence = (
+                service.retrieve(build_evidence_query(request.features), top_k=3)
+                or None
+            )
+        except Exception as error:  # noqa: BLE001 — grounding is optional
+            logger.warning("treatment-planner evidence lookup failed: %s", error)
+        drivers = None
+        try:
+            explanation, contributing = service.explain_prediction(
+                prediction, request.features
+            )
+            if explanation.startswith("SHAP ("):
+                drivers = contributing or None
+        except Exception as error:  # noqa: BLE001 — grading is optional
+            logger.warning("treatment-planner driver lookup failed: %s", error)
+        recs, monitoring = build_treatment_recommendations(
+            prediction, risk, evidence=evidence, drivers=drivers
+        )
         recs = [
             *recs,
             "All recommendations require physician review before implementation.",
@@ -757,6 +791,8 @@ def agent_treatment_planner(
             "recommendations": recs,
             "monitoring_schedule": monitoring,
             "fallback": False,
+            "graded": bool(evidence or drivers),
+            "evidence_grounded": sum("[evidence:" in rec for rec in recs),
         }
 
     monitoring = {

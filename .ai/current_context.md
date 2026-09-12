@@ -31,3 +31,6 @@ Working tree clean except untracked `dataset` symlink (keep out of commits).
 - Frontend smoke tests updated for the 7-tab app (keyed widgets + session-state feature inputs).
 - P2.1 readmission DONE 2026-09-11 (ADR-018): `train_outcome` + route `outcome` branch + `report.readmission` + leakage exclusion (sepsis 75→74 feats, study regen); mortality data-blocked. 352 tests pass.
 - P2.2 explainability DONE 2026-09-11 (ADR-019): `explain.py` (SHAP tabular + Grad-CAM), per-preset background persist/match, Agent 5 method tags, `shap_driven` route flag, labeled heuristic fallback. 371 backend tests pass, ruff clean.
+- P2.3 treatments DONE 2026-09-11 (ADR-020): `treatments.py` grading (evidence overlap + SHAP drivers), inline citations / playbook-only labels, shared Agent 4/5 attribution, `graded` + `evidence_grounded` route fields. 381 backend tests pass, ruff clean.
+- P2.4 n8n query DONE 2026-09-11 (ADR-021): disease-aware Build RAG Query node (node-verified JS), evidence-retrieval honors caller query, predictor exposes disease/label. 387 backend tests pass, ruff clean.
+- P2.5 multi-agent claim DONE 2026-09-11 (ADR-022): single-agent LLM polish (one agent/task/kickoff, base values preserved) + 7 deterministic traced stages; README/architecture/proposal §6 re-scoped; pin test locks stage names/order.

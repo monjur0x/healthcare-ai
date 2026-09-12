@@ -38,10 +38,10 @@ class CrewSettings(BaseSettings):
 
     LLM_TEMPERATURE: float = 0.3
 
-    # Capped at 1 because the lean 5-agent crew hands every value to
-    # each agent up front: one think→act→observe round is enough, and
-    # each extra iteration is a full LLM round-trip. Raise for harder
-    # cases at the cost of wall-clock time and quota.
+    # Capped at 1 because the single report agent receives every value
+    # up front: one think→act→observe round is enough, and each extra
+    # iteration is a full LLM round-trip. Raise for harder cases at the
+    # cost of wall-clock time and quota.
     LLM_MAX_ITERATIONS: int = 1
 
     # Cap on completion tokens per agent call; bounds the worst-case

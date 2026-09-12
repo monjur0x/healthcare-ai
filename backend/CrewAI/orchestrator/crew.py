@@ -123,6 +123,9 @@ class ClinicalCrew:
         #: Preprocessed reference rows for SHAP explanations (P2.2); None
         #: keeps Agent 5 on the magnitude-sort fallback.
         self._background = background
+        #: Cached SHAP attribution shared by Agent 4 (grading, P2.3) and
+        #: Agent 5 (explanation) so a single run explains only once.
+        self._attribution: object | None = None
         self._rag_pipeline = rag_pipeline
         self._markers = dict(markers or {})
         self._recommendations = list(recommendations or [])
@@ -163,12 +166,15 @@ class ClinicalCrew:
                 logger.warning("Grad-CAM failed, using heuristic: %s", error)
         elif self._model is not None and self._background is not None:
             try:
-                attribution = attribute_tabular(
-                    self._model,
-                    self._features,
-                    background=self._background,
-                    preprocessed=self._preprocessed,
-                )
+                # Reuse Agent 4's attribution when it already ran (P2.3).
+                attribution = self._attribution
+                if attribution is None:
+                    attribution = attribute_tabular(
+                        self._model,
+                        self._features,
+                        background=self._background,
+                        preprocessed=self._preprocessed,
+                    )
                 return (
                     attribution.text(disease=disease),
                     attribution.method,
@@ -332,7 +338,29 @@ class ClinicalCrew:
         try:
             if risk:
                 monitoring_schedule = risk.monitoring_schedule
-            playbook_recs, _ = build_treatment_recommendations(prediction, risk)
+            # Model-derived drivers for grading (P2.3), cached so Agent 5
+            # reuses the attribution instead of running SHAP twice.
+            drivers: list[str] = []
+            if self._model is not None and self._background is not None:
+                try:
+                    self._attribution = attribute_tabular(
+                        self._model,
+                        self._features,
+                        background=self._background,
+                        preprocessed=self._preprocessed,
+                    )
+                    drivers = [item.feature for item in self._attribution.top(3)]
+                except ExplanationError as error:
+                    logger.warning(
+                        "Treatment grading fell back to playbook order: %s",
+                        error,
+                    )
+            playbook_recs, _ = build_treatment_recommendations(
+                prediction,
+                risk,
+                evidence=evidence or None,
+                drivers=drivers or None,
+            )
             recommendations.extend(playbook_recs)
             # One evidence-derived pointer (source label, not a raw text
             # dump) so the report stays traceable to retrieved knowledge.
@@ -341,6 +369,7 @@ class ClinicalCrew:
                     f"Evidence source consulted: {ev.document_id} "
                     f"(topics: {', '.join(ev.topics) or 'general'})"
                 )
+            graded = bool(evidence or drivers)
             step4.input_summary = (
                 f"risk={risk.risk_level if risk else 'N/A'}, evidence={len(evidence)}"
             )
@@ -351,6 +380,8 @@ class ClinicalCrew:
             step4.output_data = {
                 "recommendations": recommendations,
                 "monitoring": monitoring_schedule,
+                "graded": graded,
+                "drivers": drivers,
             }
             step4.execution_time_s = time.perf_counter() - s
             step4.status = "SUCCESS"
@@ -527,7 +558,7 @@ class ClinicalCrew:
         return self.run_analysis()
 
     # ------------------------------------------------------------------
-    # CrewAI LLM-enriched path (lean 5-agent crew)
+    # CrewAI LLM-enriched path (single-agent polish pass, ADR-022)
     # ------------------------------------------------------------------
 
     def run_llm(self) -> ClinicalReport:

@@ -191,3 +191,31 @@ def test_merge_takes_llm_risk_when_base_has_none() -> None:
     merged = ClinicalCrew._merge_llm_over_base(base, llm)
     assert merged.risk is not None
     assert merged.risk.risk_level == "medium"
+
+
+def test_run_analysis_traces_seven_agents_in_order(
+    model: TabularClassifier,
+) -> None:
+    """P2.5 pin: the deterministic pipeline has seven traced stages.
+
+    The paper's "multi-agent" claim rests on these stages. If an edit
+    collapses, reorders, or renames a stage, this test fails and ADR-022
+    must be revisited.
+    """
+    crew = ClinicalCrew(
+        patient=PatientInfo(id="p-seven"),
+        model=model,
+        features={"glucose": 1.0, "bmi": 2.0, "age": 0.5},
+    )
+    report = crew.run_analysis()
+    assert crew.crew_trace is not None
+    assert [s.agent_name for s in crew.crew_trace.steps] == [
+        "Patient Analyst",
+        "Disease Predictor",
+        "Medical Researcher",
+        "Treatment Planner",
+        "Explainability Expert",
+        "Risk Monitor",
+        "Report Writer",
+    ]
+    assert report.patient_summary != ""

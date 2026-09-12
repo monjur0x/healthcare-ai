@@ -5,8 +5,10 @@ Agents orchestrate reasoning and consume the outputs of the
 preprocessing, prediction, and retrieval modules through tools. They
 never implement machine learning themselves.
 
-Five lean agents (patient summary and explanation are folded into the
-prediction and report tasks, so no dedicated agents are needed).
+A single report-writer agent for the optional LLM polish pass
+(ADR-022). The seven clinical stages run as deterministic Python steps
+with per-agent tracing — not LLM agents — so this module needs only
+the one narrative agent.
 """
 
 from __future__ import annotations

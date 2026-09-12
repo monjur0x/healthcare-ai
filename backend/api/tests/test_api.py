@@ -581,3 +581,102 @@ def test_agents_explainability_reports_shap_driven():
     assert payload["fallback"] is False
     assert payload["shap_driven"] is True
     assert payload["explanation"].startswith("SHAP (")
+
+
+def _treatment_body():
+    return {
+        "patient": {"id": "p-treat", "name": "P", "age": 55},
+        "features": {"glucose": 180.0, "bmi": 32.0},
+    }
+
+
+def test_agents_treatment_planner_grounds_with_evidence(client):
+    response = client.post("/api/v1/agents/treatment-planner", json=_treatment_body())
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["fallback"] is False
+    # FakeService ships evidence but no model: grounded attempt recorded,
+    # and every recommendation is labeled with its grounding status.
+    assert payload["graded"] is True
+    assert payload["evidence_grounded"] >= 0
+    # The trailing physician-review disclaimer is a safety notice, not a
+    # graded recommendation.
+    assert all(
+        "[evidence:" in rec or "[playbook-only:" in rec
+        for rec in payload["recommendations"][:-1]
+    )
+    assert payload["recommendations"][-1].startswith(
+        "All recommendations require physician review"
+    )
+
+
+def test_agents_treatment_planner_falls_back_without_model():
+    class NoModelService(FakeService):
+        def predict(self, features):
+            raise ServiceUnavailableError("No prediction model is configured.")
+
+    app = create_app(cfg=APISettings(_env_file=None), service=NoModelService())
+    response = TestClient(app).post(
+        "/api/v1/agents/treatment-planner", json=_treatment_body()
+    )
+    assert response.status_code == 200
+    assert response.json()["fallback"] is True
+
+
+def _predictor_body():
+    return {
+        "patient": {"id": "p-dx", "name": "P", "age": 55},
+        "features": {"glucose": 180.0, "bmi": 32.0},
+        "markers": {"glucose": 180.0},
+    }
+
+
+def test_agents_disease_predictor_exposes_disease(client):
+    response = client.post("/api/v1/agents/disease-predictor", json=_predictor_body())
+    assert response.status_code == 200
+    payload = response.json()
+    # FakeService has no preset: disease fields present but empty, so the
+    # n8n query builder takes its generic branch.
+    assert payload["predicted_class"] == "1"
+    assert payload["disease"] == ""
+    assert payload["predicted_label"] == "1"
+    assert payload["risk_level"] in ("low", "medium", "high")
+
+
+def test_agents_disease_predictor_enriches_active_preset():
+    service = FakeService()
+    service.active_preset = "diabetes"
+    app = create_app(cfg=APISettings(_env_file=None), service=service)
+    response = TestClient(app).post(
+        "/api/v1/agents/disease-predictor", json=_predictor_body()
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["disease"] == "diabetes"
+    assert payload["predicted_label"] == "Diabetes"
+
+
+def test_agents_evidence_retrieval_honors_caller_query():
+    seen = []
+
+    class CaptureService(FakeService):
+        def retrieve(self, query, top_k=None):
+            seen.append(query)
+            return super().retrieve(query, top_k=top_k)
+
+    app = create_app(cfg=APISettings(_env_file=None), service=CaptureService())
+    tester = TestClient(app)
+    custom = "heart disease clinical guidelines diagnosis management treatment"
+    response = tester.post(
+        "/api/v1/agents/evidence-retrieval",
+        json={**_predictor_body(), "query": custom},
+    )
+    assert response.status_code == 200
+    assert seen == [custom]
+    # Blank query falls back to the marker-anchored builder.
+    response = tester.post("/api/v1/agents/evidence-retrieval", json=_predictor_body())
+    assert response.status_code == 200
+    assert (
+        seen[-1]
+        == "diabetes hyperglycemia obesity metabolic health treatment guidelines"
+    )

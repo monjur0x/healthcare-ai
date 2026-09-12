@@ -439,3 +439,93 @@ Reason
   near ~1s on CPU.
 - Grad-CAM needs no extra dependency (native torch hooks) and returns a
   normalized [0, 1] heatmap plus a peak-quadrant/coverage summary line.
+
+---
+
+ADR-020
+
+Evidence-grounded, model-graded treatments (P2.3): playbook candidates
+are no longer returned in static order with a single "source consulted"
+pointer. `build_treatment_recommendations` now accepts retrieved
+`evidence` and model-derived `drivers`, scores each candidate by
+content-token overlap with evidence chunks plus driver-mention
+relevance, and returns ranked recommendations with inline `[evidence:
+doc_id]` citations — or an explicit `[playbook-only: no retrieved
+evidence]` label when no chunk substantively supports a candidate.
+
+Reason
+
+- A static playbook cannot claim to be evidence-based; citations must
+  attach per recommendation, and unsupported advice must say so rather
+  than borrow credibility from an unrelated "source consulted" line.
+- Ranking toward the patient's SHAP drivers (Agent 4 computes the
+  attribution once and shares it with Agent 5) makes the plan lead with
+  what drove this patient's prediction instead of generic order.
+- Unsupported candidates are kept, not dropped: an empty plan is worse
+  than a labeled playbook-only one, and the label keeps the honesty
+  framing. No LLM, no new dependency — deterministic token overlap.
+- Callers with no evidence or drivers (and the
+  `/agents/treatment-planner` fallback path) keep the exact legacy
+  strings, so existing reports are unaffected.
+
+---
+
+ADR-021
+
+Disease-aware n8n RAG query (P2.4): the "Build RAG Query" node no
+longer emits hardcoded `diabetes treatment` / `healthy lifestyle` —
+it anchors on the Disease Predictor's `disease` output, mirroring the
+backend `build_disease_query` wording (positive: diagnosis/management
+guidelines; negative: prevention/screening), with generic branches
+when no disease is exposed.
+
+Reason
+
+- The hardcode was doubly broken: it named diabetes for every patient,
+  and its output was silently ignored — `/agents/evidence-retrieval`
+  rebuilt its own feature-only query and `AgentStepRequest` had no
+  `query` field at all.
+- The route now prefers a caller-supplied `query` (falling back to the
+  marker-anchored builder on blank), and `/agents/disease-predictor`
+  exposes `disease` + `predicted_label` enriched from the service's
+  active preset, so the workflow chain carries real clinical context
+  instead of a class integer.
+- Verified end to end: the node's JS executes under node against six
+  predictor shapes (heart/kidney/diabetes ±, unlabeled, bare), and
+  contract tests pin the node wording, the predictor→builder→researcher
+  wiring, and the query pass-through.
+
+---
+
+ADR-022
+
+Single-agent LLM polish over a seven-stage deterministic pipeline
+(P2.5): the "multi-agent" claim is re-scoped, not restored. The
+optional LLM layer is one report-writer agent, one task, one kickoff
+call, merged over the deterministic base report with predictions, risk
+scores, and evidence preserved verbatim. The seven deterministic stages
+(Patient Analyst → Disease Predictor → Medical Researcher → Treatment
+Planner → Explainability Expert → Risk Monitor → Report Writer) each
+emit an `AgentTrace` into a `CrewTrace`, and honest agent metrics are
+computed from those traces.
+
+Reason
+
+- A genuine five-agent LLM chain needs an API key on every run, costs
+  ~5x per analysis in latency and quota, and reintroduces the safety
+  regression P2.2/P2.3 closed: an LLM re-deriving numbers instead of
+  polishing them. The deterministic pipeline already returns verified
+  values without a key; the LLM adds narrative only.
+- Each stage has a single responsibility and a recorded
+  input/output/status/timing trace, which is what the paper's RQ — "Can
+  Multi-Agent AI outperform a single-agent architecture?" — can actually
+  measure: per-stage completion, consistency, and collaboration from
+  real traces versus a single-agent baseline. A single LLM pass with no
+  staging offers nothing to ablate.
+- What changed: the proposal §6 "Multi-Agent Architecture" lists one
+  narrative-polish agent instead of five reasoning agents; README and
+  SOFTWARE_ARCHITECTURE describe the 7-stage traced pipeline plus the
+  optional single-call polish; `agents.py`/`config.py` comments no longer
+  reference a lean five-agent crew; `test_run_analysis_traces_seven_agents_in_order`
+  pins the stage names and order so any future collapse or rename
+  forces this ADR to be revisited.

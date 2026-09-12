@@ -57,6 +57,10 @@ from .tools import (
     RAGRetrievalTool,
     RiskAssessmentTool,
 )
+from .treatments import (
+    GradedRecommendation,
+    grade_recommendations,
+)
 
 __all__ = [
     "AgentMetrics",
@@ -68,6 +72,7 @@ __all__ = [
     "EvidenceItem",
     "ExplanationError",
     "FeatureAttribution",
+    "GradedRecommendation",
     "LLMNotConfiguredError",
     "OrchestrationError",
     "PatientInfo",
@@ -92,6 +97,7 @@ __all__ = [
     "compute_agent_metrics",
     "decision_consistency",
     "grad_cam_heatmap",
+    "grade_recommendations",
     "retrieve_evidence",
     "run_prediction",
     "settings",

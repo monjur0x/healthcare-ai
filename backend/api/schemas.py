@@ -660,11 +660,15 @@ class AgentStepRequest(BaseModel):
     Base request for individual agent step execution via n8n.
 
     Contains the shared context that accumulates across the pipeline.
+    ``query`` carries a caller-built RAG query (e.g. from the n8n
+    query-builder node); steps that need one prefer it over building
+    their own from raw features.
     """
 
     patient: PatientInfo = Field(default_factory=PatientInfo)
     features: dict[str, float] = Field(default_factory=dict)
     markers: dict[str, float] | None = None
+    query: str | None = None
 
 
 class PatientAnalystResponse(BaseModel):

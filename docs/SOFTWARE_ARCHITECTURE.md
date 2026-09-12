@@ -174,7 +174,9 @@ Knowledge sources include
 
 ## CrewAI/
 
-Responsible for multi-agent reasoning.
+Responsible for the multi-stage agent pipeline (deterministic stages
+with per-agent tracing — see ADR-022; the optional LLM layer is a
+single narrative-polish call, not a reasoning crew).
 
 Agents include
 

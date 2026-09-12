@@ -378,7 +378,13 @@ round timing; 7-tab dashboard outputs; ChromaDB satisfies the
      shipped dataset; needs MIMIC-IV extract). 351 tests pass.
    - [x] DONE 2026-09-11 (P2.2 explainability, ADR-019): SHAP tabular
      + Grad-CAM image + labeled heuristic fallback; 371 tests pass.
-   - [ ] NEXT: P2 in order (P2.3 evidence-grounded treatments next).
+   - [x] DONE 2026-09-11 (P2.3 treatments, ADR-020): graded + cited
+     recs, shared Agent 4/5 attribution; 381 tests pass.
+   - [x] DONE 2026-09-11 (P2.4 n8n query, ADR-021): disease-aware
+     node + honored caller query; 387 tests pass.
+   - [x] DONE 2026-09-11 (P2.5 multi-agent claim, ADR-022):
+     single-agent LLM polish + 7-stage traced pipeline; pin test.
+   - [ ] NEXT: P2 in order (P2.6 MIMIC-IV credentialed access).
 
 ### Epic (tracked, not started): heterogeneous study arm
 

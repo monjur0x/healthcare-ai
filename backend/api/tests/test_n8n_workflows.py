@@ -76,3 +76,33 @@ def test_workflow_backend_urls_match_served_routes():
         assert path in routes, (
             f"{node['name']!r} calls {path} which the API does not serve"
         )
+
+
+def _node(workflow: dict, name: str) -> dict:
+    return next(node for node in workflow["nodes"] if node["name"] == name)
+
+
+def test_rag_query_builder_is_disease_aware():
+    workflow = _workflow()
+    js = _node(workflow, "Build RAG Query")["parameters"]["jsCode"]
+    # No hardcoded condition: the query anchors on the predictor's
+    # disease output, mirroring backend build_disease_query.
+    assert "diabetes treatment" not in js
+    assert "pred.disease" in js
+    assert "clinical guidelines diagnosis management treatment" in js
+    assert "prevention risk factors screening guidelines" in js
+
+
+def test_evidence_retrieval_receives_built_query():
+    workflow = _workflow()
+    body = _node(workflow, "5.Medical Researcher")["parameters"]["jsonBody"]
+    assert "$json.query" in body, (
+        "Medical Researcher must forward the query-builder output"
+    )
+
+
+def test_disease_predictor_feeds_query_builder():
+    workflow = _workflow()
+    chain = workflow["connections"]
+    assert chain["4.Disease Predictor"]["main"][0][0]["node"] == "Build RAG Query"
+    assert chain["Build RAG Query"]["main"][0][0]["node"] == ("5.Medical Researcher")

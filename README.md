@@ -2,7 +2,7 @@
 
 Federated multi-agent healthcare intelligence framework. End to end:
 CSV / image input → preprocessing → model prediction → risk scoring →
-RAG evidence → CrewAI multi-agent report → FastAPI → n8n orchestration →
+RAG evidence → CrewAI 7-stage agent-pipeline report → FastAPI → n8n orchestration →
 Streamlit doctor dashboard.
 
 **CPU-only friendly** — no GPU required. All models are small.
@@ -60,10 +60,12 @@ flowchart TB
 
     DOC --> EMB --> VDB --> RET
 
-    subgraph CREW["CrewAI Orchestrator (5 lean agents)"]
+    subgraph CREW["CrewAI Orchestrator (7 traced agent stages)"]
+        A1["Patient Analyst"]
         A2["Disease Predictor"]
         A3["Medical Researcher"]
         A4["Treatment Planner"]
+        A5["Explainability Expert"]
         A6["Risk Monitor"]
         A7["Report Writer"]
         TRACE["AgentTrace / CrewTrace<br/>input · output · status · timing"]
@@ -71,15 +73,18 @@ flowchart TB
     end
 
     M1 --> A2
+    A1 --> A2
     A2 --> A3
     A2 --> A4
     A3 --> A4
+    A2 --> A5
     A2 --> A6
     RET --> A3
     LLM --> CREW
     A2 --> A7
     A3 --> A7
     A4 --> A7
+    A5 --> A7
     A6 --> A7
     CREW --> TRACE
 
@@ -142,7 +147,7 @@ flowchart TB
 | Component | Entry point | Purpose |
 | --------- | ----------- | ------- |
 | FastAPI backend | `backend/api/main.py` | Train / predict / retrieve / analyze + per-agent endpoints for n8n step-by-step orchestration |
-| Multi-agent crew | `backend/CrewAI/orchestrator/` | 5 lean agents; deterministic tool pipeline + optional LLM layer; merged clinical report |
+| Multi-agent crew | `backend/CrewAI/orchestrator/` | 7 traced agent stages; deterministic pipeline + optional single-call LLM polish; merged clinical report |
 | RAG | `backend/rag/` | TF-IDF (default) or dense embedding + in-memory / ChromaDB store; 20-doc medical corpus in `backend/rag/corpus/`; 18-query evaluation set |
 | Federated learning | `backend/federated/` | Flower FedAvg with opt-in DP-SGD (Opacus) + pairwise OTP secure aggregation; canonical schema adapters; payload inspection; model registry |
 | Models | `backend/models/` | Tabular (sklearn / PyTorch MLP) + image CNN classifiers |

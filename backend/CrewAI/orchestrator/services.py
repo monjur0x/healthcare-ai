@@ -10,7 +10,7 @@ step run and be tested without an LLM API key (ADR-008).
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 import numpy as np
@@ -39,6 +39,7 @@ from .schemas import (
     PredictionResult,
     RiskResult,
 )
+from .treatments import grade_recommendations
 
 logger = get_logger(__name__)
 
@@ -1051,9 +1052,18 @@ GENERIC_PLAYBOOK: dict[str, list[str]] = {
 def build_treatment_recommendations(
     prediction: PredictionResult | None,
     risk: RiskResult | None,
+    evidence: Sequence[EvidenceItem] | None = None,
+    drivers: Sequence[str] | None = None,
 ) -> tuple[list[str], list[dict[str, str]]]:
     """
     Produce disease-specific treatment recommendations and monitoring.
+
+    Playbook candidates are selected by ``(disease, positive,
+    risk_level)`` as before; when ``evidence`` or ``drivers`` are
+    supplied the candidates are additionally graded (P2.3): cited
+    against retrieved chunks and ranked toward the patient's
+    model-derived drivers. Without either, the legacy playbook order
+    and plain strings apply.
 
     Parameters
     ----------
@@ -1061,11 +1071,17 @@ def build_treatment_recommendations(
         Enriched prediction carrying disease context.
     risk : RiskResult | None
         Risk assessment providing the risk level.
+    evidence : Sequence[EvidenceItem] | None
+        Retrieved chunks grounding the citations; None skips grounding.
+    drivers : Sequence[str] | None
+        Model-derived driver feature names for grading; None skips it.
 
     Returns
     -------
     tuple[list[str], list[dict[str, str]]]
-        Recommendation strings and the monitoring schedule.
+        Recommendation strings (annotated with ``[evidence: ...]`` or
+        ``[playbook-only: ...]`` when graded) and the monitoring
+        schedule.
     """
 
     level = risk.risk_level if risk else "low"
@@ -1081,8 +1097,11 @@ def build_treatment_recommendations(
         playbook = TREATMENT_PLAYBOOKS.get(
             (prediction.disease, positive), GENERIC_PLAYBOOK
         )
-    recommendations = [str(item) for item in playbook.get(level, [])]
-    return recommendations, monitoring
+    candidates = [str(item) for item in playbook.get(level, [])]
+    if evidence or drivers:
+        graded = grade_recommendations(candidates, list(evidence or []), drivers)
+        return [item.annotated() for item in graded], monitoring
+    return candidates, monitoring
 
 
 def assemble_clinical_report(
