@@ -13,6 +13,7 @@ from .crew import ClinicalCrew
 from .exceptions import (
     CrewError,
     ExplanationError,
+    LLMNotConfiguredError,
     OrchestrationError,
     PredictionToolError,
     ReportError,

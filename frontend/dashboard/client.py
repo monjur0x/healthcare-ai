@@ -483,7 +483,7 @@ class HealthcareAPIClient:
             json=payload,
         )
         self._raise_for_error(response)
-        body = response.json()
+        body = self._decode_json(response, source="n8n workflow")
         if not isinstance(body, dict):
             raise HealthcareAPIError(
                 "n8n returned an unexpected response.",
@@ -523,7 +523,7 @@ class HealthcareAPIClient:
         )
         if not response.is_success:
             self._raise_for_error(response)
-        body = response.json()
+        body = self._decode_json(response, source="n8n workflow")
         if not isinstance(body, dict):
             raise HealthcareAPIError(
                 "n8n returned an unexpected response.",
@@ -722,6 +722,22 @@ class HealthcareAPIClient:
         response = self._client.post(path, json=payload)
         self._raise_for_error(response)
         return response.json()
+
+    def _decode_json(self, response: httpx.Response, *, source: str) -> Any:
+        """Decode a JSON body, raising a client error on empty/garbled ones.
+
+        n8n answers a crashed workflow with ``200`` and an empty body; without
+        this guard that surfaces as a raw ``json.JSONDecodeError`` and takes
+        down the whole dashboard page instead of showing the error banner.
+        """
+        try:
+            return response.json()
+        except ValueError:
+            raise HealthcareAPIError(
+                f"{source} returned an empty or non-JSON response.",
+                response.status_code,
+                "n8n_error",
+            ) from None
 
     def _raise_for_error(self, response: httpx.Response) -> None:
         if response.is_success:

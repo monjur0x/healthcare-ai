@@ -304,6 +304,30 @@ def activate_workflows():
     conn.close()
 
 
+def restart_n8n_for_workflows():
+    """Restart n8n so imported workflows register their webhooks.
+
+    n8n only registers production webhook URLs for workflows that are
+    active when the server boots. Workflows imported (and activated)
+    after startup stay unregistered until the next boot, which surfaces
+    in the dashboard as a generic "Backend request failed" on CSV
+    upload. Restarting here keeps a fresh ``start_demo.py`` run working
+    without manual intervention.
+    """
+    proc = PROCESSES.get("n8n")
+    if proc is None or proc.poll() is not None:
+        return
+    print("\nRestarting n8n so imported workflows register their webhooks...")
+    proc.terminate()
+    try:
+        proc.wait(timeout=15)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait()
+    start_n8n()
+    wait_for_services()
+
+
 def print_demo_info():
     """Print demo access information."""
     print("\n" + "="*60)
@@ -431,6 +455,7 @@ def main():
     
     if not args.no_workflows:
         import_n8n_workflows()
+        restart_n8n_for_workflows()
     
     print_demo_info()
     

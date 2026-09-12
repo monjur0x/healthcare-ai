@@ -18,6 +18,7 @@ import pandas as pd
 
 from models import ImageClassifier
 from models.csv.tabular import TabularClassifier
+from preprocessing.csv.feature_engineering import CSVFeatureEngineer
 from preprocessing.csv.scaler import CSVScaler
 from preprocessing.logger import get_logger
 from rag import RAGPipeline
@@ -481,9 +482,16 @@ def run_prediction(
     try:
         row = np.array([float(features[key]) for key in keys], dtype=np.float64)
         if not preprocessed and getattr(model, "scaler_params", None) is not None:
-            scaled = CSVScaler.from_params(model.scaler_params).transform(
-                pd.DataFrame([features])
-            )[0]
+            frame = pd.DataFrame([features])
+            # The persisted scaler was fitted on the engineered training
+            # frame, which can carry derived columns the raw feature row
+            # lacks (e.g. sepsis ``bmi_primitive`` copied from
+            # ``weight_kg``). Re-derive them here so manual / n8n rows see
+            # the same transform the CSV path applies at inference.
+            scaler_columns = model.scaler_params.get("columns") or []
+            if any(column not in frame.columns for column in scaler_columns):
+                frame, _ = CSVFeatureEngineer().transform(frame)
+            scaled = CSVScaler.from_params(model.scaler_params).transform(frame)[0]
             row = np.array(
                 [float(scaled.iloc[0][key]) for key in keys], dtype=np.float64
             )

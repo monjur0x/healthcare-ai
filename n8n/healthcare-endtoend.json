@@ -95,7 +95,7 @@
           "conditions": [
             {
               "id": "csv",
-              "leftValue": "={{ !!$json.body.csv_b64 }}",
+              "leftValue": "={{ !!$('Webhook: End-to-End Pipeline').first().json.body.csv_b64 }}",
               "rightValue": true,
               "operator": {
                 "type": "boolean",

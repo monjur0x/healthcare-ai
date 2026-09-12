@@ -12,6 +12,8 @@ from CrewAI.orchestrator.exceptions import PredictionToolError
 from CrewAI.orchestrator.schemas import PredictionResult
 from CrewAI.orchestrator.services import run_image_prediction, run_prediction
 from models import ImageClassifier, TabularClassifier
+from preprocessing.csv.feature_engineering import CSVFeatureEngineer
+from preprocessing.csv.scaler import CSVScaler
 
 
 @pytest.fixture
@@ -98,6 +100,32 @@ def test_run_prediction_preprocessed_skips_scaling(scaled_model) -> None:
         scaled_model, {"glucose": 100.0, "bmi": 90.0}, preprocessed=True
     )
     assert wrongly_preprocessed.probabilities != raw_scaled.probabilities
+
+
+def test_run_prediction_derives_engineered_scaler_columns() -> None:
+    """Manual rows must survive scalers fitted on engineered frames.
+
+    Regression guard: training fits the scaler on the engineered frame
+    (sepsis gains ``bmi_primitive`` from ``weight_kg``) while the model
+    itself trains on the selected raw columns. Scaling a raw manual row
+    then crashed with ``"['bmi_primitive'] not in index"``. The service
+    must re-derive engineered columns before scaling.
+    """
+    rng = np.random.default_rng(23)
+    weight = rng.normal(loc=80.0, scale=10.0, size=200)
+    other = rng.normal(size=200)
+    y = (weight > 80.0).astype(int)
+    raw = pd.DataFrame({"weight_kg": weight, "other": other})
+    model = TabularClassifier(model_name="logistic")
+    model.fit(raw, y)
+    engineered, _ = CSVFeatureEngineer().transform(raw)
+    assert "bmi_primitive" in engineered.columns
+    scaler = CSVScaler()
+    scaler.fit(engineered)
+    model.set_scaler_params(scaler.params())
+    result = run_prediction(model, {"weight_kg": 85.0, "other": 0.1})
+    assert result.predicted_class in {"0", "1"}
+    assert 0.0 <= result.confidence <= 1.0
 
 
 def _fitted_image_model() -> ImageClassifier:

@@ -336,6 +336,45 @@ def test_analyze_via_n8n_raises_on_http_error():
     assert excinfo.value.status_code == 404
 
 
+def test_analyze_via_n8n_raises_on_empty_body():
+    """A 200 with an empty body (crashed n8n workflow) must raise
+    HealthcareAPIError — not bubble up a raw JSONDecodeError that kills
+    the whole dashboard page."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=b"")
+
+    client = _client(handler)
+    try:
+        with pytest.raises(HealthcareAPIError) as excinfo:
+            client.analyze_via_n8n(
+                n8n_base_url="http://n8n:5678",
+                patient={"id": "p-1"},
+                features={"glucose": 148.0},
+            )
+    finally:
+        client.close()
+
+    assert excinfo.value.code == "n8n_error"
+    assert "empty or non-JSON" in excinfo.value.message
+
+
+def test_webhook_raw_raises_on_empty_body():
+    """Same guard for the raw webhook path used by the v2 demo buttons."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=b"")
+
+    client = _client(handler)
+    try:
+        with pytest.raises(HealthcareAPIError) as excinfo:
+            client.webhook_raw("http://n8n:5678", "clinical-full-v2", {"patient": {}})
+    finally:
+        client.close()
+
+    assert excinfo.value.code == "n8n_error"
+
+
 def test_n8n_health_true_when_healthz_ok():
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/healthz"
